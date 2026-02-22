@@ -1,0 +1,124 @@
+{
+  "format": "obs_profile_v1",
+  "network": {
+    "auto_retry_preview": true,
+    "whep_url": "http://127.0.0.1:8080/whep",
+    "whip_url": "http://127.0.0.1:8080/whip"
+  },
+  "output": {
+    "encoder_preference": "hardware",
+    "preview_quality": "medium",
+    "record_path": "/home/klubuntu/Videos/RevoStream/record.mp4",
+    "scene_resolution": "1920x1080"
+  },
+  "profile_name": "RevoStream",
+  "stream": {
+    "key": "",
+    "server": ""
+  },
+  "ui": {
+    "autorescale_inputs": false,
+    "profile": {
+      "accessibility": {
+        "accessibilityColorVision": "none",
+        "accessibilityFocusIndicators": true,
+        "accessibilityFontFamily": "system",
+        "accessibilityFontSize": "100",
+        "accessibilityHighContrast": false,
+        "accessibilityReduceMotion": false,
+        "accessibilityUiScale": "100"
+      },
+      "audio": {
+        "audioChannels": "stereo",
+        "audioDesktopDevice": "disabled",
+        "audioMicDevice": "disabled",
+        "audioMonitoringDevice": "default",
+        "audioMonitoringLowLatency": false,
+        "audioSampleRate": "48000"
+      },
+      "confirmations": {
+        "confirmStartRecording": false,
+        "confirmStartStreaming": false,
+        "confirmStopRecording": false,
+        "confirmStopStreaming": false
+      },
+      "general": {
+        "autoRecordWhenStartStreaming": false
+      },
+      "output": {
+        "audioTracks": {
+          "audioChannel1Bitrate": "128",
+          "audioChannel1Name": "",
+          "audioChannel2Bitrate": "128",
+          "audioChannel2Name": "",
+          "audioChannel3Bitrate": "128",
+          "audioChannel3Name": "",
+          "audioChannel4Bitrate": "128",
+          "audioChannel4Name": "",
+          "audioChannel5Bitrate": "128",
+          "audioChannel5Name": ""
+        },
+        "outputTab": "Streaming",
+        "recording": {
+          "recordFilenameNoSpaces": true,
+          "recordingAdvanced": false,
+          "recordingAudioBitrate": "128",
+          "recordingAudioEncoder": "aac",
+          "recordingAudioEncoderCustom": "aac",
+          "recordingAudioEncoderSettings": "",
+          "recordingContainerFormat": "mkv",
+          "recordingCustomMuxerSettings": "",
+          "recordingCustomOutput": false,
+          "recordingFormat": "mkv",
+          "recordingMuxerSettings": "",
+          "recordingPathCustom": "",
+          "recordingTypeOutput": "file",
+          "recordingVideoBitrate": "6000",
+          "recordingVideoEncoder": "x264",
+          "recordingVideoEncoderCustom": "x264",
+          "recordingVideoEncoderSettings": ""
+        },
+        "streaming": {
+          "streamingAdvanced": false,
+          "streamingAudioEncoder": "aac",
+          "streamingBitrate": "6000",
+          "streamingCpuUsagePreset": "veryfast",
+          "streamingExtraOptions": "",
+          "streamingKeyframeInterval": "2",
+          "streamingProfile": "high",
+          "streamingRateControl": "CBR",
+          "streamingTune": "none",
+          "streamingVideoEncoder": "x264"
+        }
+      },
+      "shortcuts": {
+        "shortcutHideAllSources": "",
+        "shortcutHideSceneItems": "",
+        "shortcutHideSourceTransform": "",
+        "shortcutNextScene": "",
+        "shortcutPauseRecording": "",
+        "shortcutPreviousScene": "",
+        "shortcutResumeRecording": "",
+        "shortcutShowAllSources": "",
+        "shortcutShowSceneItems": "",
+        "shortcutShowSourceTransform": "",
+        "shortcutStartRecording": "",
+        "shortcutStartStreaming": "",
+        "shortcutStopRecording": "",
+        "shortcutStopStreaming": ""
+      },
+      "video": {
+        "videoCanvasResolution": "1920x1080",
+        "videoDownscaleFilter": "lanczos",
+        "videoFpsCommon": "60",
+        "videoFpsCommonCustom": false,
+        "videoFpsCommonCustomValue": "",
+        "videoFpsFractionalDenominator": "1001",
+        "videoFpsFractionalNumerator": "60000",
+        "videoFpsIntegerValue": "60",
+        "videoFpsType": "common",
+        "videoOutputResolution": "1920x1080"
+      }
+    }
+  }
+}
