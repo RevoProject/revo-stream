@@ -4,7 +4,7 @@
 ![Svelte](https://img.shields.io/badge/svelte-%23f1413d.svg?style=for-the-badge&logo=svelte&logoColor=white)
 
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-![License](https://img.shields.io/github/license/revoproject/revo-studio?style=for-the-badge)
+![License](https://img.shields.io/github/license/revoproject/revo-stream?style=for-the-badge)
 
 ## Introduction
 RevoStream is a desktop application for streamers and live production teams.
@@ -46,7 +46,7 @@ Powered by [revo-project/revo-lib](https://github.com/RevoProject/revo-lib), Rev
 
 ## Usage
 ### Stable release
-Download the latest version from the [Releases page](https://github.com/RevoProject/revo-studio/releases).
+Download the latest version from the [Releases page](https://github.com/RevoProject/revo-stream/releases).
 
 ### Build from source
 Install dependencies and build:
