@@ -374,7 +374,7 @@ pub(crate) fn export_scene_collection_obs(
 		let version_key = std::ffi::CString::new("version").unwrap();
 		revo_lib::obs::obs_data_set_int(doc, version_key.as_ptr(), 1);
 
-		let json_ptr = revo_lib::obs::obs_data_get_json_pretty(doc);
+		let json_ptr = revo_lib::obs::obs_data_get_json(doc);
 		let json = if json_ptr.is_null() {
 			Err("failed to serialize obs data".to_string())
 		} else {

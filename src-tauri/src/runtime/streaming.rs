@@ -43,9 +43,7 @@ pub(crate) fn start_streaming(
 		};
 	}
 
-	let started = revo_lib::streaming::StreamingOutput::from_raw(output)
-		.and_then(|o| o.start())
-		.is_ok();
+	let started = unsafe { revo_lib::obs::obs_output_start(output) };
 	if !started {
 		let last_error = unsafe {
 			super::helpers::cstr_to_string(revo_lib::obs::obs_output_get_last_error(output))

@@ -335,7 +335,7 @@ pub(crate) fn collect_source_property_specs(
 						} else if format
 							== revo_lib::obs::obs_combo_format_OBS_COMBO_FORMAT_BOOL
 						{
-							if revo_lib::obs::obs_property_list_item_bool(prop, i) {
+							if revo_lib::obs::obs_property_list_item_int(prop, i) != 0 {
 								"true".to_string()
 							} else {
 								"false".to_string()

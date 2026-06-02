@@ -52,9 +52,7 @@ pub(crate) fn start_recording(
 		}
 	}
 
-	let started = revo_lib::recording::RecordingOutput::from_raw(output)
-		.and_then(|o| o.start())
-		.is_ok();
+	let started = unsafe { revo_lib::obs::obs_output_start(output) };
 	if !started {
 		let last_error = unsafe {
 			super::helpers::cstr_to_string(revo_lib::obs::obs_output_get_last_error(output))
@@ -97,9 +95,7 @@ pub(crate) fn start_recording(
 			}
 		}
 
-		let started_fallback = revo_lib::recording::RecordingOutput::from_raw(fallback)
-			.and_then(|o| o.start())
-			.is_ok();
+		let started_fallback = unsafe { revo_lib::obs::obs_output_start(fallback) };
 		if !started_fallback {
 			let last_error = unsafe {
 				super::helpers::cstr_to_string(revo_lib::obs::obs_output_get_last_error(fallback))
