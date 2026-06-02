@@ -8,9 +8,7 @@ pub(crate) fn cstr_to_string(ptr: *const i8) -> String {
 pub(crate) fn stop_recording_internal(runtime: &mut crate::ObsRuntime) {
 	unsafe {
 		if !runtime.output_record.is_null() {
-			if let Ok(output) = revo_lib::recording::RecordingOutput::from_raw(runtime.output_record) {
-				output.stop();
-			}
+			revo_lib::obs::obs_output_stop(runtime.output_record);
 			revo_lib::obs::obs_output_release(runtime.output_record);
 		}
 		if !runtime.record_video_encoder.is_null() {
@@ -29,9 +27,7 @@ pub(crate) fn stop_recording_internal(runtime: &mut crate::ObsRuntime) {
 pub(crate) fn stop_streaming_internal(runtime: &mut crate::ObsRuntime) {
 	unsafe {
 		if !runtime.output_stream.is_null() {
-			if let Ok(output) = revo_lib::streaming::StreamingOutput::from_raw(runtime.output_stream) {
-				output.stop();
-			}
+			revo_lib::obs::obs_output_stop(runtime.output_stream);
 			revo_lib::obs::obs_output_release(runtime.output_stream);
 		}
 		if !runtime.stream_service.is_null() {

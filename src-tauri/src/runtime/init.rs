@@ -1,3 +1,41 @@
+#[derive(Debug)]
+struct ModuleCandidate {
+	name: String,
+	bin_path: String,
+	data_path: String,
+}
+
+unsafe extern "C" fn collect_module_candidate(
+	param: *mut std::os::raw::c_void,
+	info: *const revo_lib::obs::obs_module_info2,
+) {
+	if param.is_null() || info.is_null() {
+		return;
+	}
+
+	let info_ref = unsafe { &*info };
+	if info_ref.bin_path.is_null() || info_ref.data_path.is_null() || info_ref.name.is_null() {
+		return;
+	}
+
+	let name = unsafe { std::ffi::CStr::from_ptr(info_ref.name) }
+		.to_string_lossy()
+		.to_string();
+	let bin_path = unsafe { std::ffi::CStr::from_ptr(info_ref.bin_path) }
+		.to_string_lossy()
+		.to_string();
+	let data_path = unsafe { std::ffi::CStr::from_ptr(info_ref.data_path) }
+		.to_string_lossy()
+		.to_string();
+
+	let out = unsafe { &mut *(param as *mut Vec<ModuleCandidate>) };
+	out.push(ModuleCandidate {
+		name,
+		bin_path,
+		data_path,
+	});
+}
+
 pub(crate) fn start(
 	state: tauri::State<crate::ObsState>,
 	root_dir: Option<String>,
@@ -208,37 +246,60 @@ pub(crate) fn start(
 			);
 		}
 
-		let disabled = [
+		let mut candidates: Vec<ModuleCandidate> = Vec::new();
+		revo_lib::obs::obs_find_modules2(
+			Some(collect_module_candidate),
+			&mut candidates as *mut _ as *mut std::os::raw::c_void,
+		);
+
+		let blocked_modules = [
 			"decklink",
 			"obs-websocket",
 			"linux-capture",
 			"linux-pipewire",
 			"frontend-tools",
 		];
-		for name in disabled {
-			let module = std::ffi::CString::new(name).map_err(|_| "module name".to_string())?;
-			revo_lib::obs::obs_add_disabled_module(module.as_ptr());
-		}
 
-		for plugin in &runtime_plugins {
-			if enabled_plugin_modules.contains(&plugin.module_name) {
+		for module in candidates {
+			let normalized_name = module.name.to_lowercase();
+
+			let blocked = blocked_modules
+				.iter()
+				.any(|entry| normalized_name == *entry || normalized_name.contains(entry));
+			if blocked {
 				continue;
 			}
 
-			let module_exact = std::ffi::CString::new(plugin.module_name.as_str())
-				.map_err(|_| "plugin module name".to_string())?;
-			revo_lib::obs::obs_add_disabled_module(module_exact.as_ptr());
+			let is_runtime_plugin = module
+				.bin_path
+				.starts_with(runtime_plugins_dir.to_string_lossy().as_ref())
+				|| module
+					.bin_path
+					.starts_with(legacy_runtime_plugins_dir.to_string_lossy().as_ref());
+			if is_runtime_plugin && !enabled_plugin_modules.contains(&module.name) {
+				continue;
+			}
 
-			if let Some(stripped) = plugin.module_name.strip_prefix("lib") {
-				if !stripped.is_empty() {
-					let module_stripped = std::ffi::CString::new(stripped)
-						.map_err(|_| "plugin module name".to_string())?;
-					revo_lib::obs::obs_add_disabled_module(module_stripped.as_ptr());
-				}
+			let bin = match std::ffi::CString::new(module.bin_path.as_str()) {
+				Ok(v) => v,
+				Err(_) => continue,
+			};
+			let data = match std::ffi::CString::new(module.data_path.as_str()) {
+				Ok(v) => v,
+				Err(_) => continue,
+			};
+
+			let mut mod_ptr: *mut revo_lib::obs::obs_module_t = std::ptr::null_mut();
+			let open_result = revo_lib::obs::obs_open_module(
+				&mut mod_ptr as *mut _,
+				bin.as_ptr(),
+				data.as_ptr(),
+			);
+			if open_result == revo_lib::obs::MODULE_SUCCESS as i32 && !mod_ptr.is_null() {
+				let _ = revo_lib::obs::obs_init_module(mod_ptr);
 			}
 		}
 
-		revo_lib::obs::obs_load_all_modules();
 		revo_lib::obs::obs_post_load_modules();
 	}
 
