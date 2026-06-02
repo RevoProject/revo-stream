@@ -13,13 +13,17 @@ It helps you build scenes, manage sources, and run streaming or recording workfl
 Powered by [revo-project/revo-lib](https://github.com/RevoProject/revo-lib), RevoStream is built with Rust, Tauri, and Svelte.
 
 > [!WARNING]
-> RevoStream currently supports Linux only. The current version may be unstable.
+> RevoStream is officially supported on Linux.
+> Windows and macOS can be run in experimental/dev mode (instructions below).
 
 ## Quick navigation
 - [Highlights](#highlights)
 - [Streaming](#streaming)
 - [Themes](#themes)
 - [Usage](#usage)
+- [Windows (experimental)](#windows-experimental)
+- [macOS (experimental)](#macos-experimental)
+- [OBS bootstrapper (if needed)](#obs-bootstrapper-if-needed)
 - [Tech stack](#tech-stack)
 - [Contributing](#contributing)
 - [License](#license)
@@ -59,8 +63,81 @@ pnpm build
 - Development mode: `./run.sh`
 - Stable-release build: `./run-stable.sh`
 
+## Windows (experimental)
+Use this only for local/dev testing.
+
+### Prerequisites
+- Rust toolchain (stable)
+- Node.js 20+
+- `pnpm`
+- Visual Studio 2022 Build Tools (MSVC C++ toolchain)
+- WebView2 runtime
+
+### Steps
+```powershell
+# from revo-ui/
+pnpm install
+
+# frontend check
+pnpm build
+
+# tauri backend
+cd src-tauri
+cargo build --no-default-features
+cd ..
+
+# run app in dev mode
+pnpm tauri dev
+```
+
+If OBS symbols/modules are missing at runtime, follow [OBS bootstrapper (if needed)](#obs-bootstrapper-if-needed).
+
+## macOS (experimental)
+Use this only for local/dev testing.
+
+### Prerequisites
+- Rust toolchain (stable)
+- Node.js 20+
+- `pnpm`
+- Xcode + Command Line Tools
+
+### Steps
+```bash
+# from revo-ui/
+pnpm install
+
+# frontend check
+pnpm build
+
+# tauri backend
+cd src-tauri
+cargo build --no-default-features
+cd ..
+
+# run app in dev mode
+pnpm tauri dev
+```
+
+If OBS symbols/modules are missing at runtime, follow [OBS bootstrapper (if needed)](#obs-bootstrapper-if-needed).
+
+## OBS bootstrapper (if needed)
+Because this project is based on `revo-lib` + `libobs-rs`, you may need to bootstrap matching OBS binaries on non-Linux setups or when system OBS is incompatible.
+
+### Option A: Use local/system OBS (preferred on Linux)
+Install/update OBS on the host system and ensure runtime can find `libobs` and plugins.
+
+### Option B: Use libobs-rs bootstrapper flow (recommended for Windows/macOS dev)
+In the `revo-lib` crate (sibling repository), enable/use the `libobs-bootstrapper` path from `libobs-rs` so OBS binaries are downloaded at runtime.
+
+Typical flow:
+1. Add `libobs-bootstrapper` integration in `revo-lib` startup path.
+2. On app startup, bootstrap OBS binaries into app-local directory.
+3. Point runtime env paths (`OBS_DATA_PATH`, `OBS_PLUGIN_PATH`, and platform library path) to bootstrapped output.
+
+If you want, a ready-to-use bootstrap implementation can be added directly to `revo-lib` startup code.
+
 ## Tech stack
-- Rust (with custom created libobs bindings)
+- Rust (via `revo-lib` based on `libobs-rs`)
 - Tauri
 - Svelte
 - OBS/libobs via revo-lib
