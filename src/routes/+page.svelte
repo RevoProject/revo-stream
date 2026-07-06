@@ -2148,14 +2148,18 @@
       return `${sceneSize.width} / ${sceneSize.height}`;
     }
 
+    let cachedPreviewSize: { width: number; height: number } | null = null;
     function getPreviewSize() {
+      // Gdy nagrywamy, zamroz rozmiar preview z chwili startu nagrywania
+      if (isRecording || isStreaming) {
+        if (cachedPreviewSize) return cachedPreviewSize;
+      }
       const base = getBasePreviewSize();
-      if (!isResizing) return base;
-      const scale = 0.3;
-      return {
-        width: Math.max(160, Math.round(base.width * scale)),
-        height: Math.max(90, Math.round(base.height * scale))
-      };
+      const size = !isResizing ? base : { width: Math.max(160, Math.round(base.width * 0.3)), height: Math.max(90, Math.round(base.height * 0.3)) };
+      if (isRecording || isStreaming) {
+        cachedPreviewSize = size;
+      }
+      return size;
     }
 
     function getPreviewIntervalMs() {
@@ -3751,17 +3755,15 @@
       showGlobalDialog("Recording path required", "warning");
       return;
     }
-
-    mediaActionBusy = true;
     try {
       const startMsg = await invoke<string>("obs_start_recording", { outputPath: recordPath.trim() });
       isRecording = true;
+      cachedPreviewSize = null;
       showGlobalDialog(startMsg || "Recording started", "info");
     } catch (err) {
       isRecording = false;
+      cachedPreviewSize = null;
       showGlobalDialog(`Recording failed: ${String(err)}`, "error");
-    } finally {
-      mediaActionBusy = false;
     }
   };
 
@@ -3786,6 +3788,7 @@
     try {
       const stopMsg = await invoke<string>("obs_stop_recording");
       isRecording = false;
+      cachedPreviewSize = null;
       showGlobalDialog(stopMsg || "Recording stopped", "info");
     } catch (err) {
       showGlobalDialog(`Failed to stop recording: ${String(err)}`, "error");
@@ -3876,6 +3879,7 @@
     try {
       const stopMsg = await invoke<string>("obs_stop_streaming");
       isStreaming = false;
+      cachedPreviewSize = null;
       showGlobalDialog(stopMsg || "Streaming stopped", "info");
     } catch (err) {
       showGlobalDialog(`Failed to stop streaming: ${String(err)}`, "error");
@@ -7553,7 +7557,7 @@
     max-width: 100%;
     max-height: 100%;
     aspect-ratio: var(--preview-aspect, 16 / 9);
-    background: var(--preview-bg, #000);
+    background: #000;
     border: 1px solid var(--border);
     border-radius: 18px;
     display: grid;
