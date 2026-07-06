@@ -6220,22 +6220,35 @@
     await openSourceTransformModal();
   };
 
-  const openPreviewInWindow = () => {
+  const openPreviewInWindow = async () => {
     const previewImg = previewFrameEl?.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
     const src = previewImg?.src ?? previewUrl;
     if (!src) {
       showGlobalDialog("No preview available yet", "warning");
       return;
     }
-    const popup = window.open("", "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
-    if (!popup) {
-      showGlobalDialog("Could not open preview window (popup blocked)", "error");
-      return;
-    }
     const isDataUri = src.startsWith("data:");
-    const html = `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${isDataUri ? src : ""}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`;
-    popup.document.write(isDataUri ? html : `<img src="${src}" style="width:100vw;height:100vh;object-fit:contain">`);
-    popup.document.title = "Preview - RevoStream";
+    const html = `<html><head><title>Preview - RevoStream</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`;
+    // Uzyj Tauri WebviewWindow z data: URI (dziala bez popup-blocker)
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const wv = new WebviewWindow("revo-preview", {
+        url: `data:text/html,${encodeURIComponent(html)}`,
+        width: 960,
+        height: 540,
+        resizable: true,
+      });
+      wv.once("tauri://error", () => {
+        // Fallback: window.open
+        const popup = window.open("", "revo-preview", "width=960,height=540,resizable,scrollbars=yes,status=0,menubar=0,toolbar=0,location=0");
+        if (popup) { popup.document.write(html); popup.document.close(); }
+      });
+    } catch {
+      // Fallback: window.open
+      const popup = window.open("", "revo-preview", "width=960,height=540,resizable,scrollbars=yes,status=0,menubar=0,toolbar=0,location=0");
+      if (popup) { popup.document.write(html); popup.document.close(); return; }
+      showGlobalDialog("Could not open preview window (popup blocked). Try allowing popups or use Tauri's native window.", "warning");
+    }
   };
 
   const openAppContextMenu = (event: MouseEvent) => {
@@ -6623,8 +6636,8 @@
         baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
         {busy}
         onclose={closePlugins}
-        on:selectProfile={selectPluginProfile}
-        on:createProfile={createPluginProfile}
+        onselectProfile={selectPluginProfile}
+        oncreateProfile={createPluginProfile}
         onsave={savePlugins}
       />
     {/if}
@@ -6645,13 +6658,13 @@
         {fontOptions}
         onclose={cancelEditSource}
         onsave={saveEditSource}
-        on:updateName={(e) => updateEditNameValue(e.detail.value)}
-        on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
-        on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
-        on:removeParam={(e) => removeParam(e.detail.key)}
-        on:resetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
-        on:addParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
-        on:requestLiveUpdate={scheduleEditSourceRealtimeUpdate}
+        onupdateName={(e) => updateEditNameValue(e.detail.value)}
+        onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
+        onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
+        onremoveParam={(e) => removeParam(e.detail.key)}
+        onresetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
+        onaddParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
+        onrequestLiveUpdate={scheduleEditSourceRealtimeUpdate}
       />
     {/if}
   </div>
@@ -6790,16 +6803,16 @@
       {isObsRunning}
       {isRecording}
       {isStreaming}
-      on:openSettings={openSettings}
-      on:startObs={startObs}
-      on:stopObs={stopObs}
-      on:startRecording={startRecording}
-      on:stopRecording={stopRecording}
-      on:startStreaming={startStreaming}
-      on:stopStreaming={stopStreaming}
-      on:forcePreviewResolution={forcePreviewResolution}
+      onopenSettings={openSettings}
+      onstartObs={startObs}
+      onstopObs={stopObs}
+      onstartRecording={startRecording}
+      onstopRecording={stopRecording}
+      onstartStreaming={startStreaming}
+      onstopStreaming={stopStreaming}
+      onforcePreviewResolution={forcePreviewResolution}
       {realtimeRefresh}
-      on:toggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
+      ontoggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
     />
   </div>
 
@@ -6836,16 +6849,16 @@
       initialUiProfile={currentUiProfile}
       onclose={closeSettings}
       onsave={saveSettings}
-      on:exportScenes={exportScenes}
-      on:exportObsScenes={exportObsScenes}
-      on:exportObsProfile={exportObsProfile}
-      on:importScenes={(e) => importScenes(e.detail.content, e.detail.format)}
-      on:importObsProfile={(e) => importObsProfile(e.detail.content)}
-      on:createProfile={createProfile}
-      on:switchProfile={switchProfile}
-      on:toggleDemo={(e) => toggleDemo(e)}
-      on:toggleAutorescaleInputs={(e) => (autorescaleInputs = e.detail.checked)}
-      on:dirtyStateChange={(e) => (settingsHasUnsavedChanges = Boolean(e.detail?.dirty))}
+      onexportScenes={exportScenes}
+      onexportObsScenes={exportObsScenes}
+      onexportObsProfile={exportObsProfile}
+      onimportScenes={(e) => importScenes(e.detail.content, e.detail.format)}
+      onimportObsProfile={(e) => importObsProfile(e.detail.content)}
+      oncreateProfile={createProfile}
+      onswitchProfile={switchProfile}
+      ontoggleDemo={(e) => toggleDemo(e)}
+      ontoggleAutorescaleInputs={(e) => (autorescaleInputs = e.detail.checked)}
+      ondirtyStateChange={(e) => (settingsHasUnsavedChanges = Boolean(e.detail?.dirty))}
     />
   {/if}
 
@@ -6859,8 +6872,8 @@
       baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
       {busy}
       onclose={closePlugins}
-      on:selectProfile={selectPluginProfile}
-      on:createProfile={createPluginProfile}
+      onselectProfile={selectPluginProfile}
+      oncreateProfile={createPluginProfile}
       onsave={savePlugins}
     />
   {/if}
@@ -6931,13 +6944,13 @@
       {fontOptions}
       onclose={cancelEditSource}
       onsave={saveEditSource}
-      on:updateName={(e) => updateEditNameValue(e.detail.value)}
-      on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
-      on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
-      on:removeParam={(e) => removeParam(e.detail.key)}
-      on:resetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
-      on:addParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
-      on:requestLiveUpdate={scheduleEditSourceRealtimeUpdate}
+      onupdateName={(e) => updateEditNameValue(e.detail.value)}
+      onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
+      onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
+      onremoveParam={(e) => removeParam(e.detail.key)}
+      onresetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
+      onaddParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
+      onrequestLiveUpdate={scheduleEditSourceRealtimeUpdate}
     />
   {/if}
 
@@ -6949,7 +6962,7 @@
     filters={filtersDraft}
     onclose={closeFiltersModal}
     onsave={saveFiltersModal}
-    on:liveChange={handleFiltersLiveChange}
+    onliveChange={handleFiltersLiveChange}
   />
 
   <SourceInfoModal
@@ -7320,13 +7333,13 @@
             {backendEnabled}
             {renamingScene}
             {renameSceneValue}
-            on:openAddScene={openAddSceneModal}
-            on:setScene={(e) => setCurrentScene(e.detail.name)}
-            on:startRename={(e) => startRenameScene(e.detail.scene)}
-            on:commitRename={commitRenameScene}
-            on:cancelRename={cancelRenameScene}
-            on:openMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
-            on:updateRenameValue={(e) => (renameSceneValue = e.detail.value)}
+            onopenAddScene={openAddSceneModal}
+            onsetScene={(e) => setCurrentScene(e.detail.name)}
+            onstartRename={(e) => startRenameScene(e.detail.scene)}
+            oncommitRename={commitRenameScene}
+            oncancelRename={cancelRenameScene}
+            onopenMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
+            onupdateRenameValue={(e) => (renameSceneValue = e.detail.value)}
             onreorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
           />
         </div>
@@ -7335,17 +7348,17 @@
           <SourcesPanel
             sources={sourcesList}
             emptyMessage={demoMode ? "Source list will appear here." : "No sources available"}
-            on:openAddSource={openAddSourceModal}
+            onopenAddSource={openAddSourceModal}
             oninteract={(e) => openSourceInteraction(e.detail.source)}
-            on:textEdit={(e) => openTextEdit(e.detail.source)}
-            on:quickChangeColor={(e) => openQuickColorModal(e.detail.source)}
-            on:quickSelectFile={(e) => quickSelectImageFile(e.detail.source)}
-            on:quickSelectDevice={(e) => openQuickDeviceModal(e.detail.source)}
-            on:toggleVisibility={(e) => toggleSourceVisibility(e.detail.source)}
-            on:toggleLock={(e) => toggleSourceLock(e.detail.source)}
+            ontextEdit={(e) => openTextEdit(e.detail.source)}
+            onquickChangeColor={(e) => openQuickColorModal(e.detail.source)}
+            onquickSelectFile={(e) => quickSelectImageFile(e.detail.source)}
+            onquickSelectDevice={(e) => openQuickDeviceModal(e.detail.source)}
+            ontoggleVisibility={(e) => toggleSourceVisibility(e.detail.source)}
+            ontoggleLock={(e) => toggleSourceLock(e.detail.source)}
             onmove={(e) => moveSource(e.detail.source, e.detail.direction)}
-            on:openEdit={(e) => openEditSource(e.detail.source)}
-            on:openMenu={(e) => openSourceMenu(e.detail.event, e.detail.source)}
+            onopenEdit={(e) => openEditSource(e.detail.source)}
+            onopenMenu={(e) => openSourceMenu(e.detail.event, e.detail.source)}
             onreorder={(e) => moveSourceToIndex(e.detail.sourceId, e.detail.toIndex)}
           />
         </div>
