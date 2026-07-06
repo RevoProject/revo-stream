@@ -27,6 +27,8 @@ pkgs.mkShell {
     xorg.xwininfo
     pulseaudio
     pipewire
+    libGL
+    mesa
   ];
 
   shellHook = ''
@@ -41,7 +43,7 @@ pkgs.mkShell {
 
     # Automatyczna konfiguracja REVO_ROOT
     export REVO_ROOT="$(pwd)/.local/revo-root"
-    export LD_LIBRARY_PATH="${pkgs.obs-studio}/lib:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="${pkgs.obs-studio}/lib:${pkgs.libGL}/lib:${pkgs.mesa}/lib:$LD_LIBRARY_PATH"
     export WEBKIT_DISABLE_COMPOSITING_MODE=1
     export WEBKIT_DISABLE_DMABUF_RENDERER=1
     export WEBKIT_USE_GL=software
