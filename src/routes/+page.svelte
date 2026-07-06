@@ -4023,6 +4023,9 @@
         await invoke<string>("obs_set_current_scene", { name });
         await loadScenes();
         await loadSources();
+        // Odczekaj chwile po zmianie sceny by OBS zdazyl wyrenderowac klatke
+        // — zapobiega przeskalowaniu preview gdy klatka jeszcze gotowa
+        await new Promise((r) => setTimeout(r, 50));
         previewDirty = true;
         await refreshPreview(true);
       } catch (err) {

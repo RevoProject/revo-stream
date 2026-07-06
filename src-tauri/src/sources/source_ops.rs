@@ -551,6 +551,14 @@ pub(crate) fn create_source_in_scene(
 		}
 		revo_lib::obs::obs_sceneitem_set_visible(item, true);
 		crate::apply_scene_item_transform(item, source, &create.params);
+		// Jesli OBS nie raportuje jeszcze rozmiaru (async image load), ustaw domyslny scale
+		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
+		if base_w <= 0.0 {
+			let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
+			scale.__bindgen_anon_1.__bindgen_anon_1.x = 1.0;
+			scale.__bindgen_anon_1.__bindgen_anon_1.y = 1.0;
+			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+		}
 		revo_lib::obs::obs_source_release(source);
 		scene.custom_items.insert(id.to_string(), item);
 	}
