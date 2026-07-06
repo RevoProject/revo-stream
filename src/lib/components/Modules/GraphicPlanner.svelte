@@ -498,13 +498,40 @@
     window.addEventListener("mouseup", onGlobalPointerUp);
   };
 
+  let historyTimeout: ReturnType<typeof setTimeout> | null = null;
+  const scheduleHistoryCheckpoint = () => {
+    if (historyTimeout) clearTimeout(historyTimeout);
+    historyTimeout = setTimeout(() => {
+      historyTimeout = null;
+      pushHistoryCheckpoint();
+    }, 300);
+  };
+
   const patchActive = (patch: Partial<Transform>) => {
-    if (!activeId || !transforms[activeId]) return;
-    const current = transforms[activeId];
-    const next = clampTransform({ ...current, ...patch });
-    if (transformsEqual({ [activeId]: current }, { [activeId]: next })) return;
-    pushHistoryCheckpoint();
-    transforms[activeId] = next;
+    if (!activeId) return;
+    const prev = transforms[activeId] || defaultTransform();
+    const next: Transform = {
+      x: isFinite(patch.x ?? prev.x) ? (patch.x ?? prev.x) : prev.x,
+      y: isFinite(patch.y ?? prev.y) ? (patch.y ?? prev.y) : prev.y,
+      w: isFinite(patch.w ?? prev.w) ? (patch.w ?? prev.w) : prev.w,
+      h: isFinite(patch.h ?? prev.h) ? (patch.h ?? prev.h) : prev.h,
+      rot: isFinite(patch.rot ?? prev.rot) ? (patch.rot ?? prev.rot) : prev.rot,
+      cropL: isFinite(patch.cropL ?? prev.cropL) ? (patch.cropL ?? prev.cropL) : prev.cropL,
+      cropR: isFinite(patch.cropR ?? prev.cropR) ? (patch.cropR ?? prev.cropR) : prev.cropR,
+      cropT: isFinite(patch.cropT ?? prev.cropT) ? (patch.cropT ?? prev.cropT) : prev.cropT,
+      cropB: isFinite(patch.cropB ?? prev.cropB) ? (patch.cropB ?? prev.cropB) : prev.cropB,
+    };
+    next.w = clampRange(next.w, MIN_SIZE, sceneSize.width * 2);
+    next.h = clampRange(next.h, MIN_SIZE, sceneSize.height * 2);
+    next.x = clampRange(next.x, -99999, 99999);
+    next.y = clampRange(next.y, -99999, 99999);
+    next.rot = normalizeAngle(next.rot);
+    next.cropL = Math.max(0, Math.round(next.cropL));
+    next.cropR = Math.max(0, Math.round(next.cropR));
+    next.cropT = Math.max(0, Math.round(next.cropT));
+    next.cropB = Math.max(0, Math.round(next.cropB));
+    scheduleHistoryCheckpoint();
+    transforms = { ...transforms, [activeId]: next };
   };
 
   const handleGlobalKey = (e: KeyboardEvent) => {
