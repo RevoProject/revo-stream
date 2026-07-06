@@ -38,5 +38,21 @@ pkgs.mkShell {
     export GST_REGISTRY_REUSE_PLUGIN_SCANNER="no"
     export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
     export BINDGEN_EXTRA_CLANG_ARGS="-idirafter ${pkgs.glibc.dev}/include -idirafter ${pkgs.simde}/include"
+
+    # Automatyczna konfiguracja REVO_ROOT
+    export REVO_ROOT="$(pwd)/.local/revo-root"
+    export LD_LIBRARY_PATH="${pkgs.obs-studio}/lib:$LD_LIBRARY_PATH"
+    export WEBKIT_DISABLE_COMPOSITING_MODE=1
+    export WEBKIT_DISABLE_DMABUF_RENDERER=1
+    export WEBKIT_USE_GL=software
+
+    # Przygotuj REVO_ROOT z linkami do OBS jesli nie istnieja
+    OBS_STORE="${pkgs.obs-studio}"
+    if [ -d "$OBS_STORE" ] && [ ! -f "$REVO_ROOT/share/obs/libobs/default.effect" ]; then
+      mkdir -p "$REVO_ROOT/share/obs/libobs"
+      for f in "$OBS_STORE/share/obs/libobs/"*; do [ -e "$f" ] && ln -sf "$f" "$REVO_ROOT/share/obs/libobs/"; done
+      mkdir -p "$REVO_ROOT/core/lib" && ln -sfT "$OBS_STORE/lib/obs-plugins" "$REVO_ROOT/core/lib/obs-plugins"
+      mkdir -p "$REVO_ROOT/core/share" && ln -sfT "$OBS_STORE/share/obs" "$REVO_ROOT/core/share/obs"
+    fi
   '';
 }
