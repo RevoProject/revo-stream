@@ -39,27 +39,27 @@
 {#if dockMenu.open}
   <div class="context-menu" style={`top:${dockMenu.y}px; left:${dockMenu.x}px;`} role="menu">
     {#if dockPinnedSide === "left"}
-      <button on:click={() => void moveDockToSide("right")}>Move to right</button>
-      <button on:click={() => void moveDockToSide("bottom")}>Move to bottom</button>
+      <button onclick={() => void moveDockToSide("right")}>Move to right</button>
+      <button onclick={() => void moveDockToSide("bottom")}>Move to bottom</button>
     {:else if dockPinnedSide === "right"}
-      <button on:click={() => void moveDockToSide("left")}>Move to left</button>
-      <button on:click={() => void moveDockToSide("bottom")}>Move to bottom</button>
+      <button onclick={() => void moveDockToSide("left")}>Move to left</button>
+      <button onclick={() => void moveDockToSide("bottom")}>Move to bottom</button>
     {:else if dockPinnedSide === "bottom"}
-      <button on:click={() => void moveDockToSide("left")}>Move to left</button>
-      <button on:click={() => void moveDockToSide("right")}>Move to right</button>
+      <button onclick={() => void moveDockToSide("left")}>Move to left</button>
+      <button onclick={() => void moveDockToSide("right")}>Move to right</button>
     {:else}
-      <button on:click={() => void moveDockToSide("left")}>Move to left</button>
-      <button on:click={() => void moveDockToSide("right")}>Move to right</button>
-      <button on:click={() => void moveDockToSide("bottom")}>Move to bottom</button>
+      <button onclick={() => void moveDockToSide("left")}>Move to left</button>
+      <button onclick={() => void moveDockToSide("right")}>Move to right</button>
+      <button onclick={() => void moveDockToSide("bottom")}>Move to bottom</button>
     {/if}
-    <button on:click={() => void removeDockFromWorkspace()}>Remove</button>
+    <button onclick={() => void removeDockFromWorkspace()}>Remove</button>
   </div>
   <div
     class="context-overlay"
     role="button"
     tabindex="0"
-    on:click={closeDockMenu}
-    on:keydown={(e) => handleBackdropKey(e, closeDockMenu)}
+    onclick={closeDockMenu}
+    onkeydown={(e) => handleBackdropKey(e, closeDockMenu)}
   ></div>
 {/if}
 
@@ -70,18 +70,18 @@
         type="button"
         class="dock-resize-handle right"
         aria-label="Resize dock"
-        on:mousedown={(e) => startDockResize(e, "left")}
+        onmousedown={(e) => startDockResize(e, "left")}
       ></button>
       <div
         class="dock-compact-header"
         role="button"
         tabindex="0"
         draggable="true"
-        on:contextmenu={openDockMenu}
-        on:dragstart={startDockHandleDrag}
-        on:dragend={handleDockHandleDragEnd}
-        on:mousedown={startDockHeaderMove}
-        on:dblclick={() => {
+        oncontextmenu={openDockMenu}
+        ondragstart={startDockHandleDrag}
+        ondragend={handleDockHandleDragEnd}
+        onmousedown={startDockHeaderMove}
+        ondblclick={() => {
           if (isReleaseBuild) void undockDockPane();
         }}
         title="Drag to move"
@@ -90,14 +90,14 @@
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
           {#if isReleaseBuild}
-            <button class="dock-popout" on:click={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
+            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           {/if}
           <button
             class="dock-refresh"
             draggable="true"
-            on:dragstart={startDockHandleDrag}
-            on:dragend={handleDockHandleDragEnd}
-            on:click={handleDockRefreshClick}
+            ondragstart={startDockHandleDrag}
+            ondragend={handleDockHandleDragEnd}
+            onclick={handleDockRefreshClick}
             aria-label="Refresh dock content"
           >↻</button>
         </div>
@@ -123,7 +123,7 @@
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}
-            <button on:click={() => void undockDockPane()}>Open source URL in separate window</button>
+            <button onclick={() => void undockDockPane()}>Open source URL in separate window</button>
           </div>
         {/if}
       </div>
@@ -138,9 +138,9 @@
           role="button"
           tabindex="0"
           draggable="true"
-          on:contextmenu={openDockMenu}
-          on:dragstart={startDockHandleDrag}
-          on:dragend={handleDockHandleDragEnd}
+          oncontextmenu={openDockMenu}
+          ondragstart={startDockHandleDrag}
+          ondragend={handleDockHandleDragEnd}
           title="Drag to pin dock"
         >
           <span>{browserDockTitle}</span>
@@ -148,9 +148,9 @@
           <button
             class="dock-refresh"
             draggable="true"
-            on:dragstart={startDockHandleDrag}
-            on:dragend={handleDockHandleDragEnd}
-            on:click={handleDockRefreshClick}
+            ondragstart={startDockHandleDrag}
+            ondragend={handleDockHandleDragEnd}
+            onclick={handleDockRefreshClick}
             aria-label="Open/refresh dock"
           >↻</button>
         </div>
@@ -167,11 +167,11 @@
         role="button"
         tabindex="0"
         draggable="true"
-        on:contextmenu={openDockMenu}
-        on:dragstart={startDockHandleDrag}
-        on:dragend={handleDockHandleDragEnd}
-        on:mousedown={startDockHeaderMove}
-        on:dblclick={() => {
+        oncontextmenu={openDockMenu}
+        ondragstart={startDockHandleDrag}
+        ondragend={handleDockHandleDragEnd}
+        onmousedown={startDockHeaderMove}
+        ondblclick={() => {
           if (isReleaseBuild) void undockDockPane();
         }}
         title="Drag to move"
@@ -180,14 +180,14 @@
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
           {#if isReleaseBuild}
-            <button class="dock-popout" on:click={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
+            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           {/if}
           <button
             class="dock-refresh"
             draggable="true"
-            on:dragstart={startDockHandleDrag}
-            on:dragend={handleDockHandleDragEnd}
-            on:click={handleDockRefreshClick}
+            ondragstart={startDockHandleDrag}
+            ondragend={handleDockHandleDragEnd}
+            onclick={handleDockRefreshClick}
             aria-label="Refresh dock content"
           >↻</button>
         </div>
@@ -213,7 +213,7 @@
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}
-            <button on:click={() => void undockDockPane()}>Open source URL in separate window</button>
+            <button onclick={() => void undockDockPane()}>Open source URL in separate window</button>
           </div>
         {/if}
       </div>
@@ -226,18 +226,18 @@
         type="button"
         class="dock-resize-handle left"
         aria-label="Resize dock"
-        on:mousedown={(e) => startDockResize(e, "right")}
+        onmousedown={(e) => startDockResize(e, "right")}
       ></button>
       <div
         class="dock-compact-header"
         role="button"
         tabindex="0"
         draggable="true"
-        on:contextmenu={openDockMenu}
-        on:dragstart={startDockHandleDrag}
-        on:dragend={handleDockHandleDragEnd}
-        on:mousedown={startDockHeaderMove}
-        on:dblclick={() => {
+        oncontextmenu={openDockMenu}
+        ondragstart={startDockHandleDrag}
+        ondragend={handleDockHandleDragEnd}
+        onmousedown={startDockHeaderMove}
+        ondblclick={() => {
           if (isReleaseBuild) void undockDockPane();
         }}
         title="Drag to move"
@@ -246,14 +246,14 @@
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
           {#if isReleaseBuild}
-            <button class="dock-popout" on:click={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
+            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           {/if}
           <button
             class="dock-refresh"
             draggable="true"
-            on:dragstart={startDockHandleDrag}
-            on:dragend={handleDockHandleDragEnd}
-            on:click={handleDockRefreshClick}
+            ondragstart={startDockHandleDrag}
+            ondragend={handleDockHandleDragEnd}
+            onclick={handleDockRefreshClick}
             aria-label="Refresh dock content"
           >↻</button>
         </div>
@@ -279,7 +279,7 @@
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}
-            <button on:click={() => void undockDockPane()}>Open source URL in separate window</button>
+            <button onclick={() => void undockDockPane()}>Open source URL in separate window</button>
           </div>
         {/if}
       </div>
@@ -294,8 +294,8 @@
       role="button"
       tabindex="-1"
       class:active={dockDropTarget === "left"}
-      on:dragover={(e) => handleDockZoneDragOver(e, "left")}
-      on:drop={(e) => handleDockZoneDrop(e, "left")}
+      ondragover={(e) => handleDockZoneDragOver(e, "left")}
+      ondrop={(e) => handleDockZoneDrop(e, "left")}
     >
       Pin left
     </div>
@@ -304,8 +304,8 @@
       role="button"
       tabindex="-1"
       class:active={dockDropTarget === "right"}
-      on:dragover={(e) => handleDockZoneDragOver(e, "right")}
-      on:drop={(e) => handleDockZoneDrop(e, "right")}
+      ondragover={(e) => handleDockZoneDragOver(e, "right")}
+      ondrop={(e) => handleDockZoneDrop(e, "right")}
     >
       Pin right
     </div>

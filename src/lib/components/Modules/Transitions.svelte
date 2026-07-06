@@ -32,11 +32,11 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={closeTransitions} on:keydown={(e) => handleBackdropKey(e, closeTransitions)}>
-    <div class="quick-text-modal transitions-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Transitions" on:click|stopPropagation on:keydown|stopPropagation>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={closeTransitions} onkeydown={(e) => handleBackdropKey(e, closeTransitions)}>
+    <div class="quick-text-modal transitions-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Transitions" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="audio-filters-header transitions-header">
         <h3>Transitions</h3>
-        <button class="modal-close-x" aria-label="Close transitions" on:click={closeTransitions}>✕</button>
+        <button class="modal-close-x" aria-label="Close transitions" onclick={closeTransitions}>✕</button>
       </div>
 
       <div class="transitions-shell">
@@ -51,8 +51,8 @@
                   class:selected={transitionsSelectedId === transition.id}
                   role="button"
                   tabindex="0"
-                  on:click={() => setTransitionsSelectedId(transition.id)}
-                  on:keydown={(e) => {
+                  onclick={() => setTransitionsSelectedId(transition.id)}
+                  onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       setTransitionsSelectedId(transition.id);
@@ -72,7 +72,7 @@
                     <span class="transition-badge" class:active={activeTransitionId === transition.id}>{activeTransitionId === transition.id ? "Active" : "Inactive"}</span>
                     <span>#{index + 1}</span>
                   </div>
-                  <button type="button" class="transition-card-remove" aria-label="Remove transition" on:click|stopPropagation={() => removeTransition(transition.id)}>✕</button>
+                  <button type="button" class="transition-card-remove" aria-label="Remove transition" onclick={($e) => { $e.stopPropagation(); () => removeTransition(transition.id)($e); }}>✕</button>
                 </div>
               {/each}
             {/if}
@@ -81,17 +81,17 @@
           <div class="transitions-add">
             <div class="field">
               <label for="transitionAddName">Transition name</label>
-              <input id="transitionAddName" value={transitionNewName} placeholder="Transition name" on:input={(e) => setTransitionNewName((e.currentTarget as HTMLInputElement).value)} />
+              <input id="transitionAddName" value={transitionNewName} placeholder="Transition name" oninput={(e) => setTransitionNewName((e.currentTarget as HTMLInputElement).value)} />
             </div>
             <div class="field">
               <label for="transitionAddKind">Type</label>
-              <select id="transitionAddKind" value={transitionNewKind} on:change={(e) => setTransitionNewKind((e.currentTarget as HTMLSelectElement).value)}>
+              <select id="transitionAddKind" value={transitionNewKind} onchange={(e) => setTransitionNewKind((e.currentTarget as HTMLSelectElement).value)}>
                 {#each transitionKinds as kind}
                   <option value={kind.value}>{kind.label}</option>
                 {/each}
               </select>
             </div>
-            <button class="transition-add-btn" on:click={addTransition}>Add transition</button>
+            <button class="transition-add-btn" onclick={addTransition}>Add transition</button>
           </div>
         </aside>
 
@@ -104,7 +104,7 @@
               </div>
               <button
                 class="primary"
-                on:click={() => setActiveTransitionId(selectedTransitionItem.id)}
+                onclick={() => setActiveTransitionId(selectedTransitionItem.id)}
                 disabled={activeTransitionId === selectedTransitionItem.id}
               >
                 {activeTransitionId === selectedTransitionItem.id ? "Active" : "Set active"}
@@ -117,13 +117,13 @@
                 <input
                   id="transitionName"
                   value={selectedTransitionItem.name}
-                  on:input={(e) => updateTransitionName(selectedTransitionItem.id, (e.currentTarget as HTMLInputElement).value)}
+                  oninput={(e) => updateTransitionName(selectedTransitionItem.id, (e.currentTarget as HTMLInputElement).value)}
                 />
               </div>
 
               <div class="field">
                 <label for="transitionKind">Transition type</label>
-                <select id="transitionKind" value={selectedTransitionItem.kind} on:change={(e) => setTransitionKind(selectedTransitionItem.id, (e.currentTarget as HTMLSelectElement).value)}>
+                <select id="transitionKind" value={selectedTransitionItem.kind} onchange={(e) => setTransitionKind(selectedTransitionItem.id, (e.currentTarget as HTMLSelectElement).value)}>
                   {#each transitionKinds as kind}
                     <option value={kind.value}>{kind.label}</option>
                   {/each}
@@ -139,7 +139,7 @@
                     min="0"
                     step="10"
                     value={selectedTransitionItem.params.duration_ms ?? "300"}
-                    on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "duration_ms", (e.currentTarget as HTMLInputElement).value)}
+                    oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "duration_ms", (e.currentTarget as HTMLInputElement).value)}
                   />
                 </div>
               {/if}
@@ -150,7 +150,7 @@
                   <select
                     id="transitionDirection"
                     value={selectedTransitionItem.params.direction ?? "left"}
-                    on:change={(e) => updateTransitionParam(selectedTransitionItem.id, "direction", (e.currentTarget as HTMLSelectElement).value)}
+                    onchange={(e) => updateTransitionParam(selectedTransitionItem.id, "direction", (e.currentTarget as HTMLSelectElement).value)}
                   >
                     <option value="left">Left</option>
                     <option value="right">Right</option>
@@ -167,7 +167,7 @@
                     id="transitionFadeToColor"
                     type="color"
                     value={selectedTransitionItem.params.color ?? "#000000"}
-                    on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "color", (e.currentTarget as HTMLInputElement).value)}
+                    oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "color", (e.currentTarget as HTMLInputElement).value)}
                   />
                 </div>
               {/if}
@@ -182,7 +182,7 @@
                     max="100"
                     step="1"
                     value={selectedTransitionItem.params.softness_pct ?? "35"}
-                    on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "softness_pct", (e.currentTarget as HTMLInputElement).value)}
+                    oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "softness_pct", (e.currentTarget as HTMLInputElement).value)}
                   />
                 </div>
               {/if}
@@ -193,7 +193,7 @@
                   <select
                     id="transitionStingerMode"
                     value={selectedTransitionItem.params.source_mode ?? "media"}
-                    on:change={(e) => updateTransitionParam(selectedTransitionItem.id, "source_mode", (e.currentTarget as HTMLSelectElement).value)}
+                    onchange={(e) => updateTransitionParam(selectedTransitionItem.id, "source_mode", (e.currentTarget as HTMLSelectElement).value)}
                   >
                     <option value="media">Media file (video)</option>
                     <option value="sequence">Sequence (images)</option>
@@ -208,9 +208,9 @@
                         id="transitionStingerSequenceDir"
                         value={selectedTransitionItem.params.sequence_dir ?? ""}
                         placeholder="/path/to/sequence-folder"
-                        on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "sequence_dir", (e.currentTarget as HTMLInputElement).value)}
+                        oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "sequence_dir", (e.currentTarget as HTMLInputElement).value)}
                       />
-                      <button class="ghost" type="button" on:click={() => void pickStingerSequenceFolder()}>Import folder</button>
+                      <button class="ghost" type="button" onclick={() => void pickStingerSequenceFolder()}>Import folder</button>
                     </div>
                   </div>
 
@@ -223,7 +223,7 @@
                       max="240"
                       step="1"
                       value={selectedTransitionItem.params.sequence_fps ?? "30"}
-                      on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "sequence_fps", (e.currentTarget as HTMLInputElement).value)}
+                      oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "sequence_fps", (e.currentTarget as HTMLInputElement).value)}
                     />
                   </div>
                 {:else}
@@ -234,9 +234,9 @@
                         id="transitionStingerFile"
                         value={selectedTransitionItem.params.media_file ?? ""}
                         placeholder="/path/to/stinger.mov"
-                        on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "media_file", (e.currentTarget as HTMLInputElement).value)}
+                        oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "media_file", (e.currentTarget as HTMLInputElement).value)}
                       />
-                      <button class="ghost" type="button" on:click={() => void pickStingerMediaFile()}>Import file</button>
+                      <button class="ghost" type="button" onclick={() => void pickStingerMediaFile()}>Import file</button>
                     </div>
                   </div>
                 {/if}
@@ -249,7 +249,7 @@
                     min="0"
                     step="10"
                     value={selectedTransitionItem.params.transition_point_ms ?? "1000"}
-                    on:input={(e) => updateTransitionParam(selectedTransitionItem.id, "transition_point_ms", (e.currentTarget as HTMLInputElement).value)}
+                    oninput={(e) => updateTransitionParam(selectedTransitionItem.id, "transition_point_ms", (e.currentTarget as HTMLInputElement).value)}
                   />
                 </div>
               {/if}
@@ -263,8 +263,8 @@
       </div>
 
       <div class="quick-text-actions">
-        <button class="ghost" on:click={closeTransitions}>Cancel</button>
-        <button class="primary" on:click={saveTransitions}>Save</button>
+        <button class="ghost" onclick={closeTransitions}>Cancel</button>
+        <button class="primary" onclick={saveTransitions}>Save</button>
       </div>
     </div>
   </div>

@@ -44,21 +44,21 @@
     aria-modal="false"
     aria-label="Advanced audio properties"
     style={`--audio-advanced-dx:${dragX}px; --audio-advanced-dy:${dragY}px;`}
-    on:pointerdown={beginDrag}
-    on:pointermove={moveDrag}
-    on:pointerup={endDrag}
-    on:pointercancel={endDrag}
+    onpointerdown={beginDrag}
+    onpointermove={moveDrag}
+    onpointerup={endDrag}
+    onpointercancel={endDrag}
   >
     <div class="audio-advanced-header">
       <h3>Advanced Audio Properties</h3>
-      <button class="modal-close-x" aria-label="Close advanced audio properties" on:click={onClose}>✕</button>
+      <button class="modal-close-x" aria-label="Close advanced audio properties" onclick={onClose}>✕</button>
     </div>
     <p class="muted">{source.name}</p>
 
     <div class="audio-mixer-advanced">
       <div class="audio-mixer-advanced-row">
         <span class="audio-mixer-row-label">Monitoring</span>
-        <select value={state.monitoring} on:change={(e) => onMonitoringChange(source.id, (e.currentTarget as HTMLSelectElement).value)}>
+        <select value={state.monitoring} onchange={(e) => onMonitoringChange(source.id, (e.currentTarget as HTMLSelectElement).value)}>
           {#each monitoringOptions as option}
             <option value={option.value}>{option.label}</option>
           {/each}
@@ -75,8 +75,8 @@
             max="100"
             step="1"
             value={getBalancePan(state)}
-            on:input={(e) => onBalancePanInput(source.id, Number((e.currentTarget as HTMLInputElement).value))}
-            on:change={() => onBalancePanCommit(source.id)}
+            oninput={(e) => onBalancePanInput(source.id, Number((e.currentTarget as HTMLInputElement).value))}
+            onchange={() => onBalancePanCommit(source.id)}
           />
         </div>
       </div>
@@ -88,7 +88,7 @@
             <button
               type="button"
               class:active={state.tracks.includes(track)}
-              on:click={() => onToggleTrack(source.id, track)}
+              onclick={() => onToggleTrack(source.id, track)}
             >
               Track {track}
             </button>

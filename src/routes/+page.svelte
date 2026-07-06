@@ -6584,8 +6584,8 @@
       tabindex="-1"
       aria-modal="true"
       aria-label="Keyboard shortcuts"
-      onclick|stopPropagation
-      onkeydown|stopPropagation
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <h3>Keyboard shortcuts</h3>
       <div class="shortcuts-help-list">
@@ -6618,10 +6618,10 @@
         enabledModules={enabledPluginModules}
         baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
         {busy}
-        on:close={closePlugins}
+        onclose={closePlugins}
         on:selectProfile={selectPluginProfile}
         on:createProfile={createPluginProfile}
-        on:save={savePlugins}
+        onsave={savePlugins}
       />
     {/if}
 
@@ -6639,8 +6639,8 @@
         sourcePropertyEntries={sourcePropertyEntries}
         {extraParamEntries}
         {fontOptions}
-        on:close={cancelEditSource}
-        on:save={saveEditSource}
+        onclose={cancelEditSource}
+        onsave={saveEditSource}
         on:updateName={(e) => updateEditNameValue(e.detail.value)}
         on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
         on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -6830,8 +6830,8 @@
       initialAccessibilityFontFamily={accessibilityFontFamily}
       initialAccessibilityColorVision={accessibilityColorVision}
       initialUiProfile={currentUiProfile}
-      on:close={closeSettings}
-      on:save={saveSettings}
+      onclose={closeSettings}
+      onsave={saveSettings}
       on:exportScenes={exportScenes}
       on:exportObsScenes={exportObsScenes}
       on:exportObsProfile={exportObsProfile}
@@ -6854,10 +6854,10 @@
       enabledModules={enabledPluginModules}
       baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
       {busy}
-      on:close={closePlugins}
+      onclose={closePlugins}
       on:selectProfile={selectPluginProfile}
       on:createProfile={createPluginProfile}
-      on:save={savePlugins}
+      onsave={savePlugins}
     />
   {/if}
 
@@ -6897,8 +6897,8 @@
       bind:newSourceType
       {sourceTypes}
       {externalSourceTypes}
-      on:close={() => (showAddSource = false)}
-      on:add={addSource}
+      onclose={() => (showAddSource = false)}
+      onadd={addSource}
     />
   {/if}
 
@@ -6906,8 +6906,8 @@
     <AddSceneModal
       bind:newSceneName
       scenePlaceholder={scenePlaceholder}
-      on:close={() => (showAddScene = false)}
-      on:add={addScene}
+      onclose={() => (showAddScene = false)}
+      onadd={addScene}
     />
   {/if}
 
@@ -6925,8 +6925,8 @@
       sourcePropertyEntries={sourcePropertyEntries}
       {extraParamEntries}
       {fontOptions}
-      on:close={cancelEditSource}
-      on:save={saveEditSource}
+      onclose={cancelEditSource}
+      onsave={saveEditSource}
       on:updateName={(e) => updateEditNameValue(e.detail.value)}
       on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
       on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -6943,14 +6943,14 @@
     targetId={filtersTargetId}
     targetLabel={filtersTargetLabel}
     filters={filtersDraft}
-    on:close={closeFiltersModal}
-    on:save={saveFiltersModal}
+    onclose={closeFiltersModal}
+    onsave={saveFiltersModal}
     on:liveChange={handleFiltersLiveChange}
   />
 
   <SourceInfoModal
     source={showSourceInfo ? selectedSource : null}
-    on:close={() => (showSourceInfo = false)}
+    onclose={() => (showSourceInfo = false)}
   />
 
   <QuickTextEditModal
@@ -7111,7 +7111,7 @@
 
   {#if showTemplatesFutureDialog}
     <div class="modal-backdrop" role="button" tabindex="0" onclick={closeTemplatesDialog} onkeydown={(e) => handleBackdropKey(e, closeTemplatesDialog)}>
-      <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Templates availability" onclick|stopPropagation onkeydown|stopPropagation>
+      <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Templates availability" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
         <h3>Templates</h3>
         <p class="muted">Future will be available on newer versions.</p>
         <div class="quick-text-actions">
@@ -7323,7 +7323,7 @@
             on:cancelRename={cancelRenameScene}
             on:openMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
             on:updateRenameValue={(e) => (renameSceneValue = e.detail.value)}
-            on:reorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
+            onreorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
           />
         </div>
 
@@ -7332,17 +7332,17 @@
             sources={sourcesList}
             emptyMessage={demoMode ? "Source list will appear here." : "No sources available"}
             on:openAddSource={openAddSourceModal}
-            on:interact={(e) => openSourceInteraction(e.detail.source)}
+            oninteract={(e) => openSourceInteraction(e.detail.source)}
             on:textEdit={(e) => openTextEdit(e.detail.source)}
             on:quickChangeColor={(e) => openQuickColorModal(e.detail.source)}
             on:quickSelectFile={(e) => quickSelectImageFile(e.detail.source)}
             on:quickSelectDevice={(e) => openQuickDeviceModal(e.detail.source)}
             on:toggleVisibility={(e) => toggleSourceVisibility(e.detail.source)}
             on:toggleLock={(e) => toggleSourceLock(e.detail.source)}
-            on:move={(e) => moveSource(e.detail.source, e.detail.direction)}
+            onmove={(e) => moveSource(e.detail.source, e.detail.direction)}
             on:openEdit={(e) => openEditSource(e.detail.source)}
             on:openMenu={(e) => openSourceMenu(e.detail.event, e.detail.source)}
-            on:reorder={(e) => moveSourceToIndex(e.detail.sourceId, e.detail.toIndex)}
+            onreorder={(e) => moveSourceToIndex(e.detail.sourceId, e.detail.toIndex)}
           />
         </div>
 

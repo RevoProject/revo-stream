@@ -68,8 +68,8 @@
       onpointermove={moveAudioMixerDrag}
       onpointerup={endAudioMixerDrag}
       onpointercancel={endAudioMixerDrag}
-      on:click|stopPropagation
-      on:keydown|stopPropagation
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="audio-mixer-header">
         <h3>Audio Mixer</h3>

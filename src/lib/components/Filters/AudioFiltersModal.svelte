@@ -70,8 +70,8 @@
     class="audio-filters-modal-backdrop"
     role="button"
     tabindex="0"
-    on:click={() => void onClose()}
-    on:keydown={(e) => handleBackdropKey(e, () => void onClose())}
+    onclick={() => void onClose()}
+    onkeydown={(e) => handleBackdropKey(e, () => void onClose())}
   >
     <div
       class="audio-filters-modal"
@@ -82,16 +82,16 @@
       aria-modal="true"
       aria-label="Audio filters"
       style={`--audio-filters-dx:${dragX}px; --audio-filters-dy:${dragY}px;`}
-      on:pointerdown={onBeginDrag}
-      on:pointermove={onMoveDrag}
-      on:pointerup={onEndDrag}
-      on:pointercancel={onEndDrag}
-      on:click|stopPropagation
-      on:keydown|stopPropagation
+      onpointerdown={onBeginDrag}
+      onpointermove={onMoveDrag}
+      onpointerup={onEndDrag}
+      onpointercancel={onEndDrag}
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="audio-filters-header">
         <h3>Audio Filters</h3>
-        <button class="modal-close-x" aria-label="Close audio filters" on:click={() => void onClose()}>✕</button>
+        <button class="modal-close-x" aria-label="Close audio filters" onclick={() => void onClose()}>✕</button>
       </div>
       <p class="muted">{audioFiltersSourceLabel}</p>
 
@@ -108,32 +108,32 @@
                   class:locked={Boolean(filter.locked)}
                   role="button"
                   tabindex="0"
-                  on:click={() => onSelectFilter(filter.id)}
-                  on:keydown={(e) => {
+                  onclick={() => onSelectFilter(filter.id)}
+                  onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       onSelectFilter(filter.id);
                     }
                   }}
-                  on:contextmenu={(e) => onOpenContextMenu(e, filter.id)}
+                  oncontextmenu={(e) => onOpenContextMenu(e, filter.id)}
                 >
                   {#if audioFiltersRenamingId === filter.id}
                     <input
                       class="filter-chip-rename"
                       value={audioFiltersRenameValue}
-                      on:input={(e) => onSetRenameValue((e.currentTarget as HTMLInputElement).value)}
-                      on:blur={() => onCommitRename(filter.id)}
-                      on:keydown={(e) => {
+                      oninput={(e) => onSetRenameValue((e.currentTarget as HTMLInputElement).value)}
+                      onblur={() => onCommitRename(filter.id)}
+                      onkeydown={(e) => {
                         if (e.key === "Enter") onCommitRename(filter.id);
                         if (e.key === "Escape") onCancelRename();
                       }}
                     />
                   {:else}
-                    <button class="filter-chip" on:click={() => onSelectFilter(filter.id)}>{filter.name.trim() || `Filter ${index + 1}`}</button>
+                    <button class="filter-chip" onclick={() => onSelectFilter(filter.id)}>{filter.name.trim() || `Filter ${index + 1}`}</button>
                   {/if}
                   <div class="filter-order-actions">
-                    <button class="order-btn" disabled={filter.locked || index === 0} on:click={() => onMoveFilter(filter.id, "up")}>↑</button>
-                    <button class="order-btn" disabled={filter.locked || index === audioFiltersDraft.length - 1} on:click={() => onMoveFilter(filter.id, "down")}>↓</button>
+                    <button class="order-btn" disabled={filter.locked || index === 0} onclick={() => onMoveFilter(filter.id, "up")}>↑</button>
+                    <button class="order-btn" disabled={filter.locked || index === audioFiltersDraft.length - 1} onclick={() => onMoveFilter(filter.id, "down")}>↓</button>
                   </div>
                 </div>
               {/each}
@@ -141,7 +141,7 @@
           </div>
 
           <div class="filters-sidebar-add">
-            <select value={audioFilterNewKind} on:change={(e) => onSetNewKind((e.currentTarget as HTMLSelectElement).value)}>
+            <select value={audioFilterNewKind} onchange={(e) => onSetNewKind((e.currentTarget as HTMLSelectElement).value)}>
               <option value="noise_suppression">Noise Suppression</option>
               <option value="noise_gate">Noise Gate</option>
               <option value="compressor">Compressor</option>
@@ -151,13 +151,13 @@
               <option value="vst3">VST3 Plugin</option>
               <option value="custom">Custom</option>
             </select>
-            <button class="primary" on:click={onAddFilter}>Add Filter</button>
+            <button class="primary" onclick={onAddFilter}>Add Filter</button>
           </div>
         </aside>
 
         <section class="filters-main">
           <div class="filters-main-toolbar">
-            <button class="default-settings-btn" on:click={onResetSelectedToDefaults} disabled={!selectedAudioFilter || Boolean(selectedAudioFilter?.locked)}>
+            <button class="default-settings-btn" onclick={onResetSelectedToDefaults} disabled={!selectedAudioFilter || Boolean(selectedAudioFilter?.locked)}>
               Default filter settings
             </button>
           </div>
@@ -180,7 +180,7 @@
                         type="checkbox"
                         checked={isTruthy((selectedAudioFilter.params ?? {})[field.key] ?? field.defaultValue)}
                         disabled={Boolean(selectedAudioFilter.locked)}
-                        on:change={(e) =>
+                        onchange={(e) =>
                           onUpdatePresetField(
                             selectedAudioFilter.id,
                             field.key,
@@ -199,7 +199,7 @@
                         step={field.step}
                         value={(selectedAudioFilter.params ?? {})[field.key] ?? field.defaultValue}
                         disabled={Boolean(selectedAudioFilter.locked)}
-                        on:input={(e) =>
+                        oninput={(e) =>
                           onUpdatePresetField(selectedAudioFilter.id, field.key, (e.currentTarget as HTMLInputElement).value)}
                       />
                     </div>
@@ -213,7 +213,7 @@
                     <input
                       value={paramKey}
                       disabled={Boolean(selectedAudioFilter.locked)}
-                      on:input={(e) => {
+                      oninput={(e) => {
                         const nextKey = (e.currentTarget as HTMLInputElement).value.trim();
                         if (!nextKey || nextKey === paramKey) return;
                         const params = { ...(selectedAudioFilter.params ?? {}) };
@@ -226,7 +226,7 @@
                     <input
                       value={paramValue}
                       disabled={Boolean(selectedAudioFilter.locked)}
-                      on:input={(e) => {
+                      oninput={(e) => {
                         const params = { ...(selectedAudioFilter.params ?? {}) };
                         params[paramKey] = (e.currentTarget as HTMLInputElement).value;
                         onUpdateFilter(selectedAudioFilter.id, { params });
@@ -248,7 +248,7 @@
         {@const ctxFilter = audioFiltersDraft.find((f) => f.id === audioFiltersContextMenu.filterId)}
         <div class="context-menu" style={`top:${audioFiltersContextMenu.y}px; left:${audioFiltersContextMenu.x}px;`} role="menu">
           <button
-            on:click={() => {
+            onclick={() => {
               if (audioFiltersContextMenu.filterId) onRemoveFilter(audioFiltersContextMenu.filterId);
               onCloseContextMenu();
             }}
@@ -256,14 +256,14 @@
             Remove
           </button>
           <button
-            on:click={() => {
+            onclick={() => {
               if (audioFiltersContextMenu.filterId) onStartRename(audioFiltersContextMenu.filterId);
             }}
           >
             Rename
           </button>
           <button
-            on:click={() => {
+            onclick={() => {
               if (audioFiltersContextMenu.filterId) onToggleLock(audioFiltersContextMenu.filterId);
             }}
           >
@@ -274,14 +274,14 @@
           class="context-overlay"
           role="button"
           tabindex="0"
-          on:click={onCloseContextMenu}
-          on:keydown={(e) => handleBackdropKey(e, onCloseContextMenu)}
+          onclick={onCloseContextMenu}
+          onkeydown={(e) => handleBackdropKey(e, onCloseContextMenu)}
         ></div>
       {/if}
 
       <div class="quick-text-actions">
-        <button class="ghost" on:click={() => void onClose()}>Cancel</button>
-        <button class="primary" on:click={() => void onSave()}>Save</button>
+        <button class="ghost" onclick={() => void onClose()}>Cancel</button>
+        <button class="primary" onclick={() => void onSave()}>Save</button>
       </div>
     </div>
   </div>

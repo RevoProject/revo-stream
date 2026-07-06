@@ -743,7 +743,7 @@
   <div class="planner-layout" bind:this={plannerLayoutEl}>
     <div class="scene-viewport" bind:this={sceneViewportEl} role="presentation" onmousedown={() => (activeId = null)}>
       <div class="scene-canvas-shell" style={`width:${getSceneSize().width * sceneScale}px;height:${getSceneSize().height * sceneScale}px;`}>
-        <div class="scene-canvas" class:show-grid={showGrid} bind:this={sceneCanvasEl} style={`width:${getSceneSize().width}px;height:${getSceneSize().height}px;transform:scale(${sceneScale});`} on:mousedown|stopPropagation role="presentation">
+        <div class="scene-canvas" class:show-grid={showGrid} bind:this={sceneCanvasEl} style={`width:${getSceneSize().width}px;height:${getSceneSize().height}px;transform:scale(${sceneScale});`} onmousedown={(e) => e.stopPropagation()} role="presentation">
           {#if guideV !== null}
             <div class="snap-guide-v" style={`left:${guideV}px;`}></div>
           {/if}
@@ -776,7 +776,7 @@
   </div>
 
   {#if showPropertiesPopup && activeSource && activeTransform}
-    <div class="props-popup" bind:this={propsPopupEl} style={`left:${propsPopupPos.left}px;top:${propsPopupPos.top}px;`} role="dialog" tabindex="0" aria-label="Source properties" on:mousedown|stopPropagation>
+    <div class="props-popup" bind:this={propsPopupEl} style={`left:${propsPopupPos.left}px;top:${propsPopupPos.top}px;`} role="dialog" tabindex="0" aria-label="Source properties" onmousedown={(e) => e.stopPropagation()}>
       <div class="props-head" onmousedown={beginPropsPopupDrag} role="presentation">
         <h3>Properties</h3>
         <button class="x" onclick={() => (showPropertiesPopup = false)} aria-label="Close properties">×</button>
