@@ -195,22 +195,6 @@ pub(crate) fn start(
 			return Err("obs_startup failed".to_string());
 		}
 
-		// Stworz transition source — dzieki niemu zmiany scen sa widoczne w recording/streaming
-		if runtime.transition_source.is_null() {
-			let transition_id = std::ffi::CString::new("cut_transition").unwrap();
-			let transition_name = std::ffi::CString::new("revo_transition").unwrap();
-			let transition = revo_lib::obs::obs_source_create(
-				transition_id.as_ptr(),
-				transition_name.as_ptr(),
-				std::ptr::null_mut(),
-				std::ptr::null_mut(),
-			);
-			if !transition.is_null() {
-				revo_lib::obs::obs_set_output_source(0, transition);
-				runtime.transition_source = transition;
-			}
-		}
-
 		let data_share_c = std::ffi::CString::new(data_share_dir.to_string_lossy().as_bytes())
 			.map_err(|_| "data share path".to_string())?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
@@ -321,6 +305,22 @@ pub(crate) fn start(
 		}
 
 		revo_lib::obs::obs_post_load_modules();
+
+		// Stworz transition source PO zaladowaniu modulow (cut_transition z obs-transitions)
+		if runtime.transition_source.is_null() {
+			let transition_id = std::ffi::CString::new("cut_transition").unwrap();
+			let transition_name = std::ffi::CString::new("revo_transition").unwrap();
+			let transition = revo_lib::obs::obs_source_create(
+				transition_id.as_ptr(),
+				transition_name.as_ptr(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			);
+			if !transition.is_null() {
+				revo_lib::obs::obs_set_output_source(0, transition);
+				runtime.transition_source = transition;
+			}
+		}
 	}
 
 	if !reset_video_audio() {
