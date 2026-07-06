@@ -13,7 +13,24 @@
   export let sourcePropertySpecs: { key: string; label: string; kind: string; hint?: string; options?: { value: string; label: string }[] }[] = [];
   export let sourcePropertyEntries: [string, string][] = [];
   export let extraParamEntries: [string, string][];
-  export let fontOptions: string[];
+  export let fontOptions: string[] = [];
+  let fontSearchText = "";
+  let fontDropdownOpen = false;
+  $: fontFilteredOptions = fontSearchText
+    ? fontOptions.filter(f => f.toLowerCase().includes(fontSearchText.toLowerCase()))
+    : fontOptions;
+  $: if (!fontDropdownOpen && !fontSearchText && editParams[fontFaceKey]) {
+    fontSearchText = editParams[fontFaceKey];
+  }
+  const fontScrollSync = (node: HTMLDivElement) => {
+    const selected = node.querySelector(".font-option.selected");
+    if (selected) selected.scrollIntoView({ block: "nearest" });
+  };
+  let genericFontSearchText = "";
+  let genericFontDropdownOpen = false;
+  $: genericFontFilteredOptions = genericFontSearchText
+    ? fontOptions.filter(f => f.toLowerCase().includes(genericFontSearchText.toLowerCase()))
+    : fontOptions;
   export let windowMode = false;
   export let allowDraggablePopups = false;
 
@@ -531,16 +548,40 @@
               </div>
             </div>
 
-            <div class="field">
+            <div class="field font-picker-field">
               <label for="text-font-face">Font</label>
-              <input
-                id="text-font-face"
-                type="text"
-                list="font-list"
-                placeholder="DejaVu Sans"
-                value={editParams[fontFaceKey] ?? ""}
-                oninput={(e) => updateParam(fontFaceKey, (e.currentTarget as HTMLInputElement).value)}
-              />
+              <div class="font-picker-wrapper">
+                <input
+                  id="text-font-face"
+                  type="text"
+                  placeholder="Type to search fonts..."
+                  value={fontSearchText}
+                  oninput={(e) => {
+                    fontSearchText = (e.currentTarget as HTMLInputElement).value;
+                    fontDropdownOpen = true;
+                  }}
+                  onfocus={() => (fontDropdownOpen = true)}
+                  onblur={() => setTimeout(() => (fontDropdownOpen = false), 150)}
+                />
+                {#if fontDropdownOpen && fontFilteredOptions.length > 0}
+                  <div class="font-picker-dropdown" use:fontScrollSync>
+                    {#each fontFilteredOptions as font}
+                      <button
+                        class="font-option"
+                        class:selected={font === (editParams[fontFaceKey] ?? "")}
+                        on:mousedown={(e) => {
+                          e.preventDefault();
+                          updateParam(fontFaceKey, font);
+                          fontSearchText = font;
+                          fontDropdownOpen = false;
+                        }}
+                      >
+                        {font}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             </div>
 
             <div class="field">
@@ -642,14 +683,38 @@
                 />
               </div>
             {:else if field.key === "font_face"}
-              <input
-                id={`param-${field.key}`}
-                type="text"
-                list="font-list"
-                value={editParams[field.key] ?? ""}
-                placeholder={field.placeholder}
-                oninput={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
-              />
+              <div class="font-picker-wrapper" style="width:100%">
+                <input
+                  id={`param-${field.key}`}
+                  type="text"
+                  placeholder="Type to search fonts..."
+                  value={genericFontSearchText}
+                  oninput={(e) => {
+                    genericFontSearchText = (e.currentTarget as HTMLInputElement).value;
+                    genericFontDropdownOpen = true;
+                  }}
+                  onfocus={() => (genericFontDropdownOpen = true)}
+                  onblur={() => setTimeout(() => (genericFontDropdownOpen = false), 150)}
+                />
+                {#if genericFontDropdownOpen && genericFontFilteredOptions.length > 0}
+                  <div class="font-picker-dropdown">
+                    {#each genericFontFilteredOptions as font}
+                      <button
+                        class="font-option"
+                        class:selected={font === (editParams[field.key] ?? "")}
+                        on:mousedown={(e) => {
+                          e.preventDefault();
+                          updateParam(field.key, font);
+                          genericFontSearchText = font;
+                          genericFontDropdownOpen = false;
+                        }}
+                      >
+                        {font}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             {:else if field.key === "device" && isAudioSource}
               <select
                 id={`param-${field.key}`}
@@ -951,12 +1016,6 @@
   </div>
 {/if}
 
-<datalist id="font-list">
-  {#each fontOptions as font}
-    <option value={font}></option>
-  {/each}
-</datalist>
-
 <style>
   .modal-backdrop {
     position: fixed;
@@ -1173,5 +1232,40 @@
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .font-picker-field {
+    position: relative;
+  }
+  .font-picker-wrapper {
+    position: relative;
+  }
+  .font-picker-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--surface-1, #1e1e2e);
+    border: 1px solid var(--border, #3a3a5a);
+    border-radius: 8px;
+    z-index: 100;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .font-option {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    color: var(--text, #ddd);
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .font-option:hover, .font-option.selected {
+    background: var(--accent, #3b82f6);
+    color: #fff;
   }
 </style>

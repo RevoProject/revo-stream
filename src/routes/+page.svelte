@@ -278,7 +278,20 @@
     pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }]
   };
 
-    const fontOptions = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];
+    let fontOptions: string[] = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];
+    let systemFontsLoaded = false;
+    async function loadSystemFonts() {
+      if (systemFontsLoaded || !backendEnabled) return;
+      try {
+        const items: Array<{ id: string; label: string }> = await invoke("obs_list_system_fonts");
+        if (items && items.length > 0) {
+          fontOptions = items.map(i => i.label);
+          systemFontsLoaded = true;
+        }
+      } catch {
+        // fallback do hardcoded list
+      }
+    }
 
     let rootDir = "";
     let version = "0.1.0";
@@ -4411,6 +4424,9 @@
       closeSourceMenu();
       return;
     }
+    // Zaladuj fonty systemowe przy edycji text source
+    const isText = source.source_type?.toLowerCase().includes("text_ft2");
+    if (isText) loadSystemFonts();
     editSource = source;
     editName = source.name;
     editType = source.source_type;

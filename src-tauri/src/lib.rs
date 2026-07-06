@@ -122,6 +122,11 @@ fn obs_list_window_picker_items() -> Result<Vec<SourceTypeItem>, String> {
 }
 
 #[tauri::command]
+fn obs_list_system_fonts() -> Result<Vec<SourceTypeItem>, String> {
+    sources::fonts::list_system_fonts()
+}
+
+#[tauri::command]
 fn obs_list_video_device_picker_items() -> Result<Vec<SourceTypeItem>, String> {
     sources::video_devices::list_video_device_picker_items()
 }
@@ -720,6 +725,7 @@ pub fn run() {
             obs_list_pulse_devices,
             obs_get_settings_select_options,
             obs_list_window_picker_items,
+            obs_list_system_fonts,
             obs_list_video_device_picker_items,
             obs_set_source_visible,
             obs_remove_source,
