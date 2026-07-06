@@ -2220,7 +2220,8 @@
       previewInFlight = true;
       try {
         const now = Date.now();
-        if (now - previewResolutionSyncAt >= 2500) {
+        // Nie zmieniaj rozdzielczosci podczas nagrywania/streamowania — zapobiega przeskalowywaniu UI
+        if (!isRecording && !isStreaming && now - previewResolutionSyncAt >= 2500) {
           previewResolutionSyncAt = now;
           try {
             const liveResolution = await invoke<string>("obs_get_current_scene_resolution");
