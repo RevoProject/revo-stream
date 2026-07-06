@@ -73,10 +73,17 @@ pub(crate) fn start(
 		};
 	}
 
-	let root = crate::settings::core::resolve_root_dir(root_dir)?;
+	eprintln!("[start] resolve_root_dir...");
+	let root = crate::settings::core::resolve_root_dir(root_dir).map_err(|e| {
+		eprintln!("[start] resolve_root_dir FAILED: {e}");
+		format!("resolve_root_dir: {e}")
+	})?;
+	eprintln!("[start] root={}", root.to_string_lossy());
 	let data_dir = if root.join("data/share/obs/libobs/default.effect").exists() {
+		eprintln!("[start] data_dir = root/data");
 		root.join("data")
 	} else {
+		eprintln!("[start] data_dir = root");
 		root.clone()
 	};
 	let core_dir = root.join("core");
@@ -188,12 +195,15 @@ pub(crate) fn start(
 		}
 	}
 
+	eprintln!("[start] OBS startup...");
 	unsafe {
 		revo_lib::obs::base_set_log_handler(Some(crate::logging::obs_logger::obs_log_handler), std::ptr::null_mut());
 
 		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
+			eprintln!("[start] obs_startup FAILED");
 			return Err("obs_startup failed".to_string());
 		}
+		eprintln!("[start] obs_startup OK");
 
 		let data_share_c = std::ffi::CString::new(data_share_dir.to_string_lossy().as_bytes())
 			.map_err(|_| "data share path".to_string())?;
@@ -302,9 +312,12 @@ pub(crate) fn start(
 		revo_lib::obs::obs_post_load_modules();
 	}
 
+	eprintln!("[start] reset_video_audio...");
 	if !reset_video_audio() {
+		eprintln!("[start] reset_video_audio FAILED");
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
+	eprintln!("[start] reset_video_audio OK");
 
 	ensure_scene(&mut runtime, &root)?;
 
