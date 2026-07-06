@@ -40,6 +40,7 @@ struct ObsRuntime {
     video_encoder_preference: VideoEncoderPreference,
     scene_resolution: String,
     planner_init: Option<PlannerInit>,
+    transition_source: *mut obs::obs_source,
 }
 
 impl Default for ObsRuntime {
@@ -63,6 +64,7 @@ impl Default for ObsRuntime {
             video_encoder_preference: VideoEncoderPreference::default(),
             scene_resolution: "1920x1080".to_string(),
             planner_init: None,
+            transition_source: std::ptr::null_mut(),
         }
     }
 }
