@@ -2119,10 +2119,10 @@
     }
 
     function getPreviewScale() {
-      if (previewQuality === "very_low") return 0.3;
-      if (previewQuality === "low") return 0.5;
-      if (previewQuality === "medium") return 0.8;
-      return 1;
+      if (previewQuality === "very_low") return 0.25;
+      if (previewQuality === "low") return 0.4;
+      if (previewQuality === "medium") return 0.6;
+      return 0.85;
     }
 
     function getPreviewScaleFinal() {
@@ -2189,9 +2189,19 @@
       startPreviewLoop();
     }
 
+    let previewLastTime = 0;
+    const PREVIEW_MIN_INTERVAL = 33; // ~30fps max
+
     async function refreshPreview(force = false) {
       if (!backendEnabled || !isObsRunning || document.hidden) return;
       if (!force && !previewDirty) return;
+
+      // Global throttle — nie szybciej niz 30fps
+      const now = Date.now();
+      if (now - previewLastTime < PREVIEW_MIN_INTERVAL) {
+        previewPendingRequest = true;
+        return;
+      }
 
       if (previewInFlight) {
         previewPendingRequest = true;
@@ -2199,8 +2209,8 @@
       }
 
       if (!force && hasVisibleMediaSource) {
-        const minFrameGapMs = 120;
-        const elapsed = Date.now() - previewLastFrameAt;
+        const minFrameGapMs = Math.max(PREVIEW_MIN_INTERVAL, 120);
+        const elapsed = now - previewLastFrameAt;
         if (elapsed > 0 && elapsed < minFrameGapMs) {
           previewPendingRequest = true;
           return;
@@ -2229,7 +2239,8 @@
         } else {
           previewUrl = `${convertFileSrc(screenshot)}?t=${Date.now()}`;
         }
-        previewLastFrameAt = Date.now();
+        previewLastTime = Date.now();
+        previewLastFrameAt = previewLastTime;
         previewDirty = false;
       } catch (err) {
         showGlobalDialog(String(err), "error");
@@ -2344,15 +2355,20 @@
         if (!canContinue) return;
 
         if (useRafPreviewLoop()) {
-          previewDirty = true;
-          previewAnimationFrame = requestAnimationFrame(() => {
-            previewAnimationFrame = null;
-            void tick();
-          });
+          const rafDelay = Math.max(PREVIEW_MIN_INTERVAL - (Date.now() - previewLastTime), 0);
+          if (rafDelay > 0) {
+            previewInterval = setTimeout(tick, rafDelay);
+          } else {
+            previewDirty = true;
+            previewAnimationFrame = requestAnimationFrame(() => {
+              previewAnimationFrame = null;
+              void tick();
+            });
+          }
           return;
         }
 
-        previewInterval = setTimeout(tick, getPreviewIntervalMs());
+        previewInterval = setTimeout(tick, Math.max(getPreviewIntervalMs(), PREVIEW_MIN_INTERVAL));
       };
       previewDirty = true;
       if (useRafPreviewLoop()) {
