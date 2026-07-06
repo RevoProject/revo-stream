@@ -6635,10 +6635,10 @@
         enabledModules={enabledPluginModules}
         baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
         {busy}
-        onclose={closePlugins}
-        onselectProfile={selectPluginProfile}
-        oncreateProfile={createPluginProfile}
-        onsave={savePlugins}
+        on:close={closePlugins}
+        on:selectProfile={selectPluginProfile}
+        on:createProfile={createPluginProfile}
+        on:save={savePlugins}
       />
     {/if}
 
@@ -6656,8 +6656,8 @@
         sourcePropertyEntries={sourcePropertyEntries}
         {extraParamEntries}
         {fontOptions}
-        onclose={cancelEditSource}
-        onsave={saveEditSource}
+        on:close={cancelEditSource}
+        on:save={saveEditSource}
         onupdateName={(e) => updateEditNameValue(e.detail.value)}
         onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
         onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -6803,16 +6803,16 @@
       {isObsRunning}
       {isRecording}
       {isStreaming}
-      onopenSettings={openSettings}
-      onstartObs={startObs}
-      onstopObs={stopObs}
-      onstartRecording={startRecording}
-      onstopRecording={stopRecording}
-      onstartStreaming={startStreaming}
-      onstopStreaming={stopStreaming}
-      onforcePreviewResolution={forcePreviewResolution}
+      on:openSettings={openSettings}
+      on:startObs={startObs}
+      on:stopObs={stopObs}
+      on:startRecording={startRecording}
+      on:stopRecording={stopRecording}
+      on:startStreaming={startStreaming}
+      on:stopStreaming={stopStreaming}
+      on:forcePreviewResolution={forcePreviewResolution}
       {realtimeRefresh}
-      ontoggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
+      on:toggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
     />
   </div>
 
@@ -6847,14 +6847,14 @@
       initialAccessibilityFontFamily={accessibilityFontFamily}
       initialAccessibilityColorVision={accessibilityColorVision}
       initialUiProfile={currentUiProfile}
-      onclose={closeSettings}
-      onsave={saveSettings}
+      on:close={closeSettings}
+      on:save={saveSettings}
       onexportScenes={exportScenes}
       onexportObsScenes={exportObsScenes}
       onexportObsProfile={exportObsProfile}
       onimportScenes={(e) => importScenes(e.detail.content, e.detail.format)}
       onimportObsProfile={(e) => importObsProfile(e.detail.content)}
-      oncreateProfile={createProfile}
+      on:createProfile={createProfile}
       onswitchProfile={switchProfile}
       ontoggleDemo={(e) => toggleDemo(e)}
       ontoggleAutorescaleInputs={(e) => (autorescaleInputs = e.detail.checked)}
@@ -6871,10 +6871,10 @@
       enabledModules={enabledPluginModules}
       baselineEnabledModules={pluginBaselineModulesByProfile[activePluginProfile] ?? enabledPluginModules}
       {busy}
-      onclose={closePlugins}
-      onselectProfile={selectPluginProfile}
-      oncreateProfile={createPluginProfile}
-      onsave={savePlugins}
+      on:close={closePlugins}
+      on:selectProfile={selectPluginProfile}
+      on:createProfile={createPluginProfile}
+      on:save={savePlugins}
     />
   {/if}
 
@@ -6914,7 +6914,7 @@
       bind:newSourceType
       {sourceTypes}
       {externalSourceTypes}
-      onclose={() => (showAddSource = false)}
+      on:close={() => (showAddSource = false)}
       onadd={addSource}
     />
   {/if}
@@ -6923,7 +6923,7 @@
     <AddSceneModal
       bind:newSceneName
       scenePlaceholder={scenePlaceholder}
-      onclose={() => (showAddScene = false)}
+      on:close={() => (showAddScene = false)}
       onadd={addScene}
     />
   {/if}
@@ -6942,8 +6942,8 @@
       sourcePropertyEntries={sourcePropertyEntries}
       {extraParamEntries}
       {fontOptions}
-      onclose={cancelEditSource}
-      onsave={saveEditSource}
+      on:close={cancelEditSource}
+      on:save={saveEditSource}
       onupdateName={(e) => updateEditNameValue(e.detail.value)}
       onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
       onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -6960,14 +6960,14 @@
     targetId={filtersTargetId}
     targetLabel={filtersTargetLabel}
     filters={filtersDraft}
-    onclose={closeFiltersModal}
-    onsave={saveFiltersModal}
+    on:close={closeFiltersModal}
+    on:save={saveFiltersModal}
     onliveChange={handleFiltersLiveChange}
   />
 
   <SourceInfoModal
     source={showSourceInfo ? selectedSource : null}
-    onclose={() => (showSourceInfo = false)}
+    on:close={() => (showSourceInfo = false)}
   />
 
   <QuickTextEditModal
@@ -7337,7 +7337,7 @@
             onsetScene={(e) => setCurrentScene(e.detail.name)}
             onstartRename={(e) => startRenameScene(e.detail.scene)}
             oncommitRename={commitRenameScene}
-            oncancelRename={cancelRenameScene}
+            on:cancelRename={cancelRenameScene}
             onopenMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
             onupdateRenameValue={(e) => (renameSceneValue = e.detail.value)}
             onreorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
