@@ -307,16 +307,17 @@ pub(crate) fn get_source_settings(
 				"item_height".to_string(),
 				(base_h * scale.__bindgen_anon_1.__bindgen_anon_1.y).to_string(),
 			);
-		} else {
-			params.insert(
-				"scale_x".to_string(),
-				scale.__bindgen_anon_1.__bindgen_anon_1.x.to_string(),
-			);
-			params.insert(
-				"scale_y".to_string(),
-				scale.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
-			);
 		}
+		// Zawsze dodawaj scale_x/scale_y — potrzebne m.in. przy graphic planner,
+		// gdzie musimy znać zamiar skali niezależnie od bazowych wymiarów źródła.
+		params.insert(
+			"scale_x".to_string(),
+			scale.__bindgen_anon_1.__bindgen_anon_1.x.to_string(),
+		);
+		params.insert(
+			"scale_y".to_string(),
+			scale.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
+		);
 		let result = serde_json::json!({
 			"name": name,
 			"source_type": source_type,
