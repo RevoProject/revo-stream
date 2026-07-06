@@ -195,7 +195,8 @@
     { id: "pulse_output_capture", label: "Audio Output (Pulse)" },
     { id: "pipewire_input_capture", label: "Audio Input (PipeWire)" },
     { id: "pipewire_output_capture", label: "Audio Output (PipeWire)" },
-    { id: "alsa_input_capture", label: "Audio Input (ALSA)" }
+    { id: "alsa_input_capture", label: "Audio Input (ALSA)" },
+    { id: "slideshow", label: "Image Slideshow" }
   ];
 
   const builtInSourceTypeIds = new Set(sourceTypes.map((t) => t.id));
@@ -281,7 +282,8 @@
     pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pipewire_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pipewire_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
-    alsa_input_capture: [{ key: "device_id", label: "Device", placeholder: "default" }]
+    alsa_input_capture: [{ key: "device_id", label: "Device", placeholder: "default" }],
+    slideshow: [{ key: "files", label: "Files", placeholder: "[]" }]
   };
 
     let fontOptions: string[] = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];

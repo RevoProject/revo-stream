@@ -328,6 +328,35 @@
   $: isAudioSource = editType === "pulse_input_capture" || editType === "pulse_output_capture";
   $: isTextSource = editType === "text_ft2_source" || editType === "text_ft2_source_v2";
   $: isMediaSource = editType === "ffmpeg_source";
+  $: isSlideshowSource = editType === "slideshow";
+  $: slideshowFiles = isSlideshowSource
+    ? (() => {
+        try {
+          return JSON.parse(editParams.files || "[]");
+        } catch { return []; }
+      })()
+    : [];
+  function addSlideshowFile() {
+    open({ multiple: false, directory: false, filters: [
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"] },
+      { name: "All files", extensions: ["*"] }
+    ]}).then((selected) => {
+      if (typeof selected === "string" && selected.trim()) {
+        const list = [...slideshowFiles, selected];
+        updateParam("files", JSON.stringify(list));
+      }
+    }).catch(() => {});
+  }
+  function removeSlideshowFile(idx: number) {
+    const list = slideshowFiles.filter((_: string, i: number) => i !== idx);
+    updateParam("files", JSON.stringify(list));
+  }
+  function moveSlideshowFile(from: number, to: number) {
+    const list = [...slideshowFiles];
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    updateParam("files", JSON.stringify(list));
+  }
   $: audioDevices = editType === "pulse_input_capture" ? audioInputDevices : audioOutputDevices;
   $: audioLevel = Math.max(0, Math.min(100, Number(editParams.audio_level ?? 0)));
   $: textKey = getExistingParamKey(["text"]);
@@ -659,6 +688,26 @@
                 />
               </div>
             {/if}
+          </div>
+        {/if}
+
+        {#if isSlideshowSource}
+          <div class="field-group">
+            <h3>Slideshow files</h3>
+            <div class="slideshow-file-list">
+              {#each slideshowFiles as file, i}
+                <div class="slideshow-file-row">
+                  <span class="slideshow-file-idx">{i + 1}</span>
+                  <span class="slideshow-file-path">{file}</span>
+                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i - 1)} disabled={i === 0}>↑</button>
+                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i + 1)} disabled={i === slideshowFiles.length - 1}>↓</button>
+                  <button type="button" class="ghost small" on:click={() => removeSlideshowFile(i)}>✕</button>
+                </div>
+              {/each}
+            </div>
+            <div class="slideshow-actions">
+              <button type="button" class="ghost" on:click={() => addSlideshowFile()}>📁 Add file</button>
+            </div>
           </div>
         {/if}
 
@@ -1269,6 +1318,36 @@
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .slideshow-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .slideshow-file-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--surface-3, #2a2a3e);
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .slideshow-file-idx {
+    color: var(--text-dim, #888);
+    min-width: 20px;
+  }
+  .slideshow-file-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .slideshow-actions {
+    margin-top: 8px;
   }
 
   .font-picker-field {
