@@ -265,10 +265,19 @@ pub(crate) fn start(
 		let blocked_modules = [
 			"decklink",
 			"obs-websocket",
+			"obs-browser",
 			"linux-capture",
+			"linux-pipewire",
 			"frontend-tools",
+			"obs-qsv11",
+			"obs-nvenc",
+			"obs-vst",
 		];
 
+		eprintln!("[start] found {} module candidates", candidates.len());
+		for m in &candidates {
+			eprintln!("[start]   candidate: {} -> {}", m.name, m.bin_path);
+		}
 		for module in candidates {
 			let normalized_name = module.name.to_lowercase();
 
@@ -276,6 +285,7 @@ pub(crate) fn start(
 				.iter()
 				.any(|entry| normalized_name == *entry || normalized_name.contains(entry));
 			if blocked {
+				eprintln!("[start]   blocked: {}", module.name);
 				continue;
 			}
 
@@ -298,6 +308,7 @@ pub(crate) fn start(
 				Err(_) => continue,
 			};
 
+			eprintln!("[start]   loading module: {}", module.name);
 			let mut mod_ptr: *mut revo_lib::obs::obs_module_t = std::ptr::null_mut();
 			let open_result = revo_lib::obs::obs_open_module(
 				&mut mod_ptr as *mut _,
@@ -305,11 +316,17 @@ pub(crate) fn start(
 				data.as_ptr(),
 			);
 			if open_result == revo_lib::obs::MODULE_SUCCESS as i32 && !mod_ptr.is_null() {
+				eprintln!("[start]   init module: {}", module.name);
 				let _ = revo_lib::obs::obs_init_module(mod_ptr);
+				eprintln!("[start]   init OK: {}", module.name);
+			} else {
+				eprintln!("[start]   open FAILED ({}): {}", open_result, module.name);
 			}
 		}
 
+		eprintln!("[start] obs_post_load_modules...");
 		revo_lib::obs::obs_post_load_modules();
+		eprintln!("[start] obs_post_load_modules OK");
 	}
 
 	eprintln!("[start] reset_video_audio...");
