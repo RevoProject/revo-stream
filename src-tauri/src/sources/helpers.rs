@@ -501,6 +501,16 @@ pub(crate) fn apply_scene_item_transform(
 	source: *mut revo_lib::obs::obs_source,
 	params: &std::collections::HashMap<String, String>,
 ) {
+	apply_scene_item_transform_with_base(item, source, params, 0.0, 0.0)
+}
+
+pub(crate) fn apply_scene_item_transform_with_base(
+	item: *mut revo_lib::obs::obs_scene_item,
+	source: *mut revo_lib::obs::obs_source,
+	params: &std::collections::HashMap<String, String>,
+	base_w_before: f32,
+	base_h_before: f32,
+) {
 	if item.is_null() || source.is_null() {
 		return;
 	}
@@ -515,28 +525,29 @@ pub(crate) fn apply_scene_item_transform(
 		}
 		revo_lib::obs::obs_sceneitem_set_pos(item, &pos as *const _);
 
-		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
-		let base_h = revo_lib::obs::obs_source_get_height(source) as f32;
+		// Uzyj wymiarow sprzed aktualizacji jesli dostarczone, inaczej aktualne
+		let base_w = if base_w_before > 0.0 {
+			base_w_before
+		} else {
+			revo_lib::obs::obs_source_get_width(source) as f32
+		};
+		let base_h = if base_h_before > 0.0 {
+			base_h_before
+		} else {
+			revo_lib::obs::obs_source_get_height(source) as f32
+		};
 		let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
 		revo_lib::obs::obs_sceneitem_get_scale(item, &mut scale as *mut _);
 
-		if let (Some(w), Some(h)) = (
-			parse_f32_param(params, "item_width"),
-			parse_f32_param(params, "item_height"),
-		) {
-			if base_w > 0.0 && base_h > 0.0 {
-				scale.__bindgen_anon_1.__bindgen_anon_1.x = w / base_w;
-				scale.__bindgen_anon_1.__bindgen_anon_1.y = h / base_h;
-				revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
-			} else {
-				if let Some(sx) = parse_f32_param(params, "scale_x") {
-					scale.__bindgen_anon_1.__bindgen_anon_1.x = sx;
-				}
-				if let Some(sy) = parse_f32_param(params, "scale_y") {
-					scale.__bindgen_anon_1.__bindgen_anon_1.y = sy;
-				}
-				revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
-			}
+		let has_item_dims = parse_f32_param(params, "item_width").is_some()
+			&& parse_f32_param(params, "item_height").is_some();
+
+		if has_item_dims && base_w > 0.0 && base_h > 0.0 {
+			let w = parse_f32_param(params, "item_width").unwrap();
+			let h = parse_f32_param(params, "item_height").unwrap();
+			scale.__bindgen_anon_1.__bindgen_anon_1.x = w / base_w;
+			scale.__bindgen_anon_1.__bindgen_anon_1.y = h / base_h;
+			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
 		} else {
 			if let Some(sx) = parse_f32_param(params, "scale_x") {
 				scale.__bindgen_anon_1.__bindgen_anon_1.x = sx;

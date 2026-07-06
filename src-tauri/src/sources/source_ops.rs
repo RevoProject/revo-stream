@@ -686,13 +686,18 @@ pub(crate) fn update_source(
 			update.source_type.as_str()
 		};
 		let is_ffmpeg_source = chosen_type.trim().eq_ignore_ascii_case("ffmpeg_source");
+		// Zachowaj bazowe wymiary PRZED aktualizacja źródła — po zmianie tekstu/obrazu
+		// naturalny rozmiar źródła może się zmienić, a item_width/item_height z params
+		// jest bezwzględną wartością pikselową ustawioną przez usera.
+		let base_w_before = revo_lib::obs::obs_source_get_width(source) as f32;
+		let base_h_before = revo_lib::obs::obs_source_get_height(source) as f32;
 		let was_visible = revo_lib::obs::obs_sceneitem_visible(item);
 		let editable_list_keys = crate::source_editable_list_keys(source);
 		crate::apply_source_params(settings, chosen_type, &update.params, Some(&editable_list_keys));
 
 		revo_lib::obs::obs_source_update(source, settings);
 		revo_lib::obs::obs_data_release(settings);
-		crate::apply_scene_item_transform(item, source, &update.params);
+		crate::apply_scene_item_transform_with_base(item, source, &update.params, base_w_before, base_h_before);
 		apply_audio_runtime_params(source, &update.params);
 		if !is_ffmpeg_source {
 			revo_lib::obs::obs_sceneitem_set_visible(item, false);
