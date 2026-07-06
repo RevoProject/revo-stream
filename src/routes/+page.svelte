@@ -817,12 +817,24 @@
       sourcesList = sourcesList.map(s => {
         const t = sourceTransforms[s.id];
         if (!t) return s;
+        // Oblicz scale_x/scale_y na podstawie planner pixel dimensions
+        // i bazowego rozmiaru źródła (odtworzonego z poprzedniego scale * base = item_dim)
+        const prevScaleX = parseFloat(s.params?.scale_x || "1");
+        const prevScaleY = parseFloat(s.params?.scale_y || "1");
+        const prevItemW = parseFloat(s.params?.item_width || "0");
+        const prevItemH = parseFloat(s.params?.item_height || "0");
+        const baseW = prevItemW > 0 && prevScaleX > 0 ? prevItemW / prevScaleX : 0;
+        const baseH = prevItemH > 0 && prevScaleY > 0 ? prevItemH / prevScaleY : 0;
+        const nextScaleX = baseW > 0 ? t.w / baseW : prevScaleX;
+        const nextScaleY = baseH > 0 ? t.h / baseH : prevScaleY;
         const nextParams: Record<string, string> = {
           ...(s.params || {}),
           pos_x: t.x.toString(),
           pos_y: t.y.toString(),
           item_width: t.w.toString(),
-          item_height: t.h.toString()
+          item_height: t.h.toString(),
+          scale_x: nextScaleX.toString(),
+          scale_y: nextScaleY.toString()
         };
         if (typeof t.rot === "number") nextParams.rot = t.rot.toString();
         if (typeof t.cropL === "number") nextParams.crop_left = t.cropL.toString();
@@ -840,12 +852,22 @@
           for (const s of sourcesList) {
             const t = sourceTransforms[s.id];
             if (!t) continue;
+            const prevScaleX = parseFloat(s.params?.scale_x || "1");
+            const prevScaleY = parseFloat(s.params?.scale_y || "1");
+            const prevItemW = parseFloat(s.params?.item_width || "0");
+            const prevItemH = parseFloat(s.params?.item_height || "0");
+            const baseW = prevItemW > 0 && prevScaleX > 0 ? prevItemW / prevScaleX : 0;
+            const baseH = prevItemH > 0 && prevScaleY > 0 ? prevItemH / prevScaleY : 0;
+            const nextScaleX = baseW > 0 ? t.w / baseW : prevScaleX;
+            const nextScaleY = baseH > 0 ? t.h / baseH : prevScaleY;
             const params: Record<string, string> = {
               ...(s.params || {}),
               pos_x: t.x.toString(),
               pos_y: t.y.toString(),
               item_width: t.w.toString(),
-              item_height: t.h.toString()
+              item_height: t.h.toString(),
+              scale_x: nextScaleX.toString(),
+              scale_y: nextScaleY.toString()
             };
             if (typeof t.rot === "number") params.rot = t.rot.toString();
             if (typeof t.cropL === "number") params.crop_left = t.cropL.toString();
