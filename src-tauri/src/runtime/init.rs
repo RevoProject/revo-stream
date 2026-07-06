@@ -195,6 +195,22 @@ pub(crate) fn start(
 			return Err("obs_startup failed".to_string());
 		}
 
+		// Stworz transition source — dzieki niemu zmiany scen sa widoczne w recording/streaming
+		if runtime.transition_source.is_null() {
+			let transition_id = std::ffi::CString::new("cut_transition").unwrap();
+			let transition_name = std::ffi::CString::new("revo_transition").unwrap();
+			let transition = revo_lib::obs::obs_source_create(
+				transition_id.as_ptr(),
+				transition_name.as_ptr(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			);
+			if !transition.is_null() {
+				revo_lib::obs::obs_set_output_source(0, transition);
+				runtime.transition_source = transition;
+			}
+		}
+
 		let data_share_c = std::ffi::CString::new(data_share_dir.to_string_lossy().as_bytes())
 			.map_err(|_| "data share path".to_string())?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
@@ -330,6 +346,10 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	super::helpers::stop_streaming_internal(&mut runtime);
 	cleanup_scene(&mut runtime);
 	unsafe {
+		if !runtime.transition_source.is_null() {
+			revo_lib::obs::obs_source_release(runtime.transition_source);
+			runtime.transition_source = std::ptr::null_mut();
+		}
 		revo_lib::obs::obs_shutdown();
 	}
 	runtime.initialized = false;
@@ -399,7 +419,11 @@ pub(crate) fn ensure_scene(
 		}
 
 		let scene_source = revo_lib::obs::obs_scene_get_source(scene);
-		revo_lib::obs::obs_set_output_source(0, scene_source);
+		if !runtime.transition_source.is_null() {
+			revo_lib::obs::obs_transition_set(runtime.transition_source, scene_source);
+		} else {
+			revo_lib::obs::obs_set_output_source(0, scene_source);
+		}
 		revo_lib::obs::obs_source_inc_showing(scene_source);
 
 		let mut state = crate::SceneState::new("revo_scene".to_string(), scene, scene_source);
