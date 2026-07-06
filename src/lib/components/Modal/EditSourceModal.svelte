@@ -286,18 +286,26 @@
     updateParam(mediaIsLocalFileKey, mode === "local" ? "true" : "false");
   }
 
-  async function chooseMediaFile() {
+  async function chooseMediaFile(fieldKey?: string) {
     try {
+      const targetKey = fieldKey ?? mediaLocalFileKey;
+      // Dla image_source pokazuj tylko obrazy, dla media source - pliki video/audio
+      const filters = fieldKey === "file" && !isMediaSource
+        ? [
+            { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tiff", "tif"] },
+            { name: "All files", extensions: ["*"] }
+          ]
+        : [
+            { name: "Media files", extensions: ["mp4", "mkv", "mov", "webm", "avi", "m4v", "mp3", "wav", "flac", "ogg", "m4a"] },
+            { name: "All files", extensions: ["*"] }
+          ];
       const selected = await open({
         multiple: false,
         directory: false,
-        filters: [
-          { name: "Media files", extensions: ["mp4", "mkv", "mov", "webm", "avi", "m4v", "mp3", "wav", "flac", "ogg", "m4a"] },
-          { name: "All files", extensions: ["*"] }
-        ]
+        filters
       });
       if (typeof selected === "string" && selected.trim()) {
-        updateParam(mediaLocalFileKey, selected);
+        updateParam(targetKey, selected);
       }
     } catch {
       // no-op
@@ -739,6 +747,22 @@
                   <option value={option.value}>{option.label}</option>
                 {/each}
               </select>
+            {:else if (field.key === "file" || field.key === "path") && !isMediaSource}
+              <div class="file-input-row">
+                <input
+                  id={`param-${field.key}`}
+                  type="text"
+                  value={editParams[field.key] ?? ""}
+                  placeholder={field.placeholder}
+                  oninput={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
+                />
+                <button
+                  type="button"
+                  class="file-picker-btn"
+                  title="Browse files"
+                  on:click={() => chooseMediaFile(field.key)}
+                >📁</button>
+              </div>
             {:else}
               <input
                 id={`param-${field.key}`}
@@ -1164,6 +1188,19 @@
     align-items: center;
   }
 
+  .file-picker-btn {
+    min-width: 42px;
+    padding-inline: 0.8rem;
+    background: var(--surface-3, #2a2a3e);
+    border: 1px solid var(--border, #3a3a5a);
+    border-radius: 8px;
+    color: var(--text, #ddd);
+    cursor: pointer;
+    font-size: 1.1rem;
+  }
+  .file-picker-btn:hover {
+    background: var(--accent, #3b82f6);
+  }
   .picker-btn {
     min-width: 42px;
     padding-inline: 0.8rem;
