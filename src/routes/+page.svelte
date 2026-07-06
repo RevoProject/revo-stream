@@ -194,7 +194,8 @@
     { id: "pulse_input_capture", label: "Audio Input (Pulse)" },
     { id: "pulse_output_capture", label: "Audio Output (Pulse)" },
     { id: "pipewire_input_capture", label: "Audio Input (PipeWire)" },
-    { id: "pipewire_output_capture", label: "Audio Output (PipeWire)" }
+    { id: "pipewire_output_capture", label: "Audio Output (PipeWire)" },
+    { id: "alsa_input_capture", label: "Audio Input (ALSA)" }
   ];
 
   const builtInSourceTypeIds = new Set(sourceTypes.map((t) => t.id));
@@ -279,7 +280,8 @@
     pulse_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pipewire_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
-    pipewire_output_capture: [{ key: "device", label: "Device", placeholder: "default" }]
+    pipewire_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
+    alsa_input_capture: [{ key: "device_id", label: "Device", placeholder: "default" }]
   };
 
     let fontOptions: string[] = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];
@@ -4529,6 +4531,22 @@
           audioOutputDevices = await invoke("obs_list_pulse_devices", { kind: "output" });
           if ((!editParams.device || !String(editParams.device).trim()) && audioOutputDevices.length) {
             editParams = { ...editParams, device: String(audioOutputDevices[0].id ?? "") };
+          }
+        } else if (editType === "alsa_input_capture") {
+          const alsaDevices = await invoke<AudioDevice[]>("obs_list_alsa_devices");
+          if (alsaDevices.length) {
+            sourcePropertySpecs = [
+              ...sourcePropertySpecs,
+              {
+                key: "device_id",
+                label: "Device",
+                kind: "list",
+                options: alsaDevices.map((d) => ({ value: d.id, label: d.name }))
+              }
+            ];
+            if (!editParams.device_id) {
+              editParams = { ...editParams, device_id: alsaDevices[0].id };
+            }
           }
         }
       } catch (err) {

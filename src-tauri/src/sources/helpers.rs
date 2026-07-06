@@ -851,7 +851,8 @@ pub(crate) fn apply_source_params(
 				}
 			}
 			"pulse_input_capture" | "pulse_output_capture"
-			| "pipewire_input_capture" | "pipewire_output_capture" => {
+			| "pipewire_input_capture" | "pipewire_output_capture"
+			| "alsa_input_capture" => {
 				if let Some(device) = params.get("device") {
 					let key = std::ffi::CString::new("device_id").unwrap();
 					let val = std::ffi::CString::new(device.as_str()).unwrap();
