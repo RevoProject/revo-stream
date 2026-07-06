@@ -117,6 +117,11 @@ fn obs_list_pulse_devices(kind: String) -> Result<Vec<AudioDevice>, String> {
 }
 
 #[tauri::command]
+fn obs_list_alsa_devices() -> Result<Vec<AudioDevice>, String> {
+    devices::audio::list_alsa_devices()
+}
+
+#[tauri::command]
 fn obs_list_window_picker_items() -> Result<Vec<SourceTypeItem>, String> {
     sources::window_picker::list_window_picker_items()
 }
@@ -723,6 +728,7 @@ pub fn run() {
             obs_get_graphic_planner_init,
             obs_set_graphic_planner_init,
             obs_list_pulse_devices,
+            obs_list_alsa_devices,
             obs_get_settings_select_options,
             obs_list_window_picker_items,
             obs_list_system_fonts,
