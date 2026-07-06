@@ -2,6 +2,7 @@ pub(crate) fn start_recording(
 	state: tauri::State<crate::ObsState>,
 	output_path: String,
 ) -> Result<String, String> {
+	eprintln!("[record] start_recording...");
 	let mut runtime = state
 		.runtime
 		.lock()
@@ -14,15 +15,18 @@ pub(crate) fn start_recording(
 	}
 
 	let resolved_path = super::helpers::resolve_record_path(&output_path)?;
+	eprintln!("[record] path={:?}", resolved_path);
 	let output = super::encoders::create_muxer_output_with_path(
 		resolved_path.to_string_lossy().as_ref(),
 		true,
 	);
 	if output.is_null() {
+		eprintln!("[record] FAILED to create output");
 		return Err("failed to create recording output".to_string());
 	}
 
 	let flags = unsafe { revo_lib::obs::obs_output_get_flags(output) };
+	eprintln!("[record] output flags={}", flags);
 	unsafe {
 		// Ensure recording uses at least mix 1 (bit 0), otherwise some outputs may start with video-only.
 		revo_lib::obs::obs_output_set_mixers(output, 1);

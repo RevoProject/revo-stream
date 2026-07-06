@@ -2149,8 +2149,8 @@
     }
 
     let cachedPreviewSize: { width: number; height: number } | null = null;
+    let cachedPreviewScale = 0;
     function getPreviewSize() {
-      // Gdy nagrywamy, zamroz rozmiar preview z chwili startu nagrywania
       if (isRecording || isStreaming) {
         if (cachedPreviewSize) return cachedPreviewSize;
       }
@@ -2158,8 +2158,13 @@
       const size = !isResizing ? base : { width: Math.max(160, Math.round(base.width * 0.3)), height: Math.max(90, Math.round(base.height * 0.3)) };
       if (isRecording || isStreaming) {
         cachedPreviewSize = size;
+        cachedPreviewScale = getPreviewScaleFinal();
       }
       return size;
+    }
+    function getRecordScale() {
+      if ((isRecording || isStreaming) && cachedPreviewScale > 0) return cachedPreviewScale;
+      return getPreviewScaleFinal();
     }
 
     function getPreviewIntervalMs() {
@@ -3763,6 +3768,12 @@
     } catch (err) {
       isRecording = false;
       cachedPreviewSize = null;
+      cachedPreviewScale = 0;
+      showGlobalDialog(startMsg || "Recording started", "info");
+    } catch (err) {
+      isRecording = false;
+      cachedPreviewSize = null;
+      cachedPreviewScale = 0;
       showGlobalDialog(`Recording failed: ${String(err)}`, "error");
     }
   };
@@ -3789,6 +3800,7 @@
       const stopMsg = await invoke<string>("obs_stop_recording");
       isRecording = false;
       cachedPreviewSize = null;
+      cachedPreviewScale = 0;
       showGlobalDialog(stopMsg || "Recording stopped", "info");
     } catch (err) {
       showGlobalDialog(`Failed to stop recording: ${String(err)}`, "error");
@@ -7224,7 +7236,7 @@
         {:else}
           <div
             class="live-preview"
-            style={`--preview-scale:${getPreviewScaleFinal()};`}
+            style={`--preview-scale:${getRecordScale()};`}
             on:dblclick={openSourceTransformModal}
             role="button"
             tabindex="0"
