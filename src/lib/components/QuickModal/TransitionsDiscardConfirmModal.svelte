@@ -54,15 +54,15 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={onCancel} on:keydown={(e) => e.stopPropagation()}>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={onCancel} onkeydown={(e) => e.stopPropagation()}>
     <div
       class="quick-text-modal stream-confirm-modal"
       role="dialog"
       tabindex="0"
       aria-modal="true"
       aria-label="Discard transition changes"
-      on:click|stopPropagation
-      on:keydown={(e) => {
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
         e.stopPropagation();
         handleModalKeydown(e);
       }}
@@ -72,8 +72,8 @@
       </div>
       <p class="stream-confirm-copy">Discard unsaved Transition changes?</p>
       <div class="stream-confirm-actions">
-        <button bind:this={cancelBtnEl} type="button" class="stream-confirm-btn ghost" on:click={onCancel}>Back to Transitions</button>
-        <button bind:this={confirmBtnEl} type="button" class="stream-confirm-btn primary" on:click={onConfirm}>Discard</button>
+        <button bind:this={cancelBtnEl} type="button" class="stream-confirm-btn ghost" onclick={onCancel}>Back to Transitions</button>
+        <button bind:this={confirmBtnEl} type="button" class="stream-confirm-btn primary" onclick={onConfirm}>Discard</button>
       </div>
     </div>
   </div>

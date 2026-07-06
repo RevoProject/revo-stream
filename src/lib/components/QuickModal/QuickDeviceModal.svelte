@@ -16,10 +16,10 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={onClose} on:keydown={(e) => handleBackdropKey(e, onClose)}>
-    <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Quick device" on:click|stopPropagation on:keydown|stopPropagation>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={onClose} onkeydown={(e) => handleBackdropKey(e, onClose)}>
+    <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Quick device" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <h3>Select device</h3>
-      <select value={value} on:change={(e) => onValueChange((e.currentTarget as HTMLSelectElement).value)}>
+      <select value={value} onchange={(e) => onValueChange((e.currentTarget as HTMLSelectElement).value)}>
         {#if !options.length}
           <option value="">Default</option>
         {/if}
@@ -30,7 +30,7 @@
       {#if showMonitoring}
         <div class="field">
           <label for="quick-monitoring">Audio monitoring</label>
-          <select id="quick-monitoring" value={monitoring} on:change={(e) => onMonitoringChange((e.currentTarget as HTMLSelectElement).value)}>
+          <select id="quick-monitoring" value={monitoring} onchange={(e) => onMonitoringChange((e.currentTarget as HTMLSelectElement).value)}>
             {#each monitoringOptions as option}
               <option value={option.value}>{option.label}</option>
             {/each}
@@ -38,8 +38,8 @@
         </div>
       {/if}
       <div class="quick-text-actions">
-        <button class="ghost" on:click={onClose}>Cancel</button>
-        <button class="primary" on:click={onSave}>Save</button>
+        <button class="ghost" onclick={onClose}>Cancel</button>
+        <button class="primary" onclick={onSave}>Save</button>
       </div>
     </div>
   </div>

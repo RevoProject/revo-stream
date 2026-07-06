@@ -287,10 +287,10 @@
 
 <div
   class="transform-modal-bg"
-  on:click={() => onClose()}
+  onclick={() => onClose()}
   role="button"
   tabindex="0"
-  on:keydown={(e) => {
+  onkeydown={(e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onClose();
@@ -300,13 +300,13 @@
 ></div>
 <div class="transform-modal">
   <h2>Manual Scene Edit</h2>
-  <div class="scene-viewport" role="presentation" on:mousedown={() => (activeId = null)}>
+  <div class="scene-viewport" role="presentation" onmousedown={() => (activeId = null)}>
     <div class="scene-canvas-shell" style={`width:${getSceneSize().width * sceneScale}px;height:${getSceneSize().height * sceneScale}px;`}>
       <div
         class="scene-canvas"
         bind:this={sceneCanvasEl}
         style={`width:${getSceneSize().width}px;height:${getSceneSize().height}px;transform:scale(${sceneScale});`}
-        on:mousedown|stopPropagation
+        onmousedown={(e) => e.stopPropagation()}
         role="presentation"
       >
         {#each sources as s (s.id)}
@@ -315,10 +315,10 @@
               class="source-box"
               class:active={activeId === s.id}
               style={`left:${transforms[s.id].x}px;top:${transforms[s.id].y}px;width:${transforms[s.id].w}px;height:${transforms[s.id].h}px;`}
-              on:mousedown={(e) => beginMove(e, s.id)}
+              onmousedown={(e) => beginMove(e, s.id)}
               role="button"
               tabindex="0"
-              on:keydown={(e) => {
+              onkeydown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   activeId = s.id;
@@ -328,14 +328,14 @@
             >
               <div class="source-label">{s.name}</div>
               <div class="crop-overlay" style={`inset:${transforms[s.id].cropT}px ${transforms[s.id].cropR}px ${transforms[s.id].cropB}px ${transforms[s.id].cropL}px;`}></div>
-              <div class="resize-handle n" on:mousedown={(e) => beginResize(e, s.id, "n")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle s" on:mousedown={(e) => beginResize(e, s.id, "s")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle e" on:mousedown={(e) => beginResize(e, s.id, "e")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle w" on:mousedown={(e) => beginResize(e, s.id, "w")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle ne" on:mousedown={(e) => beginResize(e, s.id, "ne")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle nw" on:mousedown={(e) => beginResize(e, s.id, "nw")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle se" on:mousedown={(e) => beginResize(e, s.id, "se")} role="presentation" tabindex="-1" aria-hidden="true"></div>
-              <div class="resize-handle sw" on:mousedown={(e) => beginResize(e, s.id, "sw")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle n" onmousedown={(e) => beginResize(e, s.id, "n")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle s" onmousedown={(e) => beginResize(e, s.id, "s")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle e" onmousedown={(e) => beginResize(e, s.id, "e")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle w" onmousedown={(e) => beginResize(e, s.id, "w")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle ne" onmousedown={(e) => beginResize(e, s.id, "ne")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle nw" onmousedown={(e) => beginResize(e, s.id, "nw")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle se" onmousedown={(e) => beginResize(e, s.id, "se")} role="presentation" tabindex="-1" aria-hidden="true"></div>
+              <div class="resize-handle sw" onmousedown={(e) => beginResize(e, s.id, "sw")} role="presentation" tabindex="-1" aria-hidden="true"></div>
             </div>
           {/if}
         {/each}
@@ -343,8 +343,8 @@
     </div>
   </div>
   <div style="display: flex; gap: 1.2rem; margin-top: 1.2rem;">
-    <button on:click={() => onClose()}>Close</button>
-    <button on:click={() => onSave(transforms)}>Save</button>
+    <button onclick={() => onClose()}>Close</button>
+    <button onclick={() => onSave(transforms)}>Save</button>
   </div>
   <div class="hint">Przeciągaj źródła myszką. Uchwyty skalują źródło, a <b>Alt + uchwyt</b> działa jak crop. Strzałki przesuwają zaznaczony element (Ctrl/Cmd = 1px, Shift = 20px).</div>
 </div>

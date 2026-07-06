@@ -11,23 +11,23 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={onClose} on:keydown={(e) => handleBackdropKey(e, onClose)}>
-    <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Quick color" on:click|stopPropagation on:keydown|stopPropagation>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={onClose} onkeydown={(e) => handleBackdropKey(e, onClose)}>
+    <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Quick color" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <h3>Change color</h3>
       <div class="quick-color-row">
-        <input type="text" value={value} placeholder="#ffffff" on:input={(e) => onValueChange(normalizeColor((e.currentTarget as HTMLInputElement).value))} />
-        <input type="color" value={normalizeColor(value)} on:input={(e) => onValueChange(normalizeColor((e.currentTarget as HTMLInputElement).value))} />
+        <input type="text" value={value} placeholder="#ffffff" oninput={(e) => onValueChange(normalizeColor((e.currentTarget as HTMLInputElement).value))} />
+        <input type="color" value={normalizeColor(value)} oninput={(e) => onValueChange(normalizeColor((e.currentTarget as HTMLInputElement).value))} />
       </div>
       {#if recent.length}
         <div class="quick-color-history">
           {#each recent as color}
-            <button type="button" class="quick-color-chip" title={color} style={`background:${color};`} on:click={() => onValueChange(color)}></button>
+            <button type="button" class="quick-color-chip" title={color} style={`background:${color};`} onclick={() => onValueChange(color)}></button>
           {/each}
         </div>
       {/if}
       <div class="quick-text-actions">
-        <button class="ghost" on:click={onClose}>Cancel</button>
-        <button class="primary" on:click={onSave}>Save</button>
+        <button class="ghost" onclick={onClose}>Cancel</button>
+        <button class="primary" onclick={onSave}>Save</button>
       </div>
     </div>
   </div>

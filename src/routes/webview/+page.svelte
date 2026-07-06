@@ -158,9 +158,9 @@
 <div class="root">
   <div class="bar">
     <input bind:value={inputUrl} aria-label="Webview URL" />
-    <button on:click={() => applyUrl(inputUrl)}>Go</button>
-    <button on:click={refresh}>Refresh</button>
-    <button on:click={openExternal}>Open</button>
+    <button onclick={() => applyUrl(inputUrl)}>Go</button>
+    <button onclick={refresh}>Refresh</button>
+    <button onclick={openExternal}>Open</button>
   </div>
 
   <div class="body">
@@ -170,7 +170,7 @@
       <iframe
         src={targetUrl}
         title="Webview iframe fallback"
-        on:load={() => {
+        onload={() => {
           frameLoaded = true;
           frameBlocked = false;
         }}
@@ -183,7 +183,7 @@
         {#if frameError}
           <p>{frameError}</p>
         {/if}
-        <button on:click={openExternal}>Open page directly</button>
+        <button onclick={openExternal}>Open page directly</button>
       </div>
     {/if}
   </div>

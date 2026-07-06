@@ -282,11 +282,11 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={close} on:keydown={(e) => e.key === "Escape" && close()}>
-    <div class="modal" role="dialog" aria-modal="true" tabindex="0" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.stopPropagation()}>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={close} onkeydown={(e) => e.key === "Escape" && close()}>
+    <div class="modal" role="dialog" aria-modal="true" tabindex="0" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <header class="filters-header">
         <h2>{targetType === "source" ? "Graphic Filters" : "Scene Filters"}</h2>
-        <button class="close-x" on:click={close} aria-label="Close filters">✕</button>
+        <button class="close-x" onclick={close} aria-label="Close filters">✕</button>
       </header>
       <p class="muted">{targetLabel}</p>
 
@@ -303,36 +303,36 @@
                   class:locked={Boolean(filter.locked)}
                   role="button"
                   tabindex="0"
-                  on:click={() => (selectedFilterId = filter.id)}
-                  on:keydown={(e) => {
+                  onclick={() => (selectedFilterId = filter.id)}
+                  onkeydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       selectedFilterId = filter.id;
                     }
                   }}
-                  on:contextmenu={(e) => openContextMenu(e, filter.id)}
+                  oncontextmenu={(e) => openContextMenu(e, filter.id)}
                 >
                   {#if renamingFilterId === filter.id}
                     <input
                       class="filter-chip-rename"
                       value={renameValue}
-                      on:input={(e) => (renameValue = (e.currentTarget as HTMLInputElement).value)}
-                      on:blur={() => commitRenameFilter(filter.id)}
-                      on:keydown={(e) => {
+                      oninput={(e) => (renameValue = (e.currentTarget as HTMLInputElement).value)}
+                      onblur={() => commitRenameFilter(filter.id)}
+                      onkeydown={(e) => {
                         if (e.key === "Enter") commitRenameFilter(filter.id);
                         if (e.key === "Escape") renamingFilterId = null;
                       }}
                     />
                   {:else}
-                    <button class="filter-chip" on:click={() => (selectedFilterId = filter.id)}>{filter.name.trim() || `Filter ${index + 1}`}</button>
+                    <button class="filter-chip" onclick={() => (selectedFilterId = filter.id)}>{filter.name.trim() || `Filter ${index + 1}`}</button>
                   {/if}
                   <div class="filter-order-actions">
-                    <button class="order-btn" aria-label="Move filter up" disabled={filter.locked || index === 0} on:click={() => moveFilter(filter.id, "up")}> 
+                    <button class="order-btn" aria-label="Move filter up" disabled={filter.locked || index === 0} onclick={() => moveFilter(filter.id, "up")}> 
                       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
                         <path d="M6 2 L2.2 6.3 H4.7 V10 H7.3 V6.3 H9.8 Z" fill="currentColor" />
                       </svg>
                     </button>
-                    <button class="order-btn" aria-label="Move filter down" disabled={filter.locked || index === draft.length - 1} on:click={() => moveFilter(filter.id, "down")}> 
+                    <button class="order-btn" aria-label="Move filter down" disabled={filter.locked || index === draft.length - 1} onclick={() => moveFilter(filter.id, "down")}> 
                       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
                         <path d="M6 10 L9.8 5.7 H7.3 V2 H4.7 V5.7 H2.2 Z" fill="currentColor" />
                       </svg>
@@ -353,13 +353,13 @@
               <option value="scroll">Scroll</option>
               <option value="custom">Custom</option>
             </select>
-            <button class="primary" on:click={addFilter}>Add Filter</button>
+            <button class="primary" onclick={addFilter}>Add Filter</button>
           </div>
         </aside>
 
         <section class="filters-main">
           <div class="filters-main-toolbar">
-            <button class="default-settings-btn" on:click={resetSelectedFilterToDefaults} disabled={!selectedFilter || Boolean(selectedFilter?.locked)}>Default filter settings</button>
+            <button class="default-settings-btn" onclick={resetSelectedFilterToDefaults} disabled={!selectedFilter || Boolean(selectedFilter?.locked)}>Default filter settings</button>
           </div>
           <div class="filters-preview-panel">
             <div class="filters-preview-viewport">
@@ -382,7 +382,7 @@
                         type="checkbox"
                         checked={isTruthy((selectedFilter.params ?? {})[field.key] ?? field.defaultValue)}
                         disabled={Boolean(selectedFilter.locked)}
-                        on:change={(e) => updateFilterPresetField(selectedFilter.id, field.key, (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
+                        onchange={(e) => updateFilterPresetField(selectedFilter.id, field.key, (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
                       />
                     </label>
                   {:else}
@@ -396,7 +396,7 @@
                         step={field.step}
                         value={(selectedFilter.params ?? {})[field.key] ?? field.defaultValue}
                         disabled={Boolean(selectedFilter.locked)}
-                        on:input={(e) => updateFilterPresetField(selectedFilter.id, field.key, (e.currentTarget as HTMLInputElement).value)}
+                        oninput={(e) => updateFilterPresetField(selectedFilter.id, field.key, (e.currentTarget as HTMLInputElement).value)}
                       />
                     </div>
                   {/if}
@@ -406,8 +406,8 @@
               {:else}
                 {#each Object.entries(selectedFilter.params ?? {}) as [key, value]}
                   <div class="row two-col">
-                    <input value={key} disabled={Boolean(selectedFilter.locked)} on:input={(e) => renameParam(selectedFilter.id, key, (e.currentTarget as HTMLInputElement).value)} />
-                    <input value={value} disabled={Boolean(selectedFilter.locked)} on:input={(e) => setParam(selectedFilter.id, key, (e.currentTarget as HTMLInputElement).value)} />
+                    <input value={key} disabled={Boolean(selectedFilter.locked)} oninput={(e) => renameParam(selectedFilter.id, key, (e.currentTarget as HTMLInputElement).value)} />
+                    <input value={value} disabled={Boolean(selectedFilter.locked)} oninput={(e) => setParam(selectedFilter.id, key, (e.currentTarget as HTMLInputElement).value)} />
                   </div>
                 {/each}
               {/if}
@@ -423,23 +423,23 @@
       {#if contextMenu.open && contextMenu.filterId}
         {@const ctxFilter = draft.find((f) => f.id === contextMenu.filterId)}
         <div class="context-menu" style={`top:${contextMenu.y}px; left:${contextMenu.x}px;`} role="menu">
-          <button on:click={() => {
+          <button onclick={() => {
             if (contextMenu.filterId) removeFilter(contextMenu.filterId);
             closeContextMenu();
           }}>Remove</button>
-          <button on:click={() => {
+          <button onclick={() => {
             if (contextMenu.filterId) startRenameFilter(contextMenu.filterId);
           }}>Rename</button>
-          <button on:click={() => {
+          <button onclick={() => {
             if (contextMenu.filterId) toggleFilterLock(contextMenu.filterId);
           }}>{ctxFilter?.locked ? "Unlock source" : "Lock source"}</button>
         </div>
-        <div class="context-overlay" role="button" tabindex="0" on:click={closeContextMenu} on:keydown={(e) => e.key === "Escape" && closeContextMenu()}></div>
+        <div class="context-overlay" role="button" tabindex="0" onclick={closeContextMenu} onkeydown={(e) => e.key === "Escape" && closeContextMenu()}></div>
       {/if}
 
       <footer>
-        <button class="ghost" on:click={close}>Cancel</button>
-        <button class="primary" on:click={save}>Save</button>
+        <button class="ghost" onclick={close}>Cancel</button>
+        <button class="primary" onclick={save}>Save</button>
       </footer>
     </div>
   </div>

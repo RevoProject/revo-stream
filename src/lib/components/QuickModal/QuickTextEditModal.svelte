@@ -17,7 +17,7 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={onClose} on:keydown={(e) => handleBackdropKey(e, onClose)}>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={onClose} onkeydown={(e) => handleBackdropKey(e, onClose)}>
     <div
       class="quick-text-modal"
       class:draggable-popup={allowDraggablePopups && !openAdditionalSettingsInWindows}
@@ -27,18 +27,18 @@
       aria-modal="true"
       aria-label="Text edit"
       style={`--quick-text-dx:${dragX}px; --quick-text-dy:${dragY}px;`}
-      on:pointerdown={beginDrag}
-      on:pointermove={moveDrag}
-      on:pointerup={endDrag}
-      on:pointercancel={endDrag}
-      on:click|stopPropagation
-      on:keydown|stopPropagation
+      onpointerdown={beginDrag}
+      onpointermove={moveDrag}
+      onpointerup={endDrag}
+      onpointercancel={endDrag}
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <h3>Text Edit</h3>
-      <textarea rows="2" value={value} placeholder="Enter text..." on:input={(e) => onValueChange((e.currentTarget as HTMLTextAreaElement).value)}></textarea>
+      <textarea rows="2" value={value} placeholder="Enter text..." oninput={(e) => onValueChange((e.currentTarget as HTMLTextAreaElement).value)}></textarea>
       <div class="quick-text-actions">
-        <button class="ghost" on:click={onClose}>Cancel</button>
-        <button class="primary" on:click={onSave}>Save</button>
+        <button class="ghost" onclick={onClose}>Cancel</button>
+        <button class="primary" onclick={onSave}>Save</button>
       </div>
     </div>
   </div>

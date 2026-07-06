@@ -12,7 +12,7 @@
 {#if open && sourceId}
   <div class="context-menu audio-mixer-context-menu" style={`top:${y}px; left:${x}px;`} role="menu">
     <button
-      on:click={() => {
+      onclick={() => {
         onOpenFilters(sourceId);
         onClose();
       }}
@@ -20,7 +20,7 @@
       Audio Filters
     </button>
     <button
-      on:click={() => {
+      onclick={() => {
         onOpenAdvanced(sourceId);
         onClose();
       }}
@@ -28,7 +28,7 @@
       Advanced Audio Properties
     </button>
   </div>
-  <div class="context-overlay audio-mixer-menu-overlay" role="button" tabindex="0" on:click={onClose} on:keydown={(e) => handleBackdropKey(e, onClose)}></div>
+  <div class="context-overlay audio-mixer-menu-overlay" role="button" tabindex="0" onclick={onClose} onkeydown={(e) => handleBackdropKey(e, onClose)}></div>
 {/if}
 
 <style>

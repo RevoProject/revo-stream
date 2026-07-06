@@ -54,15 +54,15 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={() => onAnswer(false)} on:keydown={(e) => e.stopPropagation()}>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={() => onAnswer(false)} onkeydown={(e) => e.stopPropagation()}>
     <div
       class="quick-text-modal stream-confirm-modal"
       role="dialog"
       tabindex="0"
       aria-modal="true"
       aria-label={ariaLabel}
-      on:click|stopPropagation
-      on:keydown={(e) => {
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
         e.stopPropagation();
         handleModalKeydown(e);
       }}
@@ -72,8 +72,8 @@
       </div>
       <p class="stream-confirm-copy">{message}</p>
       <div class="stream-confirm-actions">
-        <button bind:this={cancelBtnEl} type="button" class="stream-confirm-btn ghost" on:click={() => onAnswer(false)}>{cancelLabel}</button>
-        <button bind:this={confirmBtnEl} type="button" class="stream-confirm-btn primary" on:click={() => onAnswer(true)}>{confirmLabel}</button>
+        <button bind:this={cancelBtnEl} type="button" class="stream-confirm-btn ghost" onclick={() => onAnswer(false)}>{cancelLabel}</button>
+        <button bind:this={confirmBtnEl} type="button" class="stream-confirm-btn primary" onclick={() => onAnswer(true)}>{confirmLabel}</button>
       </div>
     </div>
   </div>
