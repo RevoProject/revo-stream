@@ -54,7 +54,7 @@
 </script>
 
 {#if open}
-  <div class="modal-backdrop" role="button" tabindex="0" on:click={closeAudioMixer} on:keydown={(e) => handleBackdropKey(e, closeAudioMixer)}>
+  <div class="modal-backdrop" role="button" tabindex="0" onclick={closeAudioMixer} onkeydown={(e) => handleBackdropKey(e, closeAudioMixer)}>
     <div
       class="audio-mixer-modal"
       class:draggable-popup={allowDraggablePopups && !openAdditionalSettingsInWindows}
@@ -64,10 +64,10 @@
       aria-modal="true"
       aria-label="Audio mixer"
       style={`--audio-mixer-dx:${audioMixerDragX}px; --audio-mixer-dy:${audioMixerDragY}px;`}
-      on:pointerdown={beginAudioMixerDrag}
-      on:pointermove={moveAudioMixerDrag}
-      on:pointerup={endAudioMixerDrag}
-      on:pointercancel={endAudioMixerDrag}
+      onpointerdown={beginAudioMixerDrag}
+      onpointermove={moveAudioMixerDrag}
+      onpointerup={endAudioMixerDrag}
+      onpointercancel={endAudioMixerDrag}
       on:click|stopPropagation
       on:keydown|stopPropagation
     >
@@ -75,10 +75,10 @@
         <h3>Audio Mixer</h3>
         <div class="audio-mixer-header-actions">
           <div class="audio-mixer-orientation">
-            <button class:active={audioMixerOrientation === "vertical"} on:click={() => setAudioMixerOrientation("vertical")}>Vertical</button>
-            <button class:active={audioMixerOrientation === "horizontal"} on:click={() => setAudioMixerOrientation("horizontal")}>Horizontal</button>
+            <button class:active={audioMixerOrientation === "vertical"} onclick={() => setAudioMixerOrientation("vertical")}>Vertical</button>
+            <button class:active={audioMixerOrientation === "horizontal"} onclick={() => setAudioMixerOrientation("horizontal")}>Horizontal</button>
           </div>
-          <button class="modal-close-x" aria-label="Close audio mixer" on:click={closeAudioMixer}>✕</button>
+          <button class="modal-close-x" aria-label="Close audio mixer" onclick={closeAudioMixer}>✕</button>
         </div>
       </div>
 
@@ -95,15 +95,15 @@
                   <input
                     class="audio-mixer-rename-input"
                     value={audioMixerRenameValue}
-                    on:input={(e) => setAudioMixerRenameValue((e.currentTarget as HTMLInputElement).value)}
-                    on:blur={() => void commitAudioMixerRename(source.id)}
-                    on:keydown={(e) => {
+                    oninput={(e) => setAudioMixerRenameValue((e.currentTarget as HTMLInputElement).value)}
+                    onblur={() => void commitAudioMixerRename(source.id)}
+                    onkeydown={(e) => {
                       if (e.key === "Enter") void commitAudioMixerRename(source.id);
                       if (e.key === "Escape") setAudioMixerRenameSourceId(null);
                     }}
                   />
                 {:else}
-                  <button class="audio-mixer-source-name" on:dblclick={() => startAudioMixerRename(source.id, source.name)}>{source.name}</button>
+                  <button class="audio-mixer-source-name" ondblclick={() => startAudioMixerRename(source.id, source.name)}>{source.name}</button>
                 {/if}
 
                 <div class="audio-mixer-strip-actions">
@@ -111,11 +111,11 @@
                     class="mini mute-btn"
                     class:muted={audioMixerMuted[source.id]}
                     aria-label={audioMixerMuted[source.id] ? "Unmute" : "Mute"}
-                    on:click={() => void toggleAudioMixerMute(source.id)}
+                    onclick={() => void toggleAudioMixerMute(source.id)}
                   >
                     {audioMixerMuted[source.id] ? "🔇" : "🔊"}
                   </button>
-                  <button class="mini" on:click={(e) => openAudioMixerContextMenu(e, source.id)} on:contextmenu={(e) => openAudioMixerContextMenu(e, source.id)}>⋯</button>
+                  <button class="mini" onclick={(e) => openAudioMixerContextMenu(e, source.id)} oncontextmenu={(e) => openAudioMixerContextMenu(e, source.id)}>⋯</button>
                 </div>
               </div>
 
@@ -126,8 +126,8 @@
 
                 <div class="audio-mixer-volume-controls" class:vertical={audioMixerOrientation === "vertical"}>
                   <div class="audio-mixer-volume-mode">
-                    <button class:active={state.volumeMode === "percent"} on:click={() => void setAudioMixerVolumeMode(source.id, "percent")}>%</button>
-                    <button class:active={state.volumeMode === "db"} on:click={() => void setAudioMixerVolumeMode(source.id, "db")}>dB</button>
+                    <button class:active={state.volumeMode === "percent"} onclick={() => void setAudioMixerVolumeMode(source.id, "percent")}>%</button>
+                    <button class:active={state.volumeMode === "db"} onclick={() => void setAudioMixerVolumeMode(source.id, "db")}>dB</button>
                   </div>
                   {#if state.volumeMode === "percent"}
                     <div class="audio-mixer-slider-row" class:vertical={audioMixerOrientation === "vertical"}>
@@ -138,8 +138,8 @@
                         step="1"
                         value={state.volumePercent}
                         disabled={state.locked}
-                        on:input={(e) => setAudioMixerVolumePercentLocal(source.id, Number((e.currentTarget as HTMLInputElement).value))}
-                        on:change={() => void commitAudioMixerVolumePercent(source.id)}
+                        oninput={(e) => setAudioMixerVolumePercentLocal(source.id, Number((e.currentTarget as HTMLInputElement).value))}
+                        onchange={() => void commitAudioMixerVolumePercent(source.id)}
                       />
                       <span>{Math.round(state.volumePercent)}%</span>
                     </div>
@@ -152,15 +152,15 @@
                         step="0.1"
                         value={state.volumeDb}
                         disabled={state.locked}
-                        on:input={(e) => setAudioMixerVolumeDbLocal(source.id, Number((e.currentTarget as HTMLInputElement).value))}
-                        on:change={() => void commitAudioMixerVolumeDb(source.id)}
+                        oninput={(e) => setAudioMixerVolumeDbLocal(source.id, Number((e.currentTarget as HTMLInputElement).value))}
+                        onchange={() => void commitAudioMixerVolumeDb(source.id)}
                       />
                       <span>{formatAudioMixerDb(state.volumeDb)}</span>
                     </div>
                   {/if}
                 </div>
 
-                <button class="audio-mixer-lock-btn" aria-label={state.locked ? "Unlock volume" : "Lock volume"} title={state.locked ? "Unlock volume" : "Lock volume"} on:click={() => void toggleAudioMixerLock(source.id)}>{state.locked ? "🔒" : "🔓"}</button>
+                <button class="audio-mixer-lock-btn" aria-label={state.locked ? "Unlock volume" : "Lock volume"} title={state.locked ? "Unlock volume" : "Lock volume"} onclick={() => void toggleAudioMixerLock(source.id)}>{state.locked ? "🔒" : "🔓"}</button>
               </div>
             </article>
           {/each}

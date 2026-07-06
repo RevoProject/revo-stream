@@ -3764,10 +3764,6 @@
       const startMsg = await invoke<string>("obs_start_recording", { outputPath: recordPath.trim() });
       isRecording = true;
       cachedPreviewSize = null;
-      showGlobalDialog(startMsg || "Recording started", "info");
-    } catch (err) {
-      isRecording = false;
-      cachedPreviewSize = null;
       cachedPreviewScale = 0;
       showGlobalDialog(startMsg || "Recording started", "info");
     } catch (err) {
@@ -6224,6 +6220,20 @@
     await openSourceTransformModal();
   };
 
+  const openPreviewInWindow = () => {
+    const previewImg = previewFrameEl?.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
+    const src = previewImg?.src ?? previewUrl;
+    if (!src || src === previewUrl) {
+      // Preview URL is data: URI or file:// — embed in a simple HTML page
+      const html = src?.startsWith("data:")
+        ? `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`
+        : `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh">${src ? `<img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain">` : "No preview"}</body></html>`;
+      window.open("data:text/html;charset=utf-8," + encodeURIComponent(html), "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
+    } else {
+      window.open(src, "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
+    }
+  };
+
   const openAppContextMenu = (event: MouseEvent) => {
     if (!useCustomContextMenu) return;
     if (event.defaultPrevented) return;
@@ -6446,12 +6456,12 @@
 </script>
 
 <svelte:window
-  on:contextmenu={openAppContextMenu}
-  on:click={() => {
+  oncontextmenu={openAppContextMenu}
+  onclick={() => {
     closeAppContextMenu();
     closePreviewMenu();
   }}
-  on:keydown={(e) => {
+  onkeydown={(e) => {
     const ctrlQuestion = e.ctrlKey && (e.key === "?" || e.key === "/" || (e.key === "/" && e.shiftKey));
 
     if (isModalKeyboardScopeActive(e.target)) {
@@ -6563,8 +6573,8 @@
     class="modal-backdrop"
     role="button"
     tabindex="0"
-    on:click={() => (showKeyboardShortcutsHelp = false)}
-    on:keydown={(e) => handleBackdropKey(e, () => {
+    onclick={() => (showKeyboardShortcutsHelp = false)}
+    onkeydown={(e) => handleBackdropKey(e, () => {
       showKeyboardShortcutsHelp = false;
     })}
   >
@@ -6574,8 +6584,8 @@
       tabindex="-1"
       aria-modal="true"
       aria-label="Keyboard shortcuts"
-      on:click|stopPropagation
-      on:keydown|stopPropagation
+      onclick|stopPropagation
+      onkeydown|stopPropagation
     >
       <h3>Keyboard shortcuts</h3>
       <div class="shortcuts-help-list">
@@ -6589,7 +6599,7 @@
         <div><span>Tab / Shift + Tab</span><span>Move focus forward/backward</span></div>
       </div>
       <div class="quick-text-actions">
-        <button class="primary" on:click={() => (showKeyboardShortcutsHelp = false)}>Close</button>
+        <button class="primary" onclick={() => (showKeyboardShortcutsHelp = false)}>Close</button>
       </div>
     </div>
   </div>
@@ -6689,7 +6699,6 @@
     }
     .global-dialog-inner .icon {
       font-size: 1.45rem;
-      filter: drop-shadow(0 0 2px #f59e0b);
     }
 
     .stream-confirm-modal {
@@ -7101,12 +7110,12 @@
   />
 
   {#if showTemplatesFutureDialog}
-    <div class="modal-backdrop" role="button" tabindex="0" on:click={closeTemplatesDialog} on:keydown={(e) => handleBackdropKey(e, closeTemplatesDialog)}>
-      <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Templates availability" on:click|stopPropagation on:keydown|stopPropagation>
+    <div class="modal-backdrop" role="button" tabindex="0" onclick={closeTemplatesDialog} onkeydown={(e) => handleBackdropKey(e, closeTemplatesDialog)}>
+      <div class="quick-text-modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Templates availability" onclick|stopPropagation onkeydown|stopPropagation>
         <h3>Templates</h3>
         <p class="muted">Future will be available on newer versions.</p>
         <div class="quick-text-actions">
-          <button class="primary" on:click={closeTemplatesDialog}>OK</button>
+          <button class="primary" onclick={closeTemplatesDialog}>OK</button>
         </div>
       </div>
     </div>
@@ -7115,9 +7124,9 @@
   {#if useCustomContextMenu && appContextMenu.open}
     <div class="context-menu app-context-menu" style={`top:${appContextMenu.y}px; left:${appContextMenu.x}px;`} role="menu">
       {#if isReleaseBuild}
-        <button on:click={openHomepage}>Homepage</button>
+        <button onclick={openHomepage}>Homepage</button>
       {:else}
-        <button on:click={reloadApp}>Reload</button>
+        <button onclick={reloadApp}>Reload</button>
       {/if}
       {#if canInspect}
         <button class="disabled">Inspect</button>
@@ -7125,7 +7134,7 @@
       <button
         class:disabled={!canUseForceClose()}
         title={canUseForceClose() ? "Force close all app windows" : "Stop streaming/recording first"}
-        on:click={() => void forceCloseFromContextMenu()}
+        onclick={() => void forceCloseFromContextMenu()}
       >
         Force close
       </button>
@@ -7134,38 +7143,39 @@
       class="context-overlay"
       role="button"
       tabindex="0"
-      on:click={closeAppContextMenu}
-      on:keydown={(e) => handleBackdropKey(e, closeAppContextMenu)}
+      onclick={closeAppContextMenu}
+      onkeydown={(e) => handleBackdropKey(e, closeAppContextMenu)}
     ></div>
   {/if}
 
   {#if previewMenu.open}
     <div class="context-menu" style={`top:${previewMenu.y}px; left:${previewMenu.x}px;`} role="menu">
-      <button on:click={() => void refreshRenderFrame()}>Refresh render</button>
-      <button on:click={() => void openGraphicPlannerFromPreviewMenu()}>Graphic planner</button>
+      <button onclick={() => void refreshRenderFrame()}>Refresh render</button>
+      <button onclick={() => void openGraphicPlannerFromPreviewMenu()}>Graphic planner</button>
+      <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Open preview in Window</button>
     </div>
     <div
       class="context-overlay"
       role="button"
       tabindex="0"
-      on:click={closePreviewMenu}
-      on:keydown={(e) => handleBackdropKey(e, closePreviewMenu)}
+      onclick={closePreviewMenu}
+      onkeydown={(e) => handleBackdropKey(e, closePreviewMenu)}
     ></div>
   {/if}
 
   {#if sourceMenu.open && sourceMenu.source}
     <div class="context-menu" style={`top:${sourceMenu.y}px; left:${sourceMenu.x}px;`} role="menu">
-      <button on:click={() => sourceMenu.source && cloneSource(sourceMenu.source)}>Clone</button>
-      <button on:click={() => sourceMenu.source && removeSource(sourceMenu.source)}>Remove</button>
-      <button on:click={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}>Filters</button>
+      <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}>Clone</button>
+      <button onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}>Remove</button>
+      <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}>Filters</button>
       {#if isBrowserSource(sourceMenu.source)}
-        <button on:click={() => sourceMenu.source && openSourceInteraction(sourceMenu.source)}>Interact</button>
+        <button onclick={() => sourceMenu.source && openSourceInteraction(sourceMenu.source)}>Interact</button>
       {:else if isTextSource(sourceMenu.source)}
-        <button on:click={() => sourceMenu.source && openTextEdit(sourceMenu.source)}>Text Edit</button>
+        <button onclick={() => sourceMenu.source && openTextEdit(sourceMenu.source)}>Text Edit</button>
       {/if}
-      <button on:click={() => sourceMenu.source && showInfo(sourceMenu.source)}>Information</button>
-      <button on:click={() => sourceMenu.source && openEditSource(sourceMenu.source)}>Edit</button>
-      <button on:click={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
+      <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}>Information</button>
+      <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}>Edit</button>
+      <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
         {sourceMenu.source?.locked ? "Unlock" : "Lock"}
       </button>
     </div>
@@ -7173,17 +7183,17 @@
       class="context-overlay"
       role="button"
       tabindex="0"
-      on:click={closeSourceMenu}
-      on:keydown={(e) => handleBackdropKey(e, closeSourceMenu)}
+      onclick={closeSourceMenu}
+      onkeydown={(e) => handleBackdropKey(e, closeSourceMenu)}
     ></div>
   {/if}
 
   {#if sceneMenu.open && sceneMenu.scene}
     <div class="context-menu" style={`top:${sceneMenu.y}px; left:${sceneMenu.x}px;`} role="menu">
-      <button on:click={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}>Clone</button>
-      <button on:click={() => sceneMenu.scene && removeScene(sceneMenu.scene)}>Remove</button>
-      <button on:click={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}>Filters</button>
-      <button on:click={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
+      <button onclick={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}>Clone</button>
+      <button onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}>Remove</button>
+      <button onclick={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}>Filters</button>
+      <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
         {sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
     </div>
@@ -7191,8 +7201,8 @@
       class="context-overlay"
       role="button"
       tabindex="0"
-      on:click={closeSceneMenu}
-      on:keydown={(e) => handleBackdropKey(e, closeSceneMenu)}
+      onclick={closeSceneMenu}
+      onkeydown={(e) => handleBackdropKey(e, closeSceneMenu)}
     ></div>
   {/if}
 
@@ -7237,7 +7247,7 @@
           <div
             class="live-preview"
             style={`--preview-scale:${getRecordScale()};`}
-            on:dblclick={openSourceTransformModal}
+            ondblclick={openSourceTransformModal}
             role="button"
             tabindex="0"
             aria-label="Open source transform modal"
@@ -7247,11 +7257,11 @@
               class="preview-frame"
               bind:this={previewFrameEl}
               style={`--preview-aspect:${getPreviewAspect()};`}
-              on:dblclick={openSourceTransformModal}
-              on:contextmenu={openPreviewMenu}
+              ondblclick={openSourceTransformModal}
+              oncontextmenu={openPreviewMenu}
               role="button"
               tabindex="0"
-              on:keydown={(e) => {
+              onkeydown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   openSourceTransformModal();
@@ -7339,19 +7349,19 @@
         <div class="tools panel-cell panel-tools" bind:this={panelToolsEl} tabindex="-1" aria-label="Tools panel">
           <h2>Tools</h2>
           <div class="tool-list">
-            <button on:click={openAudioMixer}>
+            <button onclick={openAudioMixer}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3v10H4V7Zm6-3h3v16h-3V4Zm6 6h3v7h-3v-7Z"/></svg>
               Audio Mixer
             </button>
-            <button on:click={openTransitions}>
+            <button onclick={openTransitions}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h7v7H5V6Zm7 7h7v7h-7v-7Zm0-7 7 7-7 7V6Z"/></svg>
               Transitions
             </button>
-            <button on:click={openPlugins}>
+            <button onclick={openPlugins}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4a2 2 0 0 1 2 2v2h2a2 2 0 1 1 0 4h-2v2a2 2 0 0 1-2 2h-2v-2a2 2 0 1 0-4 0v2H6a2 2 0 0 1-2-2v-2H2a2 2 0 1 1 0-4h2V6a2 2 0 0 1 2-2h2v2a2 2 0 1 0 4 0V4h2Z"/></svg>
               Plugins
             </button>
-            <button on:click={openTemplatesDialog}>
+            <button onclick={openTemplatesDialog}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v7H4V5Zm9 0h7v7h-7V5ZM4 14h7v5H4v-5Zm9 0h7v5h-7v-5Z"/></svg>
               Templates
             </button>
