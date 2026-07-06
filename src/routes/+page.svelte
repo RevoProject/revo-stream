@@ -2010,6 +2010,7 @@
           ...source,
           locked: lockedById.get(source.id) ?? Boolean(source.locked)
         }));
+        syncAudioMixerMuted();
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -5464,6 +5465,28 @@
     audioMixerMenu = { open: false, x: 0, y: 0, sourceId: null };
   };
 
+  let audioMixerMuted: Record<string, boolean> = {};
+  const toggleAudioMixerMute = async (sourceId: string) => {
+    const next = !audioMixerMuted[sourceId];
+    audioMixerMuted = { ...audioMixerMuted, [sourceId]: next };
+    // Persist mute via source params
+    try {
+      await invoke("obs_update_source", {
+        update: { id: sourceId, params: { muted: next ? "true" : "false" } }
+      });
+    } catch {}
+  };
+  // Inicjalizuj muted stan z widocznosci zrodla
+  const syncAudioMixerMuted = () => {
+    const muted: Record<string, boolean> = {};
+    for (const s of sourcesList) {
+      if (isAudioMixerSource(s)) {
+        muted[s.id] = s.params?.muted === "true";
+      }
+    }
+    audioMixerMuted = muted;
+  };
+
   const toggleAudioMixerLock = async (sourceId: string) => {
     const current = audioMixerState[sourceId];
     if (!current) return;
@@ -6942,6 +6965,8 @@
     {setAudioMixerVolumeDbLocal}
     {commitAudioMixerVolumeDb}
     {toggleAudioMixerLock}
+    {audioMixerMuted}
+    {toggleAudioMixerMute}
     {AUDIO_MIXER_DB_MIN}
     {AUDIO_MIXER_DB_MAX}
   />

@@ -46,6 +46,8 @@
   export let setAudioMixerVolumeDbLocal: (sourceId: string, value: number) => void;
   export let commitAudioMixerVolumeDb: (sourceId: string) => Promise<void>;
   export let toggleAudioMixerLock: (sourceId: string) => Promise<void>;
+  export let audioMixerMuted: Record<string, boolean>;
+  export let toggleAudioMixerMute: (sourceId: string) => Promise<void>;
 
   export let AUDIO_MIXER_DB_MIN = -60;
   export let AUDIO_MIXER_DB_MAX = 12;
@@ -105,6 +107,14 @@
                 {/if}
 
                 <div class="audio-mixer-strip-actions">
+                  <button
+                    class="mini mute-btn"
+                    class:muted={audioMixerMuted[source.id]}
+                    aria-label={audioMixerMuted[source.id] ? "Unmute" : "Mute"}
+                    on:click={() => void toggleAudioMixerMute(source.id)}
+                  >
+                    {audioMixerMuted[source.id] ? "🔇" : "🔊"}
+                  </button>
                   <button class="mini" on:click={(e) => openAudioMixerContextMenu(e, source.id)} on:contextmenu={(e) => openAudioMixerContextMenu(e, source.id)}>⋯</button>
                 </div>
               </div>
@@ -311,8 +321,12 @@
   }
 
   .audio-mixer-strip-actions {
-    display: inline-flex;
-    gap: 0.4rem;
+    display: flex;
+    gap: 0.2rem;
+    align-items: center;
+  }
+  .mute-btn.muted {
+    color: var(--danger, #ef4444);
   }
 
   .audio-mixer-strip-actions .mini {
