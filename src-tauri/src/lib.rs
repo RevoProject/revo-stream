@@ -194,6 +194,25 @@ fn obs_set_scene_lock(state: tauri::State<ObsState>, name: String, locked: bool)
 }
 
 #[tauri::command]
+fn open_preview_window(app: tauri::AppHandle, html: String) -> Result<(), String> {
+    use std::fs;
+    let temp_dir = std::env::temp_dir().join("revo-stream");
+    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let file_path = temp_dir.join("preview.html");
+    fs::write(&file_path, &html).map_err(|e| e.to_string())?;
+    let url = tauri::WebviewUrl::External(
+        tauri::Url::from_file_path(&file_path).map_err(|_| "invalid file path".to_string())?
+    );
+    tauri::WebviewWindowBuilder::new(&app, "revo-preview", url)
+        .title("Preview - RevoStream")
+        .inner_size(960.0, 540.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn open_graphic_planner(app: tauri::AppHandle) -> Result<(), String> {
     ui::dock::open_graphic_planner(app)
 }
@@ -772,6 +791,7 @@ pub fn run() {
             obs_export_profile_obs_to_file,
             obs_import_profile_obs,
             load_rtmp_services_json,
+            open_preview_window,
             open_graphic_planner,
             open_browser_dock,
             browser_dock_state,
