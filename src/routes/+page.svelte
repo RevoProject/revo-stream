@@ -6544,7 +6544,7 @@
 
 <StreamConfirmModal
   open={showMediaConfirm}
-  onAnswer={answerMediaConfirm}
+  on:Answer={answerMediaConfirm}
   title={mediaConfirmTitle(pendingMediaConfirmAction)}
   message={mediaConfirmMessage(pendingMediaConfirmAction)}
   ariaLabel={mediaConfirmTitle(pendingMediaConfirmAction)}
@@ -6552,7 +6552,7 @@
 
 <StreamConfirmModal
   open={showCloseRiskConfirm}
-  onAnswer={(accepted) => void answerCloseRiskConfirm(accepted)}
+  on:Answer={(accepted) => void answerCloseRiskConfirm(accepted)}
   title={closeRiskConfirmTitle()}
   message={closeRiskConfirmMessage()}
   ariaLabel={closeRiskConfirmTitle()}
@@ -6562,7 +6562,7 @@
 
 <StreamConfirmModal
   open={showUnsavedSettingsCloseConfirm}
-  onAnswer={(accepted) => void answerUnsavedSettingsCloseConfirm(accepted)}
+  on:Answer={(accepted) => void answerUnsavedSettingsCloseConfirm(accepted)}
   title={unsavedSettingsCloseTitle()}
   message={unsavedSettingsCloseMessage()}
   ariaLabel={unsavedSettingsCloseTitle()}
@@ -6643,13 +6643,13 @@
         {fontOptions}
         on:close={cancelEditSource}
         on:save={saveEditSource}
-        onupdateName={(e) => updateEditNameValue(e.detail.value)}
-        onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
-        onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
-        onremoveParam={(e) => removeParam(e.detail.key)}
-        onresetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
-        onaddParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
-        onrequestLiveUpdate={scheduleEditSourceRealtimeUpdate}
+        on:updateName={(e) => updateEditNameValue(e.detail.value)}
+        on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
+        on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
+        on:removeParam={(e) => removeParam(e.detail.key)}
+        on:resetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
+        on:addParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
+        on:requestLiveUpdate={scheduleEditSourceRealtimeUpdate}
       />
     {/if}
   </div>
@@ -6834,16 +6834,16 @@
       initialUiProfile={currentUiProfile}
       on:close={closeSettings}
       on:save={saveSettings}
-      onexportScenes={exportScenes}
-      onexportObsScenes={exportObsScenes}
-      onexportObsProfile={exportObsProfile}
-      onimportScenes={(e) => importScenes(e.detail.content, e.detail.format)}
-      onimportObsProfile={(e) => importObsProfile(e.detail.content)}
+      on:exportScenes={exportScenes}
+      on:exportObsScenes={exportObsScenes}
+      on:exportObsProfile={exportObsProfile}
+      on:importScenes={(e) => importScenes(e.detail.content, e.detail.format)}
+      on:importObsProfile={(e) => importObsProfile(e.detail.content)}
       on:createProfile={createProfile}
-      onswitchProfile={switchProfile}
-      ontoggleDemo={(e) => toggleDemo(e)}
-      ontoggleAutorescaleInputs={(e) => (autorescaleInputs = e.detail.checked)}
-      ondirtyStateChange={(e) => (settingsHasUnsavedChanges = Boolean(e.detail?.dirty))}
+      on:switchProfile={switchProfile}
+      on:toggleDemo={(e) => toggleDemo(e)}
+      on:toggleAutorescaleInputs={(e) => (autorescaleInputs = e.detail.checked)}
+      on:dirtyStateChange={(e) => (settingsHasUnsavedChanges = Boolean(e.detail?.dirty))}
     />
   {/if}
 
@@ -6890,8 +6890,8 @@
 
   <TransitionsDiscardConfirmModal
     open={showTransitionsDiscardConfirm}
-    onCancel={cancelDiscardTransitions}
-    onConfirm={confirmDiscardTransitions}
+    on:Cancel={cancelDiscardTransitions}
+    on:Confirm={confirmDiscardTransitions}
   />
 
   {#if showAddSource}
@@ -6900,7 +6900,7 @@
       {sourceTypes}
       {externalSourceTypes}
       on:close={() => (showAddSource = false)}
-      onadd={addSource}
+      on:add={addSource}
     />
   {/if}
 
@@ -6909,7 +6909,7 @@
       bind:newSceneName
       scenePlaceholder={scenePlaceholder}
       on:close={() => (showAddScene = false)}
-      onadd={addScene}
+      on:add={addScene}
     />
   {/if}
 
@@ -6929,13 +6929,13 @@
       {fontOptions}
       on:close={cancelEditSource}
       on:save={saveEditSource}
-      onupdateName={(e) => updateEditNameValue(e.detail.value)}
-      onupdateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
-      onrenameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
-      onremoveParam={(e) => removeParam(e.detail.key)}
-      onresetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
-      onaddParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
-      onrequestLiveUpdate={scheduleEditSourceRealtimeUpdate}
+      on:updateName={(e) => updateEditNameValue(e.detail.value)}
+      on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
+      on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
+      on:removeParam={(e) => removeParam(e.detail.key)}
+      on:resetProtectedParam={(e) => resetProtectedEditParam(e.detail.key)}
+      on:addParam={(e) => addParamEntry(e.detail.key, e.detail.value)}
+      on:requestLiveUpdate={scheduleEditSourceRealtimeUpdate}
     />
   {/if}
 
@@ -6947,7 +6947,7 @@
     filters={filtersDraft}
     on:close={closeFiltersModal}
     on:save={saveFiltersModal}
-    onliveChange={handleFiltersLiveChange}
+    on:liveChange={handleFiltersLiveChange}
   />
 
   <SourceInfoModal
@@ -6963,9 +6963,9 @@
     {openAdditionalSettingsInWindows}
     dragX={quickTextDragX}
     dragY={quickTextDragY}
-    onClose={closeTextEditModal}
-    onSave={saveTextEditModal}
-    onValueChange={(value) => (textEditValue = value)}
+    on:Close={closeTextEditModal}
+    on:Save={saveTextEditModal}
+    on:ValueChange={(value) => (textEditValue = value)}
     {handleBackdropKey}
     beginDrag={beginQuickTextDrag}
     moveDrag={moveQuickTextDrag}
@@ -6976,9 +6976,9 @@
     open={showQuickColorModal && Boolean(quickColorSource)}
     value={quickColorValue}
     recent={quickColorRecent}
-    onClose={closeQuickColorModal}
-    onSave={saveQuickColorModal}
-    onValueChange={(value) => (quickColorValue = value)}
+    on:Close={closeQuickColorModal}
+    on:Save={saveQuickColorModal}
+    on:ValueChange={(value) => (quickColorValue = value)}
     normalizeColor={normalizeQuickHexColor}
     {handleBackdropKey}
   />
@@ -6990,10 +6990,10 @@
     showMonitoring={Boolean(quickDeviceSource && isAudioDeviceSourceType(quickDeviceSource.source_type))}
     monitoring={quickDeviceMonitoring}
     monitoringOptions={quickMonitoringOptions}
-    onClose={closeQuickDeviceModal}
-    onSave={saveQuickDeviceModal}
-    onValueChange={(value) => (quickDeviceValue = value)}
-    onMonitoringChange={(value) => (quickDeviceMonitoring = value)}
+    on:Close={closeQuickDeviceModal}
+    on:Save={saveQuickDeviceModal}
+    on:ValueChange={(value) => (quickDeviceValue = value)}
+    on:MonitoringChange={(value) => (quickDeviceMonitoring = value)}
     {handleBackdropKey}
   />
 
@@ -7039,9 +7039,9 @@
     x={audioMixerMenu.x}
     y={audioMixerMenu.y}
     sourceId={audioMixerMenu.sourceId}
-    onOpenFilters={openAudioMixerFilters}
-    onOpenAdvanced={openAudioMixerAdvanced}
-    onClose={closeAudioMixerContextMenu}
+    on:OpenFilters={openAudioMixerFilters}
+    on:OpenAdvanced={openAudioMixerAdvanced}
+    on:Close={closeAudioMixerContextMenu}
     {handleBackdropKey}
   />
 
@@ -7062,12 +7062,12 @@
     beginDrag={beginAudioAdvancedDrag}
     moveDrag={moveAudioAdvancedDrag}
     endDrag={endAudioAdvancedDrag}
-    onClose={() => void closeAudioMixerAdvanced()}
+    on:Close={() => void closeAudioMixerAdvanced()}
     getBalancePan={getAudioMixerBalancePan}
-    onMonitoringChange={(sourceId, monitoring) => void setAudioMixerMonitoring(sourceId, monitoring)}
-    onBalancePanInput={setAudioMixerBalancePanLocal}
-    onBalancePanCommit={(sourceId) => void commitAudioMixerBalancePan(sourceId)}
-    onToggleTrack={(sourceId, track) => void toggleAudioMixerTrack(sourceId, track)}
+    on:MonitoringChange={(sourceId, monitoring) => void setAudioMixerMonitoring(sourceId, monitoring)}
+    on:BalancePanInput={setAudioMixerBalancePanLocal}
+    on:BalancePanCommit={(sourceId) => void commitAudioMixerBalancePan(sourceId)}
+    on:ToggleTrack={(sourceId, track) => void toggleAudioMixerTrack(sourceId, track)}
   />
 
   <AudioFiltersModal
@@ -7087,26 +7087,26 @@
     {selectedAudioFilterPresetFields}
     {audioFiltersPreviewUrl}
     {audioFiltersContextMenu}
-    onClose={() => void closeAudioFiltersModal()}
-    onSave={() => void saveAudioFiltersModal()}
-    onBeginDrag={beginAudioFiltersDrag}
-    onMoveDrag={moveAudioFiltersDrag}
-    onEndDrag={endAudioFiltersDrag}
-    onSelectFilter={selectAudioFilter}
-    onOpenContextMenu={openAudioFiltersContextMenu}
-    onSetRenameValue={(value) => (audioFiltersRenameValue = value)}
-    onCommitRename={commitAudioFilterRename}
-    onCancelRename={() => (audioFiltersRenamingId = null)}
-    onMoveFilter={moveAudioFilter}
-    onSetNewKind={(value) => (audioFilterNewKind = value)}
-    onAddFilter={addAudioFilter}
-    onResetSelectedToDefaults={resetSelectedAudioFilterToDefaults}
-    onUpdatePresetField={updateAudioFilterPresetField}
-    onUpdateFilter={updateAudioFilter}
-    onRemoveFilter={removeAudioFilter}
-    onStartRename={startAudioFilterRename}
-    onToggleLock={toggleAudioFilterLock}
-    onCloseContextMenu={closeAudioFiltersContextMenu}
+    on:Close={() => void closeAudioFiltersModal()}
+    on:Save={() => void saveAudioFiltersModal()}
+    on:BeginDrag={beginAudioFiltersDrag}
+    on:MoveDrag={moveAudioFiltersDrag}
+    on:EndDrag={endAudioFiltersDrag}
+    on:SelectFilter={selectAudioFilter}
+    on:OpenContextMenu={openAudioFiltersContextMenu}
+    on:SetRenameValue={(value) => (audioFiltersRenameValue = value)}
+    on:CommitRename={commitAudioFilterRename}
+    on:CancelRename={() => (audioFiltersRenamingId = null)}
+    on:MoveFilter={moveAudioFilter}
+    on:SetNewKind={(value) => (audioFilterNewKind = value)}
+    on:AddFilter={addAudioFilter}
+    on:ResetSelectedToDefaults={resetSelectedAudioFilterToDefaults}
+    on:UpdatePresetField={updateAudioFilterPresetField}
+    on:UpdateFilter={updateAudioFilter}
+    on:RemoveFilter={removeAudioFilter}
+    on:StartRename={startAudioFilterRename}
+    on:ToggleLock={toggleAudioFilterLock}
+    on:CloseContextMenu={closeAudioFiltersContextMenu}
     {handleBackdropKey}
     {isTruthy}
   />
@@ -7318,14 +7318,14 @@
             {backendEnabled}
             {renamingScene}
             {renameSceneValue}
-            onopenAddScene={openAddSceneModal}
-            onsetScene={(e) => setCurrentScene(e.detail.name)}
-            onstartRename={(e) => startRenameScene(e.detail.scene)}
-            oncommitRename={commitRenameScene}
+            on:openAddScene={openAddSceneModal}
+            on:setScene={(e) => setCurrentScene(e.detail.name)}
+            on:startRename={(e) => startRenameScene(e.detail.scene)}
+            on:commitRename={commitRenameScene}
             on:cancelRename={cancelRenameScene}
-            onopenMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
-            onupdateRenameValue={(e) => (renameSceneValue = e.detail.value)}
-            onreorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
+            on:openMenu={(e) => openSceneMenu(e.detail.event, e.detail.scene)}
+            on:updateRenameValue={(e) => (renameSceneValue = e.detail.value)}
+            on:reorder={(e) => moveSceneToIndex(e.detail.sceneName, e.detail.toIndex)}
           />
         </div>
 
@@ -7333,18 +7333,18 @@
           <SourcesPanel
             sources={sourcesList}
             emptyMessage={demoMode ? "Source list will appear here." : "No sources available"}
-            onopenAddSource={openAddSourceModal}
-            oninteract={(e) => openSourceInteraction(e.detail.source)}
-            ontextEdit={(e) => openTextEdit(e.detail.source)}
-            onquickChangeColor={(e) => openQuickColorModal(e.detail.source)}
-            onquickSelectFile={(e) => quickSelectImageFile(e.detail.source)}
-            onquickSelectDevice={(e) => openQuickDeviceModal(e.detail.source)}
-            ontoggleVisibility={(e) => toggleSourceVisibility(e.detail.source)}
-            ontoggleLock={(e) => toggleSourceLock(e.detail.source)}
-            onmove={(e) => moveSource(e.detail.source, e.detail.direction)}
-            onopenEdit={(e) => openEditSource(e.detail.source)}
-            onopenMenu={(e) => openSourceMenu(e.detail.event, e.detail.source)}
-            onreorder={(e) => moveSourceToIndex(e.detail.sourceId, e.detail.toIndex)}
+            on:openAddSource={openAddSourceModal}
+            on:interact={(e) => openSourceInteraction(e.detail.source)}
+            on:textEdit={(e) => openTextEdit(e.detail.source)}
+            on:quickChangeColor={(e) => openQuickColorModal(e.detail.source)}
+            on:quickSelectFile={(e) => quickSelectImageFile(e.detail.source)}
+            on:quickSelectDevice={(e) => openQuickDeviceModal(e.detail.source)}
+            on:toggleVisibility={(e) => toggleSourceVisibility(e.detail.source)}
+            on:toggleLock={(e) => toggleSourceLock(e.detail.source)}
+            on:move={(e) => moveSource(e.detail.source, e.detail.direction)}
+            on:openEdit={(e) => openEditSource(e.detail.source)}
+            on:openMenu={(e) => openSourceMenu(e.detail.event, e.detail.source)}
+            on:reorder={(e) => moveSourceToIndex(e.detail.sourceId, e.detail.toIndex)}
           />
         </div>
 
