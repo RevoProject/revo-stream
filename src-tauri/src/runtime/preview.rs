@@ -113,15 +113,24 @@ pub(crate) fn take_screenshot(
 			}
 			scene_source
 		} else {
-			let scene = crate::current_scene(&runtime)?;
-			let item = crate::resolve_scene_item(scene, source_key.as_str())
-				.ok_or_else(|| format!("unknown source id: {source_key}"))?;
-			unsafe {
-				let source = revo_lib::obs::obs_sceneitem_get_source(item);
-				if source.is_null() {
-					return Err("source not available".to_string());
+			// Najpierw sprobuj znalezc scene o podanej nazwie
+			if let Some(scene_state) = runtime.scenes.get(&source_key) {
+				if scene_state.scene_source.is_null() {
+					return Err("scene source unavailable".to_string());
 				}
-				source
+				scene_state.scene_source
+			} else {
+				// Nie znaleziono sceny — sprobuj jako element w biezacej scenie
+				let scene = crate::current_scene(&runtime)?;
+				let item = crate::resolve_scene_item(scene, source_key.as_str())
+					.ok_or_else(|| format!("unknown source id: {source_key}"))?;
+				unsafe {
+					let source = revo_lib::obs::obs_sceneitem_get_source(item);
+					if source.is_null() {
+						return Err("source not available".to_string());
+					}
+					source
+				}
 			}
 		}
 	} else {
