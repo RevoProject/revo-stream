@@ -192,7 +192,9 @@
     { id: "window_capture", label: "Window Capture" },
     { id: "xcomposite_input", label: "XComposite Capture" },
     { id: "pulse_input_capture", label: "Audio Input (Pulse)" },
-    { id: "pulse_output_capture", label: "Audio Output (Pulse)" }
+    { id: "pulse_output_capture", label: "Audio Output (Pulse)" },
+    { id: "pipewire_input_capture", label: "Audio Input (PipeWire)" },
+    { id: "pipewire_output_capture", label: "Audio Output (PipeWire)" }
   ];
 
   const builtInSourceTypeIds = new Set(sourceTypes.map((t) => t.id));
@@ -275,7 +277,9 @@
       { key: "height", label: "Height", placeholder: "360" }
     ],
     pulse_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
-    pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }]
+    pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
+    pipewire_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
+    pipewire_output_capture: [{ key: "device", label: "Device", placeholder: "default" }]
   };
 
     let fontOptions: string[] = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];
@@ -4307,7 +4311,7 @@
       return normalizedKey === "file";
     }
 
-    if (normalizedType === "pulse_input_capture" || normalizedType === "pulse_output_capture") {
+    if (normalizedType === "pulse_input_capture" || normalizedType === "pulse_output_capture" || normalizedType === "pipewire_input_capture" || normalizedType === "pipewire_output_capture") {
       return normalizedKey === "device" || normalizedKey === "deviceid";
     }
 
@@ -4322,6 +4326,8 @@
       normalizedType === "ffmpeg_source" ||
       normalizedType === "pulse_input_capture" ||
       normalizedType === "pulse_output_capture" ||
+      normalizedType === "pipewire_input_capture" ||
+      normalizedType === "pipewire_output_capture" ||
       normalizedType === "image_source" ||
       normalizedType.includes("image")
     );
@@ -4514,12 +4520,12 @@
           }
         }
 
-        if (editType === "pulse_input_capture") {
+        if (editType === "pulse_input_capture" || editType === "pipewire_input_capture") {
           audioInputDevices = await invoke("obs_list_pulse_devices", { kind: "input" });
           if ((!editParams.device || !String(editParams.device).trim()) && audioInputDevices.length) {
             editParams = { ...editParams, device: String(audioInputDevices[0].id ?? "") };
           }
-        } else if (editType === "pulse_output_capture") {
+        } else if (editType === "pulse_output_capture" || editType === "pipewire_output_capture") {
           audioOutputDevices = await invoke("obs_list_pulse_devices", { kind: "output" });
           if ((!editParams.device || !String(editParams.device).trim()) && audioOutputDevices.length) {
             editParams = { ...editParams, device: String(audioOutputDevices[0].id ?? "") };
@@ -5189,6 +5195,8 @@
     return (
       t === "pulse_input_capture" ||
       t === "pulse_output_capture" ||
+      t === "pipewire_input_capture" ||
+      t === "pipewire_output_capture" ||
       t.includes("audio_input") ||
       t.includes("audio_output") ||
       t.includes("audio_capture") ||
