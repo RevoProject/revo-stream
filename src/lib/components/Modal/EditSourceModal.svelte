@@ -606,7 +606,7 @@
                       <button
                         class="font-option"
                         class:selected={font === (editParams[fontFaceKey] ?? "")}
-                        on:mousedown={(e) => {
+                        onmousedown={(e) => {
                           e.preventDefault();
                           updateParam(fontFaceKey, font);
                           fontSearchText = font;
@@ -699,14 +699,14 @@
                 <div class="slideshow-file-row">
                   <span class="slideshow-file-idx">{i + 1}</span>
                   <span class="slideshow-file-path">{file}</span>
-                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i - 1)} disabled={i === 0}>↑</button>
-                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i + 1)} disabled={i === slideshowFiles.length - 1}>↓</button>
-                  <button type="button" class="ghost small" on:click={() => removeSlideshowFile(i)}>✕</button>
+                  <button type="button" class="ghost small" onclick={() => moveSlideshowFile(i, i - 1)} disabled={i === 0}>↑</button>
+                  <button type="button" class="ghost small" onclick={() => moveSlideshowFile(i, i + 1)} disabled={i === slideshowFiles.length - 1}>↓</button>
+                  <button type="button" class="ghost small" onclick={() => removeSlideshowFile(i)}>✕</button>
                 </div>
               {/each}
             </div>
             <div class="slideshow-actions">
-              <button type="button" class="ghost" on:click={() => addSlideshowFile()}>📁 Add file</button>
+              <button type="button" class="ghost" onclick={() => addSlideshowFile()}>📁 Add file</button>
             </div>
           </div>
         {/if}
@@ -759,7 +759,7 @@
                       <button
                         class="font-option"
                         class:selected={font === (editParams[field.key] ?? "")}
-                        on:mousedown={(e) => {
+                        onmousedown={(e) => {
                           e.preventDefault();
                           updateParam(field.key, font);
                           genericFontSearchText = font;
@@ -809,7 +809,7 @@
                   type="button"
                   class="file-picker-btn"
                   title="Browse files"
-                  on:click={() => chooseMediaFile(field.key)}
+                  onclick={() => chooseMediaFile(field.key)}
                 >📁</button>
               </div>
             {:else}
