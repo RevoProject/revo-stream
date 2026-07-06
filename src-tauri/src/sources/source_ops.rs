@@ -698,7 +698,7 @@ pub(crate) fn update_source(
 
 		revo_lib::obs::obs_source_update(source, settings);
 		revo_lib::obs::obs_data_release(settings);
-		crate::apply_scene_item_transform_with_base(item, source, &update.params, base_w_before, base_h_before);
+		crate::sources::helpers::apply_scene_item_transform_with_base(item, source, &update.params, base_w_before, base_h_before);
 		apply_audio_runtime_params(source, &update.params);
 		if !is_ffmpeg_source {
 			revo_lib::obs::obs_sceneitem_set_visible(item, false);
