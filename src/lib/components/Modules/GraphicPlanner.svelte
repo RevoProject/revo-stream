@@ -728,20 +728,20 @@
 
 <div class="transform-modal">
   <div class="quick-toolbar">
-    <button class="tool-btn" on:click={fitToScreen}>Fit to screen</button>
-    <button class="tool-btn" on:click={centerActive} disabled={!activeId}>Center</button>
-    <button class="tool-btn" on:click={resetActiveTransform} disabled={!activeId}>Reset transform</button>
-    <button class="tool-btn" on:click={() => (showGrid = !showGrid)} class:active={showGrid}>Grid</button>
-    <button class="tool-btn" on:click={() => (snapToGrid = !snapToGrid)} class:active={snapToGrid}>Snap grid</button>
-    <button class="tool-btn" on:click={() => (cropMode = !cropMode)} class:active={cropMode}>Crop mode</button>
-    <button class="tool-btn" on:click={() => (showPropertiesPopup = !showPropertiesPopup)} disabled={!activeId} class:active={showPropertiesPopup}>Properties</button>
-    <button class="tool-btn" on:click={undoTransform} disabled={undoStack.length === 0}>Undo</button>
-    <button class="tool-btn" on:click={redoTransform} disabled={redoStack.length === 0}>Redo</button>
+    <button class="tool-btn" onclick={fitToScreen}>Fit to screen</button>
+    <button class="tool-btn" onclick={centerActive} disabled={!activeId}>Center</button>
+    <button class="tool-btn" onclick={resetActiveTransform} disabled={!activeId}>Reset transform</button>
+    <button class="tool-btn" onclick={() => (showGrid = !showGrid)} class:active={showGrid}>Grid</button>
+    <button class="tool-btn" onclick={() => (snapToGrid = !snapToGrid)} class:active={snapToGrid}>Snap grid</button>
+    <button class="tool-btn" onclick={() => (cropMode = !cropMode)} class:active={cropMode}>Crop mode</button>
+    <button class="tool-btn" onclick={() => (showPropertiesPopup = !showPropertiesPopup)} disabled={!activeId} class:active={showPropertiesPopup}>Properties</button>
+    <button class="tool-btn" onclick={undoTransform} disabled={undoStack.length === 0}>Undo</button>
+    <button class="tool-btn" onclick={redoTransform} disabled={redoStack.length === 0}>Redo</button>
     <div class="toolbar-spacer"></div>
-    <button class="tool-btn primary" on:click={saveChanges} disabled={saveInFlight}>{saveInFlight ? "Saving..." : "Save"}</button>
+    <button class="tool-btn primary" onclick={saveChanges} disabled={saveInFlight}>{saveInFlight ? "Saving..." : "Save"}</button>
   </div>
   <div class="planner-layout" bind:this={plannerLayoutEl}>
-    <div class="scene-viewport" bind:this={sceneViewportEl} role="presentation" on:mousedown={() => (activeId = null)}>
+    <div class="scene-viewport" bind:this={sceneViewportEl} role="presentation" onmousedown={() => (activeId = null)}>
       <div class="scene-canvas-shell" style={`width:${getSceneSize().width * sceneScale}px;height:${getSceneSize().height * sceneScale}px;`}>
         <div class="scene-canvas" class:show-grid={showGrid} bind:this={sceneCanvasEl} style={`width:${getSceneSize().width}px;height:${getSceneSize().height}px;transform:scale(${sceneScale});`} on:mousedown|stopPropagation role="presentation">
           {#if guideV !== null}
@@ -754,19 +754,19 @@
           {#each sources as s (s.id)}
             {#if transforms[s.id]}
               {@const t = transforms[s.id]}
-              <div class="source-box" class:active={activeId === s.id} style={`left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;transform:rotate(${t.rot}deg);`} on:mousedown={(e) => beginMove(e, s.id)} role="button" tabindex="0" aria-label={`Select ${s.name}`}>
+              <div class="source-box" class:active={activeId === s.id} style={`left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;transform:rotate(${t.rot}deg);`} onmousedown={(e) => beginMove(e, s.id)} role="button" tabindex="0" aria-label={`Select ${s.name}`}>
                 <div class="source-label">{s.name}</div>
                 <div class="crop-overlay" style={`inset:${t.cropT}px ${t.cropR}px ${t.cropB}px ${t.cropL}px;`}></div>
                 <div class="rotate-link"></div>
-                <div class="rotate-handle" on:mousedown={(e) => beginRotate(e, s.id)} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle n" on:mousedown={(e) => beginResize(e, s.id, "n")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle s" on:mousedown={(e) => beginResize(e, s.id, "s")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle e" on:mousedown={(e) => beginResize(e, s.id, "e")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle w" on:mousedown={(e) => beginResize(e, s.id, "w")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle ne" on:mousedown={(e) => beginResize(e, s.id, "ne")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle nw" on:mousedown={(e) => beginResize(e, s.id, "nw")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle se" on:mousedown={(e) => beginResize(e, s.id, "se")} role="presentation" aria-hidden="true"></div>
-                <div class="resize-handle sw" on:mousedown={(e) => beginResize(e, s.id, "sw")} role="presentation" aria-hidden="true"></div>
+                <div class="rotate-handle" onmousedown={(e) => beginRotate(e, s.id)} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle n" onmousedown={(e) => beginResize(e, s.id, "n")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle s" onmousedown={(e) => beginResize(e, s.id, "s")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle e" onmousedown={(e) => beginResize(e, s.id, "e")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle w" onmousedown={(e) => beginResize(e, s.id, "w")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle ne" onmousedown={(e) => beginResize(e, s.id, "ne")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle nw" onmousedown={(e) => beginResize(e, s.id, "nw")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle se" onmousedown={(e) => beginResize(e, s.id, "se")} role="presentation" aria-hidden="true"></div>
+                <div class="resize-handle sw" onmousedown={(e) => beginResize(e, s.id, "sw")} role="presentation" aria-hidden="true"></div>
               </div>
             {/if}
           {/each}
@@ -777,23 +777,23 @@
 
   {#if showPropertiesPopup && activeSource && activeTransform}
     <div class="props-popup" bind:this={propsPopupEl} style={`left:${propsPopupPos.left}px;top:${propsPopupPos.top}px;`} role="dialog" tabindex="0" aria-label="Source properties" on:mousedown|stopPropagation>
-      <div class="props-head" on:mousedown={beginPropsPopupDrag} role="presentation">
+      <div class="props-head" onmousedown={beginPropsPopupDrag} role="presentation">
         <h3>Properties</h3>
-        <button class="x" on:click={() => (showPropertiesPopup = false)} aria-label="Close properties">×</button>
+        <button class="x" onclick={() => (showPropertiesPopup = false)} aria-label="Close properties">×</button>
       </div>
       <p class="props-name">{activeSource.name}</p>
       <div class="props-grid five">
-        <label>X<input type="number" value={Math.round(activeTransform.x)} on:input={(e) => patchActive({ x: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>Y<input type="number" value={Math.round(activeTransform.y)} on:input={(e) => patchActive({ y: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>W<input type="number" min={MIN_SIZE} value={Math.round(activeTransform.w)} on:input={(e) => patchActive({ w: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>H<input type="number" min={MIN_SIZE} value={Math.round(activeTransform.h)} on:input={(e) => patchActive({ h: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>Rot<input type="number" value={Math.round(activeTransform.rot)} on:input={(e) => patchActive({ rot: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>X<input type="number" value={Math.round(activeTransform.x)} oninput={(e) => patchActive({ x: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Y<input type="number" value={Math.round(activeTransform.y)} oninput={(e) => patchActive({ y: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>W<input type="number" min={MIN_SIZE} value={Math.round(activeTransform.w)} oninput={(e) => patchActive({ w: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>H<input type="number" min={MIN_SIZE} value={Math.round(activeTransform.h)} oninput={(e) => patchActive({ h: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Rot<input type="number" value={Math.round(activeTransform.rot)} oninput={(e) => patchActive({ rot: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
       </div>
       <div class="props-grid four">
-        <label>Crop L<input type="number" min="0" value={Math.round(activeTransform.cropL)} on:input={(e) => patchActive({ cropL: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>Crop R<input type="number" min="0" value={Math.round(activeTransform.cropR)} on:input={(e) => patchActive({ cropR: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>Crop T<input type="number" min="0" value={Math.round(activeTransform.cropT)} on:input={(e) => patchActive({ cropT: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
-        <label>Crop B<input type="number" min="0" value={Math.round(activeTransform.cropB)} on:input={(e) => patchActive({ cropB: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Crop L<input type="number" min="0" value={Math.round(activeTransform.cropL)} oninput={(e) => patchActive({ cropL: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Crop R<input type="number" min="0" value={Math.round(activeTransform.cropR)} oninput={(e) => patchActive({ cropR: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Crop T<input type="number" min="0" value={Math.round(activeTransform.cropT)} oninput={(e) => patchActive({ cropT: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
+        <label>Crop B<input type="number" min="0" value={Math.round(activeTransform.cropB)} oninput={(e) => patchActive({ cropB: Number((e.currentTarget as HTMLInputElement).value) })} /></label>
       </div>
     </div>
   {/if}

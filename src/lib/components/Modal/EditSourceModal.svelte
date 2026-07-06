@@ -481,8 +481,8 @@
     class:window-mode={windowMode}
     role="button"
     tabindex="0"
-    onclick={close}
-    onkeydown={(e) => (e.key === "Escape" ? close() : null)}
+    on:click={close}
+    on:keydown={(e) => (e.key === "Escape" ? close() : null)}
   >
     <div
       class="modal"
@@ -497,14 +497,14 @@
       onpointermove={moveDrag}
       onpointerup={endDrag}
       onpointercancel={endDrag}
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
+      on:click={(e) => e.stopPropagation()}
+      on:keydown={(e) => e.stopPropagation()}
     >
       <header class="modal-header">
         <div class="modal-title-row">
           <h2>Editing Source: {editName || editSource.name}</h2>
         </div>
-        <button class="icon" aria-label="Close edit source" onclick={close}>
+        <button class="icon" aria-label="Close edit source" on:click={close}>
           ✕
         </button>
       </header>
@@ -515,7 +515,7 @@
             id="editName"
             placeholder="Source name"
             value={editName}
-            oninput={(e) => updateName((e.currentTarget as HTMLInputElement).value)}
+            on:input={(e) => updateName((e.currentTarget as HTMLInputElement).value)}
           />
         </div>
 
@@ -527,7 +527,7 @@
               <select
                 id="text-input-mode"
                 value={textInputMode}
-                onchange={(e) => setTextInputMode((e.currentTarget as HTMLSelectElement).value as "manual" | "from-file")}
+                on:change={(e) => setTextInputMode((e.currentTarget as HTMLSelectElement).value as "manual" | "from-file")}
               >
                 <option value="manual">Manual</option>
                 <option value="from-file">From file</option>
@@ -542,7 +542,7 @@
                   rows="4"
                   placeholder="Hello world"
                   value={editParams[textKey] ?? ""}
-                  oninput={(e) => updateParam(textKey, (e.currentTarget as HTMLTextAreaElement).value)}
+                  on:input={(e) => updateParam(textKey, (e.currentTarget as HTMLTextAreaElement).value)}
                 ></textarea>
               </div>
             {:else}
@@ -554,9 +554,9 @@
                     type="text"
                     value={editParams[textFileKey] ?? ""}
                     placeholder="/path/to/file.txt"
-                    oninput={(e) => updateParam(textFileKey, (e.currentTarget as HTMLInputElement).value)}
+                    on:input={(e) => updateParam(textFileKey, (e.currentTarget as HTMLInputElement).value)}
                   />
-                  <button type="button" class="ghost picker-btn" onclick={chooseTextFile} aria-label="Select text file">📄</button>
+                  <button type="button" class="ghost picker-btn" on:click={chooseTextFile} aria-label="Select text file">📄</button>
                 </div>
               </div>
             {/if}
@@ -569,7 +569,7 @@
                   type="text"
                   value={formatColorValue(colorKey, editParams[colorKey] ?? "")}
                   placeholder="#ffffff"
-                  oninput={(e) =>
+                  on:input={(e) =>
                     updateParam(
                       colorKey,
                       normalizeHexColor((e.currentTarget as HTMLInputElement).value)
@@ -579,7 +579,7 @@
                   class="picker"
                   type="color"
                   value={formatColorValue(colorKey, editParams[colorKey] ?? "#ffffff")}
-                  oninput={(e) =>
+                  on:input={(e) =>
                     updateParam(
                       colorKey,
                       normalizeHexColor((e.currentTarget as HTMLInputElement).value)
@@ -596,12 +596,12 @@
                   type="text"
                   placeholder="Type to search fonts..."
                   value={fontSearchText}
-                  oninput={(e) => {
+                  on:input={(e) => {
                     fontSearchText = (e.currentTarget as HTMLInputElement).value;
                     fontDropdownOpen = true;
                   }}
-                  onfocus={() => (fontDropdownOpen = true)}
-                  onblur={() => setTimeout(() => (fontDropdownOpen = false), 150)}
+                  on:focus={() => (fontDropdownOpen = true)}
+                  on:blur={() => setTimeout(() => (fontDropdownOpen = false), 150)}
                 />
                 {#if fontDropdownOpen && fontFilteredOptions.length > 0}
                   <div class="font-picker-dropdown" use:fontScrollSync>
@@ -609,7 +609,7 @@
                       <button
                         class="font-option"
                         class:selected={font === (editParams[fontFaceKey] ?? "")}
-                        onmousedown={(e) => {
+                        on:mousedown={(e) => {
                           e.preventDefault();
                           updateParam(fontFaceKey, font);
                           fontSearchText = font;
@@ -634,7 +634,7 @@
                   max="300"
                   step="1"
                   value={fontSizeValue}
-                  oninput={(e) => updateParam(fontSizeKey, (e.currentTarget as HTMLInputElement).value)}
+                  on:input={(e) => updateParam(fontSizeKey, (e.currentTarget as HTMLInputElement).value)}
                 />
                 <input
                   class="slider-value"
@@ -643,7 +643,7 @@
                   max="300"
                   step="1"
                   value={fontSizeValue}
-                  oninput={(e) => updateParam(fontSizeKey, (e.currentTarget as HTMLInputElement).value)}
+                  on:input={(e) => updateParam(fontSizeKey, (e.currentTarget as HTMLInputElement).value)}
                 />
               </div>
             </div>
@@ -658,7 +658,7 @@
               <select
                 id="media-input-mode"
                 value={mediaInputMode}
-                onchange={(e) => setMediaInputMode((e.currentTarget as HTMLSelectElement).value as "local" | "network")}
+                on:change={(e) => setMediaInputMode((e.currentTarget as HTMLSelectElement).value as "local" | "network")}
               >
                 <option value="local">Local file</option>
                 <option value="network">Network</option>
@@ -674,9 +674,9 @@
                     type="text"
                     value={editParams[mediaLocalFileKey] ?? ""}
                     placeholder="/path/to/video.mp4"
-                    oninput={(e) => updateParam(mediaLocalFileKey, (e.currentTarget as HTMLInputElement).value)}
+                    on:input={(e) => updateParam(mediaLocalFileKey, (e.currentTarget as HTMLInputElement).value)}
                   />
-                  <button type="button" class="ghost picker-btn" onclick={chooseMediaFile} aria-label="Select media file">📂</button>
+                  <button type="button" class="ghost picker-btn" on:click={chooseMediaFile} aria-label="Select media file">📂</button>
                 </div>
               </div>
             {:else}
@@ -687,7 +687,7 @@
                   type="text"
                   value={editParams[mediaNetworkInputKey] ?? ""}
                   placeholder="https://example.com/stream.m3u8"
-                  oninput={(e) => updateParam(mediaNetworkInputKey, (e.currentTarget as HTMLInputElement).value)}
+                  on:input={(e) => updateParam(mediaNetworkInputKey, (e.currentTarget as HTMLInputElement).value)}
                 />
               </div>
             {/if}
@@ -702,14 +702,14 @@
                 <div class="slideshow-file-row">
                   <span class="slideshow-file-idx">{i + 1}</span>
                   <span class="slideshow-file-path">{file}</span>
-                  <button type="button" class="ghost small" onclick={() => moveSlideshowFile(i, i - 1)} disabled={i === 0}>↑</button>
-                  <button type="button" class="ghost small" onclick={() => moveSlideshowFile(i, i + 1)} disabled={i === slideshowFiles.length - 1}>↓</button>
-                  <button type="button" class="ghost small" onclick={() => removeSlideshowFile(i)}>✕</button>
+                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i - 1)} disabled={i === 0}>↑</button>
+                  <button type="button" class="ghost small" on:click={() => moveSlideshowFile(i, i + 1)} disabled={i === slideshowFiles.length - 1}>↓</button>
+                  <button type="button" class="ghost small" on:click={() => removeSlideshowFile(i)}>✕</button>
                 </div>
               {/each}
             </div>
             <div class="slideshow-actions">
-              <button type="button" class="ghost" onclick={() => addSlideshowFile()}>📁 Add file</button>
+              <button type="button" class="ghost" on:click={() => addSlideshowFile()}>📁 Add file</button>
             </div>
           </div>
         {/if}
@@ -725,7 +725,7 @@
                   type="text"
                   value={editParams[field.key] ?? ""}
                   placeholder={field.placeholder}
-                  oninput={(e) =>
+                  on:input={(e) =>
                     updateParam(
                       field.key,
                       normalizeHexColor((e.currentTarget as HTMLInputElement).value)
@@ -735,7 +735,7 @@
                   class="picker"
                   type="color"
                   value={normalizeHexColor(editParams[field.key] ?? "#ffffff")}
-                  oninput={(e) =>
+                  on:input={(e) =>
                     updateParam(
                       field.key,
                       normalizeHexColor((e.currentTarget as HTMLInputElement).value)
@@ -749,12 +749,12 @@
                   type="text"
                   placeholder="Type to search fonts..."
                   value={genericFontSearchText}
-                  oninput={(e) => {
+                  on:input={(e) => {
                     genericFontSearchText = (e.currentTarget as HTMLInputElement).value;
                     genericFontDropdownOpen = true;
                   }}
-                  onfocus={() => (genericFontDropdownOpen = true)}
-                  onblur={() => setTimeout(() => (genericFontDropdownOpen = false), 150)}
+                  on:focus={() => (genericFontDropdownOpen = true)}
+                  on:blur={() => setTimeout(() => (genericFontDropdownOpen = false), 150)}
                 />
                 {#if genericFontDropdownOpen && genericFontFilteredOptions.length > 0}
                   <div class="font-picker-dropdown">
@@ -762,7 +762,7 @@
                       <button
                         class="font-option"
                         class:selected={font === (editParams[field.key] ?? "")}
-                        onmousedown={(e) => {
+                        on:mousedown={(e) => {
                           e.preventDefault();
                           updateParam(field.key, font);
                           genericFontSearchText = font;
@@ -779,7 +779,7 @@
               <select
                 id={`param-${field.key}`}
                 value={editParams.device && String(editParams.device).trim().length ? editParams.device : (audioDevices[0]?.id ?? "")}
-                onchange={(e) => updateParam("device", (e.currentTarget as HTMLSelectElement).value)}
+                on:change={(e) => updateParam("device", (e.currentTarget as HTMLSelectElement).value)}
               >
                 <option value={audioDevices[0]?.id ?? ""}>Default</option>
                 {#each audioDevices as dev}
@@ -790,7 +790,7 @@
               <select
                 id={`param-${field.key}`}
                 value={editParams[field.key] ?? ""}
-                onchange={(e) => updateParam(field.key, (e.currentTarget as HTMLSelectElement).value)}
+                on:change={(e) => updateParam(field.key, (e.currentTarget as HTMLSelectElement).value)}
               >
                 {#if (editParams[field.key] ?? "") && !getPropertyOptions(field.key).some((o) => o.value === (editParams[field.key] ?? ""))}
                   <option value={editParams[field.key] ?? ""}>{editParams[field.key] ?? ""}</option>
@@ -806,13 +806,13 @@
                   type="text"
                   value={editParams[field.key] ?? ""}
                   placeholder={field.placeholder}
-                  oninput={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
+                  on:input={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
                 />
                 <button
                   type="button"
                   class="file-picker-btn"
                   title="Browse files"
-                  onclick={() => chooseMediaFile(field.key)}
+                  on:click={() => chooseMediaFile(field.key)}
                 >📁</button>
               </div>
             {:else}
@@ -821,7 +821,7 @@
                 type="text"
                 value={editParams[field.key] ?? ""}
                 placeholder={field.placeholder}
-                oninput={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
+                on:input={(e) => updateParam(field.key, (e.currentTarget as HTMLInputElement).value)}
               />
             {/if}
           </div>
@@ -840,7 +840,7 @@
             <select
               id="monitoring"
               value={editParams.monitoring ?? "off"}
-              onchange={(e) => updateParam("monitoring", (e.currentTarget as HTMLSelectElement).value)}
+              on:change={(e) => updateParam("monitoring", (e.currentTarget as HTMLSelectElement).value)}
             >
               {#each monitoringOptions as option}
                 <option value={option.value}>{option.label}</option>
@@ -861,7 +861,7 @@
                       id={`dynamic-${key}`}
                       type="checkbox"
                       checked={isChecked(value)}
-                      onchange={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
+                      on:change={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
                     />
                     <span>{spec?.label ?? key}</span>
                   </label>
@@ -881,7 +881,7 @@
                   <select
                     id={`dynamic-${key}`}
                     value={value}
-                    onchange={(e) => updateParam(key, (e.currentTarget as HTMLSelectElement).value)}
+                    on:change={(e) => updateParam(key, (e.currentTarget as HTMLSelectElement).value)}
                   >
                     {#each spec.options ?? [] as option}
                       <option value={option.value}>{option.label}</option>
@@ -895,7 +895,7 @@
                     rows="5"
                     value={value}
                     placeholder="one item per line"
-                    oninput={(e) => updateParam(key, normalizeListValue((e.currentTarget as HTMLTextAreaElement).value))}
+                    on:input={(e) => updateParam(key, normalizeListValue((e.currentTarget as HTMLTextAreaElement).value))}
                   ></textarea>
                 {:else if spec?.kind === "int" || spec?.kind === "float"}
                   <label for={`dynamic-${key}`}>{spec?.label ?? key}</label>
@@ -909,7 +909,7 @@
                         max={slider.max}
                         step={slider.step}
                         value={sliderValue(key, value)}
-                        oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                        on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                       />
                       <input
                         class="slider-value"
@@ -918,7 +918,7 @@
                         max={slider.max}
                         step={slider.step}
                         value={sliderValue(key, value)}
-                        oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                        on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                       />
                     </div>
                   {:else}
@@ -927,7 +927,7 @@
                       type="number"
                       value={value}
                       placeholder={spec?.label ?? key}
-                      oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                      on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                     />
                   {/if}
                 {:else if isColorKey(key, spec?.kind)}
@@ -938,13 +938,13 @@
                       type="text"
                       value={formatColorValue(key, value, spec?.kind)}
                       placeholder={spec?.label ?? key}
-                      oninput={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
+                      on:input={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
                     />
                     <input
                       class="picker"
                       type="color"
                       value={formatColorValue(key, value, spec?.kind)}
-                      oninput={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
+                      on:input={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
                     />
                   </div>
                 {:else}
@@ -954,7 +954,7 @@
                     type="text"
                     value={value}
                     placeholder={spec?.label ?? key}
-                    oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                    on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                   />
                 {/if}
               </div>
@@ -969,7 +969,7 @@
                 id="autoresize-font-width"
                 type="checkbox"
                 checked={autoresizeFontWidth}
-                onchange={(e) => setAutoresizeFontWidth((e.currentTarget as HTMLInputElement).checked)}
+                on:change={(e) => setAutoresizeFontWidth((e.currentTarget as HTMLInputElement).checked)}
               />
               <span>Autoresize font width to text length</span>
             </label>
@@ -989,7 +989,7 @@
                   value={key}
                   placeholder="key"
                   readonly={isProtectedTransformKey(key)}
-                  oninput={(e) => renameParam(key, (e.currentTarget as HTMLInputElement).value)}
+                  on:input={(e) => renameParam(key, (e.currentTarget as HTMLInputElement).value)}
                 />
                 {#if isColorKey(key)}
                   <div class="color-input param-value">
@@ -998,13 +998,13 @@
                       type="text"
                       value={formatColorValue(key, value)}
                       placeholder="value"
-                      oninput={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
+                      on:input={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
                     />
                     <input
                       class="picker"
                       type="color"
                       value={formatColorValue(key, value)}
-                      oninput={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
+                      on:input={(e) => updateParam(key, normalizeHexColor((e.currentTarget as HTMLInputElement).value))}
                     />
                   </div>
                 {:else if isSliderKey(key)}
@@ -1016,7 +1016,7 @@
                       max={slider.max}
                       step={slider.step}
                       value={sliderValue(key, value)}
-                      oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                      on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                     />
                     <input
                       class="slider-value"
@@ -1025,14 +1025,14 @@
                       max={slider.max}
                       step={slider.step}
                       value={sliderValue(key, value)}
-                      oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                      on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                     />
                   </div>
                 {:else if hasPropertyOptions(key)}
                   <select
                     class="param-value"
                     value={value}
-                    onchange={(e) => updateParam(key, (e.currentTarget as HTMLSelectElement).value)}
+                    on:change={(e) => updateParam(key, (e.currentTarget as HTMLSelectElement).value)}
                   >
                     {#if value && !getPropertyOptions(key).some((o) => o.value === value)}
                       <option value={value}>{value}</option>
@@ -1047,7 +1047,7 @@
                     rows="4"
                     value={value}
                     placeholder="one item per line"
-                    oninput={(e) => updateParam(key, normalizeListValue((e.currentTarget as HTMLTextAreaElement).value))}
+                    on:input={(e) => updateParam(key, normalizeListValue((e.currentTarget as HTMLTextAreaElement).value))}
                   ></textarea>
                 {:else}
                   <input
@@ -1055,13 +1055,13 @@
                     type="text"
                     value={value}
                     placeholder="value"
-                    oninput={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
+                    on:input={(e) => updateParam(key, (e.currentTarget as HTMLInputElement).value)}
                   />
                 {/if}
                 {#if isProtectedTransformKey(key)}
-                  <button class="ghost" type="button" onclick={() => resetProtectedParam(key)}>Reset</button>
+                  <button class="ghost" type="button" on:click={() => resetProtectedParam(key)}>Reset</button>
                 {:else}
-                  <button class="ghost" type="button" onclick={() => removeParam(key)}>Remove</button>
+                  <button class="ghost" type="button" on:click={() => removeParam(key)}>Remove</button>
                 {/if}
               </div>
             {/each}
@@ -1079,14 +1079,14 @@
               placeholder="new value"
               bind:value={newParamValue}
             />
-            <button class="primary" type="button" onclick={addParam}>Add</button>
+            <button class="primary" type="button" on:click={addParam}>Add</button>
           </div>
         </div>
 
       </div>
       <footer class="modal-actions">
-        <button class="ghost" onclick={close}>Cancel</button>
-        <button class="primary" onclick={save}>Save</button>
+        <button class="ghost" on:click={close}>Cancel</button>
+        <button class="primary" on:click={save}>Save</button>
       </footer>
     </div>
   </div>
