@@ -7158,6 +7158,7 @@
       <button onclick={() => void refreshRenderFrame()}>Refresh render</button>
       <button onclick={() => void openGraphicPlannerFromPreviewMenu()}>Graphic planner</button>
       <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Open preview in Window</button>
+      <button onclick={() => { closePreviewMenu(); void openScenePreviewInWindow(); }}>Open current scene preview in Window</button>
     </div>
     <div
       class="context-overlay"
