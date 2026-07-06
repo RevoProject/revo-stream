@@ -423,8 +423,8 @@ pub(crate) fn ensure_scene(
 			revo_lib::obs::obs_transition_set(runtime.transition_source, scene_source);
 		} else {
 			revo_lib::obs::obs_set_output_source(0, scene_source);
+			revo_lib::obs::obs_source_inc_showing(scene_source);
 		}
-		revo_lib::obs::obs_source_inc_showing(scene_source);
 
 		let mut state = crate::SceneState::new("revo_scene".to_string(), scene, scene_source);
 		state.item_accent = accent_item;
