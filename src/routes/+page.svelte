@@ -895,14 +895,22 @@
             if (typeof t.cropR === "number") params.crop_right = t.cropR.toString();
             if (typeof t.cropT === "number") params.crop_top = t.cropT.toString();
             if (typeof t.cropB === "number") params.crop_bottom = t.cropB.toString();
-            await invoke<string>("obs_update_source", {
-              update: {
-                id: s.id,
-                name: s.name,
-                source_type: s.source_type,
-                params
+            try {
+              await invoke<string>("obs_update_source", {
+                update: {
+                  id: s.id,
+                  name: s.name,
+                  source_type: s.source_type,
+                  params
+                }
+              });
+            } catch (err) {
+              // Ignoruj bledy 'unknown source id' po zmianie sceny
+              const msg = String(err);
+              if (!msg.includes("unknown source id") && !msg.includes("source not available")) {
+                throw err;
               }
-            });
+            }
           }
           await loadSources();
           previewDirty = true;
@@ -910,7 +918,12 @@
           requestPreviewUpdate();
           showGlobalDialog("Source transforms saved", "info");
         } catch (err) {
-          showGlobalDialog(String(err), "error");
+          const msg = String(err);
+          if (msg.includes("unknown source id") || msg.includes("source not available")) {
+            showGlobalDialog("Some sources could not be updated (scene may have changed)", "warning");
+          } else {
+            showGlobalDialog(msg, "error");
+          }
         }
       } else {
         previewDirty = true;
@@ -4021,6 +4034,9 @@
     if (backendEnabled) {
       try {
         await invoke<string>("obs_set_current_scene", { name });
+        // Wyczysc oczekujace operacje na zrodlach ze starej sceny
+        sourceTransforms = {};
+        plannerQueuedTransforms = null;
         await loadScenes();
         await loadSources();
         // Odczekaj chwile po zmianie sceny by OBS zdazyl wyrenderowac klatke
