@@ -22,6 +22,9 @@ pkgs.mkShell {
     obs-studio
     llvmPackages.libclang
     simde
+    wmctrl
+    xdotool
+    xorg.xwininfo
   ];
 
   shellHook = ''
