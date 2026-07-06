@@ -6220,7 +6220,7 @@
     await openSourceTransformModal();
   };
 
-  const openPreviewInWindow = () => {
+  const openPreviewInWindow = async () => {
     const previewImg = previewFrameEl?.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
     const src = previewImg?.src ?? previewUrl;
     if (!src) {
@@ -6228,24 +6228,12 @@
       return;
     }
     const html = `<html><head><title>Preview - RevoStream</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`;
-    const dataUri = `data:text/html,${encodeURIComponent(html)}`;
-    // 1. Synchroniczny window.open z data: URI (zachowuje gest uzytkownika)
-    const popup = window.open(dataUri, "revo-preview", "width=960,height=540,resizable,scrollbars=yes,status=0,menubar=0,toolbar=0,location=0");
-    if (popup && !popup.closed) return;
-    // 2. Fallback: Tauri WebviewWindow (data: URI moze nie dzialac na wszystkich platformach)
-    (async () => {
-      try {
-        const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-        new WebviewWindow("revo-preview", {
-          url: dataUri,
-          width: 960,
-          height: 540,
-          resizable: true,
-        });
-      } catch {
-        showGlobalDialog("Could not open preview window (popup blocked). Try allowing popups or use Tauri's native window.", "warning");
-      }
-    })();
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_preview_window", { html });
+    } catch {
+      showGlobalDialog("Could not open preview window.", "warning");
+    }
   };
 
   const openAppContextMenu = (event: MouseEvent) => {
