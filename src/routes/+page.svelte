@@ -7537,13 +7537,14 @@
     max-width: 100%;
     max-height: 100%;
     margin: 0 auto;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
   }
 
   .preview-frame {
