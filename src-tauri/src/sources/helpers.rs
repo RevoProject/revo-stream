@@ -465,6 +465,14 @@ pub(crate) fn source_editable_list_keys(
 	keys
 }
 
+fn build_obs_string_array_from_json(json_str: &str) -> *mut revo_lib::obs::obs_data_array_t {
+	let entries: Vec<String> = match serde_json::from_str::<Vec<String>>(json_str) {
+		Ok(v) => v,
+		Err(_) => return std::ptr::null_mut(),
+	};
+	build_obs_string_array(&entries)
+}
+
 pub(crate) fn parse_f32_param(
 	params: &std::collections::HashMap<String, String>,
 	key: &str,
@@ -848,6 +856,34 @@ pub(crate) fn apply_source_params(
 
 					let key_capture_window = std::ffi::CString::new("capture_window").unwrap();
 					revo_lib::obs::obs_data_set_string(settings, key_capture_window.as_ptr(), val.as_ptr());
+				}
+			}
+			"slideshow" => {
+				// Slideshow przechowuje liste plikow jako tablice obiektow {value:"/path"}.
+				if let Some(files_json) = params.get("files") {
+					let arr = build_obs_string_array_from_json(files_json);
+					if !arr.is_null() {
+						let key = std::ffi::CString::new("files").unwrap();
+						revo_lib::obs::obs_data_set_array(settings, key.as_ptr(), arr);
+						revo_lib::obs::obs_data_array_release(arr);
+					}
+				} else if let Some(file) = params.get("file") {
+					// Dodaj pojedynczy plik do istniejacej listy
+					let key = std::ffi::CString::new("files").unwrap();
+					let existing = revo_lib::obs::obs_data_get_array(settings, key.as_ptr());
+					let arr = if !existing.is_null() {
+						existing
+					} else {
+						revo_lib::obs::obs_data_array_create()
+					};
+					let item = revo_lib::obs::obs_data_create();
+					let val_key = std::ffi::CString::new("value").unwrap();
+					let val = std::ffi::CString::new(file.as_str()).unwrap();
+					revo_lib::obs::obs_data_set_string(item, val_key.as_ptr(), val.as_ptr());
+					revo_lib::obs::obs_data_array_push_back(arr, item);
+					revo_lib::obs::obs_data_release(item);
+					revo_lib::obs::obs_data_set_array(settings, key.as_ptr(), arr);
+					revo_lib::obs::obs_data_array_release(arr);
 				}
 			}
 			"pulse_input_capture" | "pulse_output_capture"
