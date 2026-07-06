@@ -7907,6 +7907,7 @@
     padding: 0.25rem;
     z-index: 60;
     min-width: 160px;
+    max-width: 400px;
     box-shadow: 0 8px 28px #0009;
   }
 

@@ -72,7 +72,7 @@
                     <span class="transition-badge" class:active={activeTransitionId === transition.id}>{activeTransitionId === transition.id ? "Active" : "Inactive"}</span>
                     <span>#{index + 1}</span>
                   </div>
-                  <button type="button" class="transition-card-remove" aria-label="Remove transition" onclick={($e) => { $e.stopPropagation(); () => removeTransition(transition.id)($e); }}>✕</button>
+                  <button type="button" class="transition-card-remove" aria-label="Remove transition" onclick={() => removeTransition(transition.id)}>✕</button>
                 </div>
               {/each}
             {/if}
