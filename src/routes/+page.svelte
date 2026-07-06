@@ -6221,18 +6221,21 @@
   };
 
   const openPreviewInWindow = async () => {
-    const previewImg = previewFrameEl?.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
-    const src = previewImg?.src ?? previewUrl;
-    if (!src) {
-      showGlobalDialog("No preview available yet", "warning");
-      return;
-    }
-    const html = `<html><head><title>Preview - RevoStream</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_preview_window", { html });
+      await invoke("open_preview_window", { source: null });
     } catch {
       showGlobalDialog("Could not open preview window.", "warning");
+    }
+  };
+
+  const openScenePreviewInWindow = async (scene?: SceneInfo | null) => {
+    const name = scene?.name ?? getActiveSceneName();
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_preview_window", { source: name });
+    } catch {
+      showGlobalDialog("Could not open scene preview window.", "warning");
     }
   };
 
@@ -7198,6 +7201,7 @@
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
         {sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
+      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}>Open current scene preview in Window</button>
     </div>
     <div
       class="context-overlay"

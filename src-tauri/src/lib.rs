@@ -194,22 +194,30 @@ fn obs_set_scene_lock(state: tauri::State<ObsState>, name: String, locked: bool)
 }
 
 #[tauri::command]
-fn open_preview_window(app: tauri::AppHandle, html: String) -> Result<(), String> {
-    use std::fs;
-    let temp_dir = std::env::temp_dir().join("revo-stream");
-    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-    let file_path = temp_dir.join("preview.html");
-    fs::write(&file_path, &html).map_err(|e| e.to_string())?;
-    let url = tauri::WebviewUrl::External(
-        tauri::Url::from_file_path(&file_path).map_err(|_| "invalid file path".to_string())?
-    );
-    tauri::WebviewWindowBuilder::new(&app, "revo-preview", url)
+fn open_preview_window(app: tauri::AppHandle, source: Option<String>) -> Result<(), String> {
+    let url = match &source {
+        Some(name) => format!("preview?source={}", url_encode(name)),
+        None => "preview".to_string(),
+    };
+    tauri::WebviewWindowBuilder::new(&app, "revo-preview", tauri::WebviewUrl::App(url.into()))
         .title("Preview - RevoStream")
         .inner_size(960.0, 540.0)
         .resizable(true)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn url_encode(input: &str) -> String {
+    let mut result = String::new();
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => result.push(byte as char),
+            b' ' => result.push_str("%20"),
+            _ => result.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    result
 }
 
 #[tauri::command]
