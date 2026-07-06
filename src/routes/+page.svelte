@@ -4462,12 +4462,14 @@
         };
         sourcePropertySpecs = (result.source_properties ?? []).filter((p) => Boolean(p?.key));
 
-        if (
-          (editType === "xcomposite_input" || editType === "window_capture") &&
-          !sourcePropertyHasOptions(sourcePropertySpecs, ["window", "capture_window"])
-        ) {
+        if (editType === "xcomposite_input" || editType === "window_capture") {
           try {
             const windows = await invoke<SourceTypeItem[]>("obs_list_window_picker_items");
+            // Zawsze dodaj/wymien nasze window picker opcje (zamiast OBS-owego listowania)
+            const windowKeys = ["window", "capture_window"];
+            sourcePropertySpecs = sourcePropertySpecs.filter(
+              (s) => !windowKeys.some((k) => normalizePropertyKey(s.key) === normalizePropertyKey(k))
+            );
             if (windows.length) {
               sourcePropertySpecs = [
                 ...sourcePropertySpecs,
