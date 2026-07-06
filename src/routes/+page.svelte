@@ -6223,15 +6223,19 @@
   const openPreviewInWindow = () => {
     const previewImg = previewFrameEl?.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
     const src = previewImg?.src ?? previewUrl;
-    if (!src || src === previewUrl) {
-      // Preview URL is data: URI or file:// — embed in a simple HTML page
-      const html = src?.startsWith("data:")
-        ? `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`
-        : `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh">${src ? `<img src="${src}" style="max-width:100vw;max-height:100vh;object-fit:contain">` : "No preview"}</body></html>`;
-      window.open("data:text/html;charset=utf-8," + encodeURIComponent(html), "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
-    } else {
-      window.open(src, "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
+    if (!src) {
+      showGlobalDialog("No preview available yet", "warning");
+      return;
     }
+    const popup = window.open("", "revo-preview", "width=960,height=540,resizable,scrollbars=no,status=0,menubar=0,toolbar=0,location=0");
+    if (!popup) {
+      showGlobalDialog("Could not open preview window (popup blocked)", "error");
+      return;
+    }
+    const isDataUri = src.startsWith("data:");
+    const html = `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;background:#000;width:100vw;height:100vh"><img src="${isDataUri ? src : ""}" style="max-width:100vw;max-height:100vh;object-fit:contain"></body></html>`;
+    popup.document.write(isDataUri ? html : `<img src="${src}" style="width:100vw;height:100vh;object-fit:contain">`);
+    popup.document.title = "Preview - RevoStream";
   };
 
   const openAppContextMenu = (event: MouseEvent) => {
