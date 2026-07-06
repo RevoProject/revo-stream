@@ -73,17 +73,10 @@ pub(crate) fn start(
 		};
 	}
 
-	eprintln!("[start] resolve_root_dir...");
-	let root = crate::settings::core::resolve_root_dir(root_dir).map_err(|e| {
-		eprintln!("[start] resolve_root_dir FAILED: {e}");
-		format!("resolve_root_dir: {e}")
-	})?;
-	eprintln!("[start] root={}", root.to_string_lossy());
+	let root = crate::settings::core::resolve_root_dir(root_dir)?;
 	let data_dir = if root.join("data/share/obs/libobs/default.effect").exists() {
-		eprintln!("[start] data_dir = root/data");
 		root.join("data")
 	} else {
-		eprintln!("[start] data_dir = root");
 		root.clone()
 	};
 	let core_dir = root.join("core");
@@ -195,15 +188,12 @@ pub(crate) fn start(
 		}
 	}
 
-	eprintln!("[start] OBS startup...");
 	unsafe {
 		revo_lib::obs::base_set_log_handler(Some(crate::logging::obs_logger::obs_log_handler), std::ptr::null_mut());
 
 		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
-			eprintln!("[start] obs_startup FAILED");
 			return Err("obs_startup failed".to_string());
 		}
-		eprintln!("[start] obs_startup OK");
 
 		let data_share_c = std::ffi::CString::new(data_share_dir.to_string_lossy().as_bytes())
 			.map_err(|_| "data share path".to_string())?;
@@ -274,10 +264,6 @@ pub(crate) fn start(
 			"obs-vst",
 		];
 
-		eprintln!("[start] found {} module candidates", candidates.len());
-		for m in &candidates {
-			eprintln!("[start]   candidate: {} -> {}", m.name, m.bin_path);
-		}
 		for module in candidates {
 			let normalized_name = module.name.to_lowercase();
 
@@ -285,7 +271,6 @@ pub(crate) fn start(
 				.iter()
 				.any(|entry| normalized_name == *entry || normalized_name.contains(entry));
 			if blocked {
-				eprintln!("[start]   blocked: {}", module.name);
 				continue;
 			}
 
@@ -308,7 +293,6 @@ pub(crate) fn start(
 				Err(_) => continue,
 			};
 
-			eprintln!("[start]   loading module: {}", module.name);
 			let mut mod_ptr: *mut revo_lib::obs::obs_module_t = std::ptr::null_mut();
 			let open_result = revo_lib::obs::obs_open_module(
 				&mut mod_ptr as *mut _,
@@ -316,25 +300,16 @@ pub(crate) fn start(
 				data.as_ptr(),
 			);
 			if open_result == revo_lib::obs::MODULE_SUCCESS as i32 && !mod_ptr.is_null() {
-				eprintln!("[start]   init module: {}", module.name);
 				let _ = revo_lib::obs::obs_init_module(mod_ptr);
-				eprintln!("[start]   init OK: {}", module.name);
-			} else {
-				eprintln!("[start]   open FAILED ({}): {}", open_result, module.name);
 			}
 		}
 
-		eprintln!("[start] obs_post_load_modules...");
 		revo_lib::obs::obs_post_load_modules();
-		eprintln!("[start] obs_post_load_modules OK");
 	}
 
-	eprintln!("[start] reset_video_audio...");
 	if !reset_video_audio() {
-		eprintln!("[start] reset_video_audio FAILED");
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
-	eprintln!("[start] reset_video_audio OK");
 
 	ensure_scene(&mut runtime, &root)?;
 
