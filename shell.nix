@@ -25,6 +25,8 @@ pkgs.mkShell {
     wmctrl
     xdotool
     xorg.xwininfo
+    pulseaudio
+    pipewire
   ];
 
   shellHook = ''

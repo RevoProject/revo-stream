@@ -256,7 +256,6 @@ pub(crate) fn start(
 			"decklink",
 			"obs-websocket",
 			"linux-capture",
-			"linux-pipewire",
 			"frontend-tools",
 		];
 

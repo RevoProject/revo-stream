@@ -850,7 +850,8 @@ pub(crate) fn apply_source_params(
 					revo_lib::obs::obs_data_set_string(settings, key_capture_window.as_ptr(), val.as_ptr());
 				}
 			}
-			"pulse_input_capture" | "pulse_output_capture" => {
+			"pulse_input_capture" | "pulse_output_capture"
+			| "pipewire_input_capture" | "pipewire_output_capture" => {
 				if let Some(device) = params.get("device") {
 					let key = std::ffi::CString::new("device_id").unwrap();
 					let val = std::ffi::CString::new(device.as_str()).unwrap();
