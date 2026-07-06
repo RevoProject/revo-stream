@@ -7553,7 +7553,7 @@
     max-width: 100%;
     max-height: 100%;
     aspect-ratio: var(--preview-aspect, 16 / 9);
-    background: var(--preview-bg, var(--surface));
+    background: var(--preview-bg, #000);
     border: 1px solid var(--border);
     border-radius: 18px;
     display: grid;
