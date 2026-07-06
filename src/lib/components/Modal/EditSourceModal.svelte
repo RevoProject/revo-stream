@@ -395,15 +395,18 @@
     }
     return true;
   })();
+  $: schemaKeys = new Set((sourceParamSchemas[editType] ?? []).map((s: {key:string}) => s.key));
   $: sourcePropertyByKey = new Map(sourcePropertySpecs.map((spec) => [spec.key, spec]));
   $: visibleSourcePropertyEntries = sourcePropertyEntries.filter(
     ([key]) =>
+      !schemaKeys.has(key) &&
       !(isTextSource && isManagedTextKey(key)) &&
       !(isMediaSource && isManagedMediaKey(key)) &&
       !(isAudioSource && isManagedAudioDeviceKey(key))
   );
   $: visibleExtraParamEntries = extraParamEntries.filter(
     ([key]) =>
+      !schemaKeys.has(key) &&
       !(isTextSource && isManagedTextKey(key)) &&
       !(isMediaSource && isManagedMediaKey(key)) &&
       !(isAudioSource && isManagedAudioDeviceKey(key))
