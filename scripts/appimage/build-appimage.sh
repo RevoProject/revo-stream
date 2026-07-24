@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SRC_TAURI="${SCRIPT_DIR}/src-tauri"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SRC_TAURI="${REPO_ROOT}/src-tauri"
 RES_ROOT="${SRC_TAURI}/resources/revo-root"
 
 should_enable_egl_workaround() {
@@ -57,9 +57,9 @@ if [[ -d "${REPO_ROOT}/core/bin" ]]; then
 fi
 
 if should_enable_egl_workaround; then
-	echo "[run-stable] Enabling EGL workaround flags (software GL + DMABUF disable)."
+	echo "[build-appimage] Enabling EGL workaround flags (software GL + DMABUF disable)."
 	REVO_FORCE_SOFTWARE_GL=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 NO_STRIP=true pnpm tauri build --bundles appimage
 else
-	echo "[run-stable] EGL workaround flags not required on this system."
+	echo "[build-appimage] EGL workaround flags not required on this system."
 	NO_STRIP=true pnpm tauri build --bundles appimage
 fi
