@@ -9,7 +9,6 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vscode
-scripts
 
 # Tauri Cache
 /src-tauri/resources/revo-root/data/conf/obs-browser/

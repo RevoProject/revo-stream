@@ -61,7 +61,8 @@ pnpm build
 
 ### Run locally
 - Development mode: `./run.sh`
-- Stable-release build: `./run-stable.sh`
+- CEF development mode: `./run-cef.sh`
+- Stable-release AppImage: `./scripts/appimage/build-appimage.sh`
 
 ## Windows (experimental)
 Use this only for local/dev testing.
@@ -142,8 +143,27 @@ If you want, a ready-to-use bootstrap implementation can be added directly to `r
 - Svelte
 - OBS/libobs via revo-lib
 
-## Other Scripts
-- clean.sh - for cleanup all built code
+## Scripts
+
+### Root-level Tauri scripts
+- `run.sh` — run app in development mode (no compilation)
+- `run-cef.sh` — run app with CEF backend (no compilation)
+- `clean.sh` — clean all build artifacts
+
+### AppImage build
+- `scripts/appimage/build-appimage.sh` — build a stable AppImage release bundle
+
+### NixOS scripts (`scripts/nix/`)
+- `compile.sh` — build the app (deb + rpm bundles) under a Nix shell
+- `dev.sh` — compile and run in development mode under a Nix shell (`cargo` or `tauri`)
+- `run.sh` — run a pre-built binary with Nix-provided GStreamer deps
+- `all.sh` — full NixOS pipeline: compile → package → clean
+- `package-bundle.sh` — package a built binary into a self-extracting `.run` archive
+- `itvt.sh` — one-file launcher that auto-builds if binary is missing
+
+### Deployment
+- `scripts/deploy-dist.sh` — deploy `dist/` to the `main` branch
+- `scripts/deploy-dist-debug.sh` — deploy `dist/` to the `debug` branch
 
 ## Contributing
 The project is currently in an early MVP stage
