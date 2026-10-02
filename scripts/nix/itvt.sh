@@ -7,10 +7,10 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$SCRIPT_DIR/desktop-app"
+BINARY="$SCRIPT_DIR/revo-ui"
 
 if [ ! -f "$BINARY" ]; then
-  BINARY="$SCRIPT_DIR/usr/bin/desktop-app"
+  BINARY="$SCRIPT_DIR/usr/bin/revo-ui"
 fi
 
 if [ ! -f "$BINARY" ]; then
@@ -21,7 +21,7 @@ if [ ! -f "$BINARY" ]; then
   cd "$SRC_DIR"
   pnpm install --frozen-lockfile
   pnpm tauri build --bundles deb,rpm
-  BINARY="src-tauri/target/release/desktop-app"
+  BINARY="src-tauri/target/release/revo-ui"
   echo "=== Zbudowano: $BINARY ==="
 fi
 
