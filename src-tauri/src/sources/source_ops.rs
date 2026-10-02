@@ -559,8 +559,9 @@ pub(crate) fn create_source_in_scene(
 			scale.__bindgen_anon_1.__bindgen_anon_1.y = 1.0;
 			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
 		}
-		revo_lib::obs::obs_source_release(source);
 		scene.custom_items.insert(id.to_string(), item);
+		crate::devices::levels::attach_volmeter(runtime, source);
+		revo_lib::obs::obs_source_release(source);
 	}
 
 	Ok(format!("created {id}"))

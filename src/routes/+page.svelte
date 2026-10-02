@@ -1293,6 +1293,8 @@
     let audioMixerDragOriginY = 0;
     let audioMixerDragX = 0;
     let audioMixerDragY = 0;
+    let audioLevels: Record<string, number> = {};
+    let audioLevelsTimer: ReturnType<typeof setInterval> | null = null;
     let audioAdvancedModalEl: HTMLDivElement | null = null;
     let audioAdvancedDragActive = false;
     let audioAdvancedDragStartX = 0;
@@ -3717,6 +3719,7 @@
         showGlobalDialog(stopMsg, "info");
       }
       isObsRunning = false;
+      audioLevels = {};
       scenes = [];
       sourcesList = [];
       stopPreviewLoop();
@@ -3762,9 +3765,10 @@
     }
     try {
       const startMsg = await invoke<string>("obs_start_recording", { outputPath: recordPath.trim() });
+      const base = getBasePreviewSize();
+      cachedPreviewSize = base;
+      cachedPreviewScale = getPreviewScaleFinal();
       isRecording = true;
-      cachedPreviewSize = null;
-      cachedPreviewScale = 0;
       showGlobalDialog(startMsg || "Recording started", "info");
     } catch (err) {
       isRecording = false;
@@ -3834,6 +3838,9 @@
     mediaActionBusy = true;
     try {
       const startMsg = await invoke<string>("obs_start_streaming", { streamUrl: target });
+      const base = getBasePreviewSize();
+      cachedPreviewSize = base;
+      cachedPreviewScale = getPreviewScaleFinal();
       isStreaming = true;
       showGlobalDialog(startMsg || "Streaming started", "info");
 
@@ -3888,6 +3895,7 @@
       const stopMsg = await invoke<string>("obs_stop_streaming");
       isStreaming = false;
       cachedPreviewSize = null;
+      cachedPreviewScale = 0;
       showGlobalDialog(stopMsg || "Streaming stopped", "info");
     } catch (err) {
       showGlobalDialog(`Failed to stop streaming: ${String(err)}`, "error");
@@ -5407,6 +5415,10 @@
   };
   const dbToPercent = (db: number) => clampAudioMixerPercent(Math.pow(10, clampAudioMixerDb(db) / 20) * 100);
   const getAudioMixerVisualLevel = (source: DemoSource, state: AudioMixerItemState) => {
+    const liveLevel = audioLevels[source.id] ?? audioLevels[source.name ?? ""];
+    if (Number.isFinite(liveLevel) && liveLevel >= 0) {
+      return Math.max(0, Math.min(100, Math.round(liveLevel)));
+    }
     const params = source.params ?? {};
     const maybeLevel = Number(
       params.input_level_percent ??
@@ -5418,9 +5430,7 @@
     if (Number.isFinite(maybeLevel) && maybeLevel >= 0) {
       return Math.max(0, Math.min(100, Math.round(maybeLevel)));
     }
-    const sourcePercent = state.volumeMode === "db" ? dbToPercent(state.volumeDb) : state.volumePercent;
-    const normalized = Math.max(0, Math.min(1, sourcePercent / 100));
-    return Math.round(normalized * 100);
+    return 0;
   };
   const formatAudioMixerDb = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)} dB`;
 
@@ -5448,6 +5458,18 @@
     return created;
   };
 
+  const refreshAudioLevels = async () => {
+    if (!isObsRunning) return;
+    try {
+      const levels = await tauriInvoke<Record<string, number>>("obs_get_audio_levels");
+      if (levels && typeof levels === "object") {
+        audioLevels = levels;
+      }
+    } catch (e) {
+      console.error("audio levels error", e);
+    }
+  };
+
   const openAudioMixer = async () => {
     if (openAdditionalSettingsInWindows && auxWindowMode !== "audio-mixer") {
       await openAuxSettingsWindow("audio-mixer");
@@ -5457,9 +5479,16 @@
       ensureAudioMixerState(source);
     }
     showAudioMixerModal = true;
+    if (audioLevelsTimer === null) {
+      audioLevelsTimer = setInterval(refreshAudioLevels, 100);
+    }
   };
 
   const closeAudioMixer = async () => {
+    if (audioLevelsTimer !== null) {
+      clearInterval(audioLevelsTimer);
+      audioLevelsTimer = null;
+    }
     for (const timer of Object.values(audioMixerVolumeRealtimeTimers)) {
       clearTimeout(timer);
     }

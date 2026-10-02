@@ -25,6 +25,13 @@ pkgs.mkShell {
     wmctrl
     xdotool
     xorg.xwininfo
+    libxcomposite
+    libxdamage
+    libxfixes
+    libxrandr
+    libxrender
+    libXext
+    libXtst
     pulseaudio
     pipewire
     libGL
@@ -43,7 +50,7 @@ pkgs.mkShell {
 
     # Automatyczna konfiguracja REVO_ROOT
     export REVO_ROOT="$(pwd)/.local/revo-root"
-    export LD_LIBRARY_PATH="${pkgs.obs-studio}/lib:${pkgs.libGL}/lib:${pkgs.mesa}/lib:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="${pkgs.obs-studio}/lib:${pkgs.libGL}/lib:${pkgs.mesa}/lib:${pkgs.libxcomposite}/lib:${pkgs.libxdamage}/lib:${pkgs.libxfixes}/lib:${pkgs.libxrandr}/lib:${pkgs.libxrender}/lib:${pkgs.libXext}/lib:${pkgs.libXtst}/lib:$LD_LIBRARY_PATH"
     export WEBKIT_DISABLE_COMPOSITING_MODE=1
     export WEBKIT_DISABLE_DMABUF_RENDERER=1
     export WEBKIT_USE_GL=software

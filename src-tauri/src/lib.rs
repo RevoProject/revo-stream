@@ -41,6 +41,7 @@ struct ObsRuntime {
     scene_resolution: String,
     planner_init: Option<PlannerInit>,
     transition_source: *mut obs::obs_source,
+    audio_volmeters: Vec<*mut obs::obs_volmeter_t>,
 }
 
 impl Default for ObsRuntime {
@@ -65,6 +66,7 @@ impl Default for ObsRuntime {
             scene_resolution: "1920x1080".to_string(),
             planner_init: None,
             transition_source: std::ptr::null_mut(),
+            audio_volmeters: Vec::new(),
         }
     }
 }
@@ -637,6 +639,14 @@ fn obs_set_encoder_preference(
 }
 
 #[tauri::command]
+fn obs_get_audio_levels() -> Result<HashMap<String, f64>, String> {
+    let levels = devices::levels::get_levels()
+        .lock()
+        .map_err(|e| format!("poisoned: {e}"))?;
+    Ok(levels.clone())
+}
+
+#[tauri::command]
 fn obs_take_screenshot(
     state: tauri::State<ObsState>,
     width: Option<u32>,
@@ -777,6 +787,7 @@ pub fn run() {
             obs_stop_streaming,
             obs_set_encoder_preference,
             obs_take_screenshot,
+            obs_get_audio_levels,
             obs_reorder_scene,
             settings_get,
             settings_save,

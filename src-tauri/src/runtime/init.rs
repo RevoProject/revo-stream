@@ -257,7 +257,6 @@ pub(crate) fn start(
 			"obs-websocket",
 			"obs-browser",
 			"linux-capture",
-			"linux-pipewire",
 			"frontend-tools",
 			"obs-qsv11",
 			"obs-nvenc",
@@ -329,6 +328,8 @@ pub(crate) fn start(
 
 	ensure_scene(&mut runtime, &root)?;
 
+	crate::devices::levels::init_audio_volmeters(&mut runtime);
+
 	runtime.initialized = true;
 	revo_lib::runtime::set_initialized(true);
 	Ok("OBS initialized".to_string())
@@ -345,6 +346,7 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	super::helpers::stop_recording_internal(&mut runtime);
 	super::helpers::stop_streaming_internal(&mut runtime);
 	cleanup_scene(&mut runtime);
+	crate::devices::levels::cleanup_audio_volmeters(&mut runtime);
 	unsafe {
 		if !runtime.transition_source.is_null() {
 			revo_lib::obs::obs_source_release(runtime.transition_source);
