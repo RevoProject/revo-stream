@@ -205,22 +205,26 @@ jobs:
           p = matches[0]
           s = p.read_text()
 
-          if "layout_tests(false)" in s:
-              print(f"libobs bindgen patch already applied: {p}")
+          if "builder = builder.layout_tests(false);" in s:
+              print(f"Patch already applied: {p}")
               raise SystemExit(0)
 
-          old = "let mut builder = bindgen::builder()"
-          new = """let mut builder = bindgen::builder();
+          marker = '''    let mut builder = bindgen::builder()
+              .header("headers/wrapper.h")
+              .blocklist_function("^_.*")
+              .clang_arg(format!("-I{}", "headers/obs"));'''
+
+          replacement = marker + '''
 
           #[cfg(target_os = "macos")]
           {
               builder = builder.layout_tests(false);
-          }"""
+          }'''
 
-          if old not in s:
-              raise SystemExit(f"Could not find bindgen builder in {p}")
+          if marker not in s:
+              raise SystemExit(f"Expected bindgen builder block not found in {p}")
 
-          p.write_text(s.replace(old, new, 1))
+          p.write_text(s.replace(marker, replacement, 1))
           print(f"Patched: {p}")
           PY
 
