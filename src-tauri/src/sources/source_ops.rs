@@ -58,6 +58,63 @@ pub(crate) fn list_sources(
 	Ok(collect_sources(&runtime))
 }
 
+/// Wymiary elementu sceny (item_width/item_height) + flaga dims_ready.
+/// dims_ready = "1" gdy rozmiar jest znany, "0" gdy zrodlo jeszcze nie
+/// raportuje rozmiaru (np. asynchroniczne ładowanie obrazu).
+fn resolve_item_dims(
+	item: *mut revo_lib::obs::obs_scene_item,
+	source: *mut revo_lib::obs::obs_source,
+	scale: &revo_lib::obs::vec2,
+) -> (f32, f32, bool) {
+	unsafe {
+		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
+		let base_h = revo_lib::obs::obs_source_get_height(source) as f32;
+		if base_w > 0.0 && base_h > 0.0 {
+			return (
+				base_w * scale.__bindgen_anon_1.__bindgen_anon_1.x,
+				base_h * scale.__bindgen_anon_1.__bindgen_anon_1.y,
+				true,
+			);
+		}
+
+		// Fallback: zrodlo nie raportuje jeszcze rozmiaru — przeczytaj rozmiar
+		// na scenie z bounds scenitem (gdy bounds sa ustawione, to jego rozmiar
+		// jest rzeczywistym rozmiarem na scenie).
+		let mut info: revo_lib::obs::obs_transform_info = std::mem::zeroed();
+		revo_lib::obs::obs_sceneitem_get_info2(item, &mut info as *mut _);
+		let mut bounds: revo_lib::obs::vec2 = std::mem::zeroed();
+		revo_lib::obs::obs_sceneitem_get_bounds(item, &mut bounds as *mut _);
+		let bounds_w = bounds.__bindgen_anon_1.__bindgen_anon_1.x;
+		let bounds_h = bounds.__bindgen_anon_1.__bindgen_anon_1.y;
+		if info.bounds_type != revo_lib::obs::obs_bounds_type_OBS_BOUNDS_NONE
+			&& bounds_w > 0.0
+			&& bounds_h > 0.0
+		{
+			return (bounds_w, bounds_h, true);
+		}
+
+		(0.0, 0.0, false)
+	}
+}
+
+/// Usuwa item_width/item_height o wartosci <= 0 (wymiary nieznane) — helpers::apply_scene_item_transform*
+/// potraktowalby je jako poprawne wymiary i wyliczyl skale 0/base = 0.
+fn without_unknown_item_dims(
+	params: &std::collections::HashMap<String, String>,
+) -> std::collections::HashMap<String, String> {
+	let mut out = params.clone();
+	for key in ["item_width", "item_height"] {
+		if out
+			.get(key)
+			.and_then(|v| v.parse::<f32>().ok())
+			.is_some_and(|v| v <= 0.0)
+		{
+			out.remove(key);
+		}
+	}
+	out
+}
+
 pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceInfo> {
 	if !runtime.initialized {
 		return vec![];
@@ -145,18 +202,15 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 				"pos_y".to_string(),
 				pos.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 			);
-			let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
-			let base_h = revo_lib::obs::obs_source_get_height(source) as f32;
-			if base_w > 0.0 && base_h > 0.0 {
-				params.insert(
-					"item_width".to_string(),
-					(base_w * scale.__bindgen_anon_1.__bindgen_anon_1.x).to_string(),
-				);
-				params.insert(
-					"item_height".to_string(),
-					(base_h * scale.__bindgen_anon_1.__bindgen_anon_1.y).to_string(),
-				);
-			}
+			// Zawsze emituj item_width/item_height + dims_ready, aby frontend
+			// (m.in. graphic planner) rozroznial "wymiary nieznane" od "braku".
+			let (item_w, item_h, dims_ready) = resolve_item_dims(item, source, &scale);
+			params.insert("item_width".to_string(), item_w.to_string());
+			params.insert("item_height".to_string(), item_h.to_string());
+			params.insert(
+				"dims_ready".to_string(),
+				if dims_ready { "1" } else { "0" }.to_string(),
+			);
 
 			params.insert(
 				"scale_x".to_string(),
@@ -208,6 +262,8 @@ pub(crate) fn remove_source(
 		return Err("source not available".to_string());
 	}
 	unsafe {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item_ptr);
+		crate::devices::levels::detach_volmeters_for_source(source);
 		revo_lib::obs::obs_sceneitem_remove(item_ptr);
 	}
 	if !is_custom {
@@ -296,18 +352,15 @@ pub(crate) fn get_source_settings(
 			"pos_y".to_string(),
 			pos.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 		);
-		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
-		let base_h = revo_lib::obs::obs_source_get_height(source) as f32;
-		if base_w > 0.0 && base_h > 0.0 {
-			params.insert(
-				"item_width".to_string(),
-				(base_w * scale.__bindgen_anon_1.__bindgen_anon_1.x).to_string(),
-			);
-			params.insert(
-				"item_height".to_string(),
-				(base_h * scale.__bindgen_anon_1.__bindgen_anon_1.y).to_string(),
-			);
-		}
+		// Zawsze emituj item_width/item_height + dims_ready, aby frontend
+		// (m.in. graphic planner) rozroznial "wymiary nieznane" od "braku".
+		let (item_w, item_h, dims_ready) = resolve_item_dims(item, source, &scale);
+		params.insert("item_width".to_string(), item_w.to_string());
+		params.insert("item_height".to_string(), item_h.to_string());
+		params.insert(
+			"dims_ready".to_string(),
+			if dims_ready { "1" } else { "0" }.to_string(),
+		);
 		// Zawsze dodawaj scale_x/scale_y — potrzebne m.in. przy graphic planner,
 		// gdzie musimy znać zamiar skali niezależnie od bazowych wymiarów źródła.
 		params.insert(
@@ -550,17 +603,22 @@ pub(crate) fn create_source_in_scene(
 			return Err("failed to add source to scene".to_string());
 		}
 		revo_lib::obs::obs_sceneitem_set_visible(item, true);
-		crate::apply_scene_item_transform(item, source, &create.params);
-		// Jesli OBS nie raportuje jeszcze rozmiaru (async image load), ustaw domyslny scale
+		let transform_params = without_unknown_item_dims(&create.params);
+		crate::apply_scene_item_transform(item, source, &transform_params);
+		// Jesli OBS nie raportuje jeszcze rozmiaru (async image load), ustaw domyslny scale —
+		// ale tylko gdy w params nie ma zamiaru skali (scale_x/scale_y), aby nie kasowac
+		// transformacji przekazanej przy tworzeniu/klonowaniu zrodla.
 		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
-		if base_w <= 0.0 {
+		let has_scale_intent = transform_params.contains_key("scale_x")
+			|| transform_params.contains_key("scale_y");
+		if base_w <= 0.0 && !has_scale_intent {
 			let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
 			scale.__bindgen_anon_1.__bindgen_anon_1.x = 1.0;
 			scale.__bindgen_anon_1.__bindgen_anon_1.y = 1.0;
 			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
 		}
 		scene.custom_items.insert(id.to_string(), item);
-		crate::devices::levels::attach_volmeter(runtime, source);
+		crate::devices::levels::attach_volmeter(source);
 		revo_lib::obs::obs_source_release(source);
 	}
 
@@ -707,7 +765,8 @@ pub(crate) fn update_source(
 
 		revo_lib::obs::obs_source_update(source, settings);
 		revo_lib::obs::obs_data_release(settings);
-		crate::sources::helpers::apply_scene_item_transform_with_base(item, source, &update.params, base_w_before, base_h_before);
+		let transform_params = without_unknown_item_dims(&update.params);
+		crate::sources::helpers::apply_scene_item_transform_with_base(item, source, &transform_params, base_w_before, base_h_before);
 		apply_audio_runtime_params(source, &update.params);
 		if !is_ffmpeg_source {
 			revo_lib::obs::obs_sceneitem_set_visible(item, false);

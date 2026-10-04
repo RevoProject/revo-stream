@@ -6,6 +6,8 @@ pub(crate) unsafe extern "C" fn remove_scene_item_cb(
 	_param: *mut std::os::raw::c_void,
 ) -> bool {
 	if !item.is_null() {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item);
+		crate::devices::levels::detach_volmeters_for_source(source);
 		revo_lib::obs::obs_sceneitem_remove(item);
 	}
 	true

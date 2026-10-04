@@ -36,12 +36,15 @@ struct ObsRuntime {
     stream_audio_encoder: *mut obs::obs_encoder,
     preview_view: *mut obs::obs_view,
     preview_texrender: *mut obs::gs_texrender_t,
+    /// Last successfully captured preview frame (data URI). Returned when a
+    /// fresh capture fails, so the UI keeps a good frame instead of an error
+    /// or a wrongly-rendered main/output texture.
+    last_preview_frame: Option<String>,
     last_record_path: Option<PathBuf>,
     video_encoder_preference: VideoEncoderPreference,
     scene_resolution: String,
     planner_init: Option<PlannerInit>,
     transition_source: *mut obs::obs_source,
-    audio_volmeters: Vec<*mut obs::obs_volmeter_t>,
 }
 
 impl Default for ObsRuntime {
@@ -61,12 +64,12 @@ impl Default for ObsRuntime {
             stream_audio_encoder: std::ptr::null_mut(),
             preview_view: std::ptr::null_mut(),
             preview_texrender: std::ptr::null_mut(),
+            last_preview_frame: None,
             last_record_path: None,
             video_encoder_preference: VideoEncoderPreference::default(),
             scene_resolution: "1920x1080".to_string(),
             planner_init: None,
             transition_source: std::ptr::null_mut(),
-            audio_volmeters: Vec::new(),
         }
     }
 }
