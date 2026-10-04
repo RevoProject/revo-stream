@@ -149,7 +149,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install SIMDe
-        run: brew install simde
+        run: |
+          brew install simde
+          echo "CPATH=$(brew --prefix simde)/include:${CPATH:-}" >> "$GITHUB_ENV"
+          echo "C_INCLUDE_PATH=$(brew --prefix simde)/include:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$(brew --prefix simde)/include:${CPLUS_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
+         
+      - name: Verify SIMDe
+        run: |
+          SIMDE="$(brew --prefix simde)"
+          test -f "$SIMDE/include/simde/x86/sse2.h"
+          echo "SIMDe headers found:"
+          ls "$SIMDE/include/simde/x86/sse2.h"
+
 
       - name: Disable CEF for CI build
         shell: bash
