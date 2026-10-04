@@ -66,6 +66,22 @@ bash scripts/nix/all.sh            # compile → package .run → clean
 `shell.nix` also prepares `REVO_ROOT` (libobs effects and OBS plugins linked
 from the Nix store) on first shell entry.
 
+## Build AppImage from Nix
+
+- Enter the Nix shell:
+```bash
+nix-shell
+```
+
+- Build the AppImage:
+```bash
+APPIMAGE_EXTRACT_AND_RUN=1 \
+steam-run ./scripts/appimage/build-appimage.sh
+```
+
+> `APPIMAGE_EXTRACT_AND_RUN=1` allows the AppImage tooling to run without FUSE,
+> which is required on NixOS when `libfuse.so.2` is not available.
+
 ## Windows (experimental)
 
 Use only for local/dev testing.
