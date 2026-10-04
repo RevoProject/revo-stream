@@ -48,7 +48,18 @@ pub(crate) fn start_streaming(
 		let last_error = unsafe {
 			super::helpers::cstr_to_string(revo_lib::obs::obs_output_get_last_error(output))
 		};
-		unsafe { revo_lib::obs::obs_output_release(output) };
+		unsafe {
+			revo_lib::obs::obs_output_release(output);
+			if !service.is_null() {
+				revo_lib::obs::obs_service_release(service);
+			}
+			if !video_encoder.is_null() {
+				revo_lib::obs::obs_encoder_release(video_encoder);
+			}
+			if !audio_encoder.is_null() {
+				revo_lib::obs::obs_encoder_release(audio_encoder);
+			}
+		}
 		return Err(format!("stream start failed: {last_error}"));
 	}
 
