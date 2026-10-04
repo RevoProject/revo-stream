@@ -16,13 +16,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -30,22 +24,26 @@ jobs:
           version: 10
           run_install: false
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: x86_64-pc-windows-msvc
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri application
+      - name: Build Windows MSI
         run: pnpm tauri build --bundles msi
 
       - name: Create Windows ZIP
         shell: pwsh
         run: |
-          $bundle = "src-tauri/target/release/bundle"
           $zip = "src-tauri/target/release/bundle/revo-ui-windows-x64.zip"
 
           if (Test-Path $zip) {
@@ -74,18 +72,13 @@ jobs:
         include:
           - arch: arm64
             target: aarch64-apple-darwin
+
           - arch: x64
             target: x86_64-apple-darwin
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -93,16 +86,21 @@ jobs:
           version: 10
           run_install: false
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build macOS application
+      - name: Build macOS DMG
         run: pnpm tauri build --target ${{ matrix.target }} --bundles dmg
 
       - name: Upload macOS artifact
