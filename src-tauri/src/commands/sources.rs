@@ -356,6 +356,8 @@ pub fn obs_remove_source(state: State<ObsState>, id: String) -> Result<String, S
         return Err("source not available".to_string());
     }
     unsafe {
+        let source = obs::obs_sceneitem_get_source(item_ptr);
+        crate::devices::levels::detach_volmeters_for_source(source);
         obs::obs_sceneitem_remove(item_ptr);
     }
     if !is_custom {
