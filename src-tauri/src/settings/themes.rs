@@ -175,7 +175,7 @@ pub(crate) fn themes_extract_default(
 	let cfg = serde_json::json!({
 		"name": "Default Theme (generated)",
 		"author": "RevoProject authors",
-		"version": "0.1.0"
+		"version": "0.2.0"
 	});
 	let cfg_raw = serde_json::to_string_pretty(&cfg)
 		.map_err(|e| format!("failed to serialize default config.revo: {e}"))?;
@@ -286,7 +286,7 @@ pub(crate) fn write_theme_to_runtime(
 	let display_version = version
 		.map(|v| v.trim())
 		.filter(|v| !v.is_empty())
-		.unwrap_or("0.1.0")
+		.unwrap_or("0.2.0")
 		.to_string();
 
 	let themes_dir = themes_dir_for_root(root_dir)?;
@@ -321,7 +321,7 @@ pub(crate) fn write_theme_to_runtime(
 		version: cfg
 			.get("version")
 			.and_then(|v| v.as_str())
-			.unwrap_or("0.1.0")
+			.unwrap_or("0.2.0")
 			.to_string(),
 	})
 }
@@ -445,7 +445,7 @@ pub(crate) fn themes_import_archive(
 		.and_then(|v| v.as_str())
 		.map(|v| v.trim().to_string())
 		.filter(|v| !v.is_empty())
-		.unwrap_or_else(|| "0.1.0".to_string());
+		.unwrap_or_else(|| "0.2.0".to_string());
 
 	let file_stem = file_name
 		.trim_end_matches(".revotheme")
