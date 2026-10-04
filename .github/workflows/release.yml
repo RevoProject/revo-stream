@@ -70,6 +70,10 @@ jobs:
           Write-Host "CEF disabled for CI"
           Select-String -Path $path -Pattern "cef|revo-cef" || $true
 
+      - name: Prepare revo-root
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
+
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi
 
@@ -143,6 +147,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Install SIMDe
+        run: brew install simde
 
       - name: Disable CEF for CI build
         shell: bash
