@@ -189,6 +189,42 @@ jobs:
 
           grep -nE 'cef|revo-cef' src-tauri/Cargo.toml || true
 
+      - name: Fetch Rust dependencies
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml
+
+      - name: Patch libobs bindgen for macOS
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path.home() / ".cargo/git/checkouts"
+          matches = list(root.glob("libobs-rs-*/7e76c91/libobs/build.rs"))
+          if not matches:
+              raise SystemExit("libobs-rs build.rs not found")
+
+          p = matches[0]
+          s = p.read_text()
+
+          old = '''    let bindings = builder
+              .parse_callbacks(Box::new(get_ignored_macros()))'''
+          new = '''    #[cfg(target_os = "macos")]
+          {
+              builder = builder.layout_tests(false);
+          }
+
+          let bindings = builder
+              .parse_callbacks(Box::new(get_ignored_macros()))'''
+
+          if new in s:
+              print(f"libobs bindgen patch already applied: {p}")
+          elif old in s:
+              p.write_text(s.replace(old, new, 1))
+              print(f"Patched: {p}")
+          else:
+              raise SystemExit(f"Expected bindgen builder pattern not found in {p}")
+          PY
+
       - name: Build macOS DMG
         run: pnpm tauri build --bundles dmg --target aarch64-apple-darwin -- --no-default-features
 
