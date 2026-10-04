@@ -2,7 +2,7 @@
 name = "revo-ui"
 version = "0.2.0"
 description = "A tauri based likely obs app"
-authors = ["you"]
+authors = ["revoproject"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -37,5 +37,5 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 revo-cef = { path = "../../modules/revo-cef", optional = true }
-revo-lib = { path = "../../revo-lib" }
+revo-lib = { git = "https://github.com/RevoProject/revo-lib" }
 
