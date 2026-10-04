@@ -75,7 +75,7 @@ jobs:
         run: New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
 
       - name: Build Windows MSI
-        run: pnpm tauri build -- --no-default-features --bundles msi
+        run: pnpm tauri build --bundles msi --no-default-features
 
       - name: Create Windows ZIP
         shell: pwsh
@@ -190,7 +190,7 @@ jobs:
           grep -nE 'cef|revo-cef' src-tauri/Cargo.toml || true
 
       - name: Build macOS DMG
-        run: pnpm tauri build -- --no-default-features --target ${{ matrix.target }} --bundles dmg
+        run: pnpm tauri build --bundles dmg --target ${{ matrix.target }} --no-default-features
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
