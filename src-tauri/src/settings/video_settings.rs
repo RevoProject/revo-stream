@@ -26,6 +26,10 @@ pub(crate) fn set_scene_resolution(
 		.parse()
 		.map_err(|_| "Invalid height".to_string())?;
 
+	// obs_reset_video frees graphics resources — drop the texrender first so
+	// the preview re-creates it lazily instead of using a dangling pointer.
+	crate::runtime::preview::destroy_preview_renderer(&mut runtime);
+
 	let ok = crate::runtime::helpers::reset_video_with_resolution(width, height);
 	if !ok {
 		return Err("obs_reset_video failed".to_string());

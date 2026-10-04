@@ -263,10 +263,8 @@ pub fn ensure_scene(runtime: &mut ObsRuntime) -> Result<(), String> {
 }
 
 pub fn cleanup_scene(runtime: &mut ObsRuntime) {
+    crate::runtime::preview::destroy_preview_renderer(runtime);
     unsafe {
-        if !runtime.preview_texrender.is_null() {
-            obs::gs_texrender_destroy(runtime.preview_texrender);
-        }
         if !runtime.preview_view.is_null() {
             obs::obs_view_destroy(runtime.preview_view);
         }

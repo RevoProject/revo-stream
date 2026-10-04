@@ -177,6 +177,20 @@ pub(crate) fn take_screenshot(
 	})
 }
 
+/// Destroy the preview texrender inside the graphics context and clear the
+/// pointer. Safe to call when nothing is allocated. Must be called before
+/// `obs_reset_video` — the reset frees graphics resources behind our back.
+pub(crate) fn destroy_preview_renderer(runtime: &mut crate::ObsRuntime) {
+	if !runtime.preview_texrender.is_null() {
+		unsafe {
+			revo_lib::obs::obs_enter_graphics();
+			revo_lib::obs::gs_texrender_destroy(runtime.preview_texrender);
+			revo_lib::obs::obs_leave_graphics();
+		}
+		runtime.preview_texrender = std::ptr::null_mut();
+	}
+}
+
 pub(crate) fn ensure_preview_renderer(
 	runtime: &mut crate::ObsRuntime,
 	render_source: *mut revo_lib::obs::obs_source,
@@ -225,11 +239,34 @@ pub(crate) fn capture_view_png(
 		revo_lib::obs::obs_view_set_source(runtime.preview_view, 0, render_source);
 		revo_lib::obs::obs_enter_graphics();
 
-		let tex = if revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height) {
+		// Never fall back to obs_get_main_texture() here: the main/output
+		// texture is the composed output channel (base canvas, with transition),
+		// not the preview view — using it makes the preview show a cropped/
+		// zoomed frame after Record/Go Live start. Retry on a fresh texrender
+		// instead; on failure keep the last good frame (handled by caller).
+		let mut rendered = false;
+
+		if !runtime.preview_texrender.is_null()
+			&& revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height)
+		{
+			revo_lib::obs::gs_ortho(
+				0.0,
+				width as f32,
+				0.0,
+				height as f32,
+				-100.0,
+				100.0,
+			);
 			revo_lib::obs::obs_view_render(runtime.preview_view);
 			revo_lib::obs::gs_texrender_end(runtime.preview_texrender);
-			revo_lib::obs::gs_texrender_get_texture(runtime.preview_texrender)
-		} else {
+			rendered = true;
+		}
+
+		if !rendered {
+			eprintln!(
+				"[preview-capture] texrender_begin failed, retrying with a fresh texrender ({}x{})",
+				width, height
+			);
 			if !runtime.preview_texrender.is_null() {
 				revo_lib::obs::gs_texrender_destroy(runtime.preview_texrender);
 				runtime.preview_texrender = std::ptr::null_mut();
@@ -243,18 +280,48 @@ pub(crate) fn capture_view_png(
 			if !runtime.preview_texrender.is_null()
 				&& revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height)
 			{
+				revo_lib::obs::gs_ortho(
+					0.0,
+					width as f32,
+					0.0,
+					height as f32,
+					-100.0,
+					100.0,
+				);
 				revo_lib::obs::obs_view_render(runtime.preview_view);
 				revo_lib::obs::gs_texrender_end(runtime.preview_texrender);
-				revo_lib::obs::gs_texrender_get_texture(runtime.preview_texrender)
-			} else {
-				eprintln!("obs: texrender begin failed, falling back to main texture");
-				revo_lib::obs::obs_render_main_texture();
-				revo_lib::obs::obs_get_main_texture()
+				rendered = true;
 			}
-		};
+		}
+
+		eprintln!(
+			"[preview-capture] source=preview_view width={} height={} rendered={}",
+			width, height, rendered
+		);
+
+		if !rendered {
+			revo_lib::obs::obs_leave_graphics();
+			let cached = runtime.last_preview_frame.clone();
+			return match cached {
+				Some(frame) => {
+					eprintln!("[preview-capture] returning last good frame");
+					Ok(frame)
+				}
+				None => Err("preview texrender failed".to_string()),
+			};
+		}
+
+		let tex = revo_lib::obs::gs_texrender_get_texture(runtime.preview_texrender);
 		if tex.is_null() {
 			revo_lib::obs::obs_leave_graphics();
-			return Err("preview texture unavailable".to_string());
+			let cached = runtime.last_preview_frame.clone();
+			return match cached {
+				Some(frame) => {
+					eprintln!("[preview-capture] texture unavailable, returning last good frame");
+					Ok(frame)
+				}
+				None => Err("preview texture unavailable".to_string()),
+			};
 		}
 
 		width = revo_lib::obs::gs_texture_get_width(tex);
@@ -349,5 +416,7 @@ pub(crate) fn capture_view_png(
 	.map_err(|e| format!("failed to encode screenshot: {e}"))?;
 
 	let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
-	Ok(format!("data:image/png;base64,{b64}"))
+	let frame = format!("data:image/png;base64,{b64}");
+	runtime.last_preview_frame = Some(frame.clone());
+	Ok(frame)
 }

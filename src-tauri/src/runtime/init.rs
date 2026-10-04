@@ -245,7 +245,13 @@ pub(crate) fn start(
 				legacy_runtime_data_dir_c.as_ptr(),
 			);
 		}
+	}
 
+	if !reset_video_audio() {
+		return Err("obs_reset_video/obs_reset_audio failed".to_string());
+	}
+
+	unsafe {
 		let mut candidates: Vec<ModuleCandidate> = Vec::new();
 		revo_lib::obs::obs_find_modules2(
 			Some(collect_module_candidate),
@@ -322,13 +328,9 @@ pub(crate) fn start(
 		}
 	}
 
-	if !reset_video_audio() {
-		return Err("obs_reset_video/obs_reset_audio failed".to_string());
-	}
-
 	ensure_scene(&mut runtime, &root)?;
 
-	crate::devices::levels::init_audio_volmeters(&mut runtime);
+	crate::devices::levels::init_audio_volmeters();
 
 	runtime.initialized = true;
 	revo_lib::runtime::set_initialized(true);
@@ -346,7 +348,7 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	super::helpers::stop_recording_internal(&mut runtime);
 	super::helpers::stop_streaming_internal(&mut runtime);
 	cleanup_scene(&mut runtime);
-	crate::devices::levels::cleanup_audio_volmeters(&mut runtime);
+	crate::devices::levels::cleanup_audio_volmeters();
 	unsafe {
 		if !runtime.transition_source.is_null() {
 			revo_lib::obs::obs_source_release(runtime.transition_source);
@@ -443,10 +445,8 @@ pub(crate) fn ensure_scene(
 }
 
 pub(crate) fn cleanup_scene(runtime: &mut crate::ObsRuntime) {
+	super::preview::destroy_preview_renderer(runtime);
 	unsafe {
-		if !runtime.preview_texrender.is_null() {
-			revo_lib::obs::gs_texrender_destroy(runtime.preview_texrender);
-		}
 		if !runtime.preview_view.is_null() {
 			revo_lib::obs::obs_view_destroy(runtime.preview_view);
 		}
