@@ -2169,6 +2169,79 @@
       return getPreviewScaleFinal();
     }
 
+    function logPreviewGeometry(label: string) {
+      const flatRect = (el: Element | null) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+      };
+      const describe = (el: HTMLDivElement | null) => {
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        const media = el.querySelector("img, video") as HTMLImageElement | HTMLVideoElement | null;
+        const isImage = media instanceof HTMLImageElement;
+        return {
+          clientWidth: el.clientWidth,
+          clientHeight: el.clientHeight,
+          rect: flatRect(el),
+          isConnected: el.isConnected,
+          display: cs.display,
+          visibility: cs.visibility,
+          aspectRatio: cs.aspectRatio,
+          offsetParent: el.offsetParent ? (el.offsetParent as HTMLElement).className : null,
+          media: media
+            ? {
+                tagName: media.tagName,
+                clientWidth: media.clientWidth,
+                clientHeight: media.clientHeight,
+                rect: flatRect(media),
+                naturalWidth: isImage ? media.naturalWidth : null,
+                naturalHeight: isImage ? media.naturalHeight : null,
+                objectFit: getComputedStyle(media).objectFit,
+              }
+            : null,
+        };
+      };
+      const chain = (selector: string) => {
+        const el = document.querySelector(selector) as HTMLElement | null;
+        return el
+          ? { clientWidth: el.clientWidth, clientHeight: el.clientHeight, rect: flatRect(el), display: getComputedStyle(el).display }
+          : null;
+      };
+      const emit = (suffix: string) => {
+        const bound = previewFrameEl;
+        const live = document.querySelector(".preview-frame") as HTMLDivElement | null;
+        console.log(`[preview-geometry]${suffix}`, {
+          label,
+          isRecording,
+          isStreaming,
+          sceneResolution,
+          previewRenderResolution,
+          previewQuality,
+          cachedPreviewSize,
+          cachedPreviewScale,
+          calculated: getPreviewScaleFinal(),
+          recordScale: getRecordScale(),
+          aspect: getPreviewAspect(),
+          rootZoom: getComputedStyle(document.documentElement).zoom,
+          bodyZoom: getComputedStyle(document.body).zoom,
+          frameCount: document.querySelectorAll(".preview-frame").length,
+          boundIsLive: bound === live,
+          frame: describe(bound),
+          liveFrame: live !== bound ? describe(live) : "same-as-bound",
+          ancestors: {
+            livePreview: chain(".live-preview"),
+            renderSection: chain("section.render"),
+            workspaceMain: chain(".workspace-main"),
+          },
+        });
+      };
+      emit("");
+      // Probe again after paint — distinguishes stale/partial-layout measurement
+      // from a persistent layout collapse.
+      requestAnimationFrame(() => requestAnimationFrame(() => emit("-painted")));
+    }
+
     function getPreviewIntervalMs() {
       if (realtimeRefresh) {
         if (hasVisibleMediaSource) return 150;
@@ -3764,11 +3837,14 @@
       return;
     }
     try {
+      logPreviewGeometry("before-record");
       const startMsg = await invoke<string>("obs_start_recording", { outputPath: recordPath.trim() });
       const base = getBasePreviewSize();
-      cachedPreviewSize = base;
-      cachedPreviewScale = getPreviewScaleFinal();
+      // cachedPreviewSize = base;
+      // cachedPreviewScale = getPreviewScaleFinal();
       isRecording = true;
+      await tick();
+      logPreviewGeometry("after-record");
       showGlobalDialog(startMsg || "Recording started", "info");
     } catch (err) {
       isRecording = false;
@@ -3837,11 +3913,14 @@
 
     mediaActionBusy = true;
     try {
+      logPreviewGeometry("before-stream");
       const startMsg = await invoke<string>("obs_start_streaming", { streamUrl: target });
       const base = getBasePreviewSize();
       cachedPreviewSize = base;
       cachedPreviewScale = getPreviewScaleFinal();
       isStreaming = true;
+      await tick();
+      logPreviewGeometry("after-stream");
       showGlobalDialog(startMsg || "Streaming started", "info");
 
       const general = asRecord(asRecord(currentUiProfile).general);
@@ -6576,7 +6655,7 @@
 
 <StreamConfirmModal
   open={showMediaConfirm}
-  on:Answer={answerMediaConfirm}
+  onAnswer={answerMediaConfirm}
   title={mediaConfirmTitle(pendingMediaConfirmAction)}
   message={mediaConfirmMessage(pendingMediaConfirmAction)}
   ariaLabel={mediaConfirmTitle(pendingMediaConfirmAction)}
@@ -6584,7 +6663,7 @@
 
 <StreamConfirmModal
   open={showCloseRiskConfirm}
-  on:Answer={(accepted) => void answerCloseRiskConfirm(accepted)}
+  onAnswer={(accepted) => void answerCloseRiskConfirm(accepted)}
   title={closeRiskConfirmTitle()}
   message={closeRiskConfirmMessage()}
   ariaLabel={closeRiskConfirmTitle()}
@@ -6594,7 +6673,7 @@
 
 <StreamConfirmModal
   open={showUnsavedSettingsCloseConfirm}
-  on:Answer={(accepted) => void answerUnsavedSettingsCloseConfirm(accepted)}
+  onAnswer={(accepted) => void answerUnsavedSettingsCloseConfirm(accepted)}
   title={unsavedSettingsCloseTitle()}
   message={unsavedSettingsCloseMessage()}
   ariaLabel={unsavedSettingsCloseTitle()}
@@ -6922,8 +7001,8 @@
 
   <TransitionsDiscardConfirmModal
     open={showTransitionsDiscardConfirm}
-    on:Cancel={cancelDiscardTransitions}
-    on:Confirm={confirmDiscardTransitions}
+    onCancel={cancelDiscardTransitions}
+    onConfirm={confirmDiscardTransitions}
   />
 
   {#if showAddSource}
@@ -6995,9 +7074,9 @@
     {openAdditionalSettingsInWindows}
     dragX={quickTextDragX}
     dragY={quickTextDragY}
-    on:Close={closeTextEditModal}
-    on:Save={saveTextEditModal}
-    on:ValueChange={(value) => (textEditValue = value)}
+    onClose={closeTextEditModal}
+    onSave={saveTextEditModal}
+    onValueChange={(value) => (textEditValue = value)}
     {handleBackdropKey}
     beginDrag={beginQuickTextDrag}
     moveDrag={moveQuickTextDrag}
@@ -7008,9 +7087,9 @@
     open={showQuickColorModal && Boolean(quickColorSource)}
     value={quickColorValue}
     recent={quickColorRecent}
-    on:Close={closeQuickColorModal}
-    on:Save={saveQuickColorModal}
-    on:ValueChange={(value) => (quickColorValue = value)}
+    onClose={closeQuickColorModal}
+    onSave={saveQuickColorModal}
+    onValueChange={(value) => (quickColorValue = value)}
     normalizeColor={normalizeQuickHexColor}
     {handleBackdropKey}
   />
@@ -7022,10 +7101,10 @@
     showMonitoring={Boolean(quickDeviceSource && isAudioDeviceSourceType(quickDeviceSource.source_type))}
     monitoring={quickDeviceMonitoring}
     monitoringOptions={quickMonitoringOptions}
-    on:Close={closeQuickDeviceModal}
-    on:Save={saveQuickDeviceModal}
-    on:ValueChange={(value) => (quickDeviceValue = value)}
-    on:MonitoringChange={(value) => (quickDeviceMonitoring = value)}
+    onClose={closeQuickDeviceModal}
+    onSave={saveQuickDeviceModal}
+    onValueChange={(value) => (quickDeviceValue = value)}
+    onMonitoringChange={(value) => (quickDeviceMonitoring = value)}
     {handleBackdropKey}
   />
 
@@ -7071,9 +7150,9 @@
     x={audioMixerMenu.x}
     y={audioMixerMenu.y}
     sourceId={audioMixerMenu.sourceId}
-    on:OpenFilters={openAudioMixerFilters}
-    on:OpenAdvanced={openAudioMixerAdvanced}
-    on:Close={closeAudioMixerContextMenu}
+    onOpenFilters={openAudioMixerFilters}
+    onOpenAdvanced={openAudioMixerAdvanced}
+    onClose={closeAudioMixerContextMenu}
     {handleBackdropKey}
   />
 
@@ -7094,12 +7173,12 @@
     beginDrag={beginAudioAdvancedDrag}
     moveDrag={moveAudioAdvancedDrag}
     endDrag={endAudioAdvancedDrag}
-    on:Close={() => void closeAudioMixerAdvanced()}
+    onClose={() => void closeAudioMixerAdvanced()}
     getBalancePan={getAudioMixerBalancePan}
-    on:MonitoringChange={(sourceId, monitoring) => void setAudioMixerMonitoring(sourceId, monitoring)}
-    on:BalancePanInput={setAudioMixerBalancePanLocal}
-    on:BalancePanCommit={(sourceId) => void commitAudioMixerBalancePan(sourceId)}
-    on:ToggleTrack={(sourceId, track) => void toggleAudioMixerTrack(sourceId, track)}
+    onMonitoringChange={(sourceId, monitoring) => void setAudioMixerMonitoring(sourceId, monitoring)}
+    onBalancePanInput={setAudioMixerBalancePanLocal}
+    onBalancePanCommit={(sourceId) => void commitAudioMixerBalancePan(sourceId)}
+    onToggleTrack={(sourceId, track) => void toggleAudioMixerTrack(sourceId, track)}
   />
 
   <AudioFiltersModal
@@ -7119,26 +7198,26 @@
     {selectedAudioFilterPresetFields}
     {audioFiltersPreviewUrl}
     {audioFiltersContextMenu}
-    on:Close={() => void closeAudioFiltersModal()}
-    on:Save={() => void saveAudioFiltersModal()}
-    on:BeginDrag={beginAudioFiltersDrag}
-    on:MoveDrag={moveAudioFiltersDrag}
-    on:EndDrag={endAudioFiltersDrag}
-    on:SelectFilter={selectAudioFilter}
-    on:OpenContextMenu={openAudioFiltersContextMenu}
-    on:SetRenameValue={(value) => (audioFiltersRenameValue = value)}
-    on:CommitRename={commitAudioFilterRename}
-    on:CancelRename={() => (audioFiltersRenamingId = null)}
-    on:MoveFilter={moveAudioFilter}
-    on:SetNewKind={(value) => (audioFilterNewKind = value)}
-    on:AddFilter={addAudioFilter}
-    on:ResetSelectedToDefaults={resetSelectedAudioFilterToDefaults}
-    on:UpdatePresetField={updateAudioFilterPresetField}
-    on:UpdateFilter={updateAudioFilter}
-    on:RemoveFilter={removeAudioFilter}
-    on:StartRename={startAudioFilterRename}
-    on:ToggleLock={toggleAudioFilterLock}
-    on:CloseContextMenu={closeAudioFiltersContextMenu}
+    onClose={() => void closeAudioFiltersModal()}
+    onSave={() => void saveAudioFiltersModal()}
+    onBeginDrag={beginAudioFiltersDrag}
+    onMoveDrag={moveAudioFiltersDrag}
+    onEndDrag={endAudioFiltersDrag}
+    onSelectFilter={selectAudioFilter}
+    onOpenContextMenu={openAudioFiltersContextMenu}
+    onSetRenameValue={(value) => (audioFiltersRenameValue = value)}
+    onCommitRename={commitAudioFilterRename}
+    onCancelRename={() => (audioFiltersRenamingId = null)}
+    onMoveFilter={moveAudioFilter}
+    onSetNewKind={(value) => (audioFilterNewKind = value)}
+    onAddFilter={addAudioFilter}
+    onResetSelectedToDefaults={resetSelectedAudioFilterToDefaults}
+    onUpdatePresetField={updateAudioFilterPresetField}
+    onUpdateFilter={updateAudioFilter}
+    onRemoveFilter={removeAudioFilter}
+    onStartRename={startAudioFilterRename}
+    onToggleLock={toggleAudioFilterLock}
+    onCloseContextMenu={closeAudioFiltersContextMenu}
     {handleBackdropKey}
     {isTruthy}
   />
@@ -7282,7 +7361,6 @@
         {:else}
           <div
             class="live-preview"
-            style={`--preview-scale:${getRecordScale()};`}
             ondblclick={openSourceTransformModal}
             role="button"
             tabindex="0"
@@ -7626,13 +7704,15 @@
 
   .preview-frame img,
   .preview-frame video {
+    display: block;
     position: relative;
     z-index: 1;
     width: 100%;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
     object-fit: contain;
-    transform: scale(var(--preview-scale, 1));
-    transform-origin: center;
+    object-position: center;
   }
 
   .preview-transition-overlay {

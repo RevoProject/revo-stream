@@ -56,7 +56,7 @@
       </button>
       {#if !demoMode && !releaseMode}
         <button
-          class={isObsRunning ? "ghost" : "primary"}
+          class={isObsRunning ? "ghost" : "secondary"}
           onclick={isObsRunning ? stopObs : startObs}
           disabled={busy}
         >
@@ -119,6 +119,11 @@
   button.primary {
     background: var(--accent);
     color: #ffffff;
+  }
+
+  button.secondary {
+    background: var(--surface-2);
+    color: var(--text);
   }
 
   button.rec {

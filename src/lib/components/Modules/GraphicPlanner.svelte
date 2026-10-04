@@ -33,6 +33,8 @@
   };
 
   const MIN_SIZE = 16;
+  const PROVISIONAL_SIZE = MIN_SIZE * 4;
+  const PROVISIONAL_BASE = MIN_SIZE * 4;
   const SNAP_THRESHOLD = 10;
   const GRID_SIZE = 20;
 
@@ -175,13 +177,39 @@
     };
   };
 
+  const transformEqual = (a: Transform, b: Transform) =>
+    a.x === b.x &&
+    a.y === b.y &&
+    a.w === b.w &&
+    a.h === b.h &&
+    a.rot === b.rot &&
+    a.cropL === b.cropL &&
+    a.cropR === b.cropR &&
+    a.cropT === b.cropT &&
+    a.cropB === b.cropB;
+
   const buildInitialTransform = (source: DemoSource): Transform => {
     const params = source.params ?? {};
+    let w = parseNumber(params.item_width, 0);
+    let h = parseNumber(params.item_height, 0);
+    if (w <= 0 || h <= 0) {
+      console.warn(
+        `[GraphicPlanner] provisional dims for source "${source.id}" ` +
+          `(dims_ready=${params.dims_ready ?? "?"}, item_width=${params.item_width ?? "n/a"}, ` +
+          `item_height=${params.item_height ?? "n/a"})`
+      );
+      const hasScaleX = params.scale_x != null && String(params.scale_x).trim() !== "";
+      const hasScaleY = params.scale_y != null && String(params.scale_y).trim() !== "";
+      const scaleX = hasScaleX ? parseNumber(params.scale_x, 1) : 1;
+      const scaleY = hasScaleY ? parseNumber(params.scale_y, 1) : 1;
+      w = scaleX > 0 ? scaleX * PROVISIONAL_BASE : PROVISIONAL_SIZE;
+      h = scaleY > 0 ? scaleY * PROVISIONAL_BASE : PROVISIONAL_SIZE;
+    }
     return clampTransform({
       x: parseNumber(params.pos_x, 100),
       y: parseNumber(params.pos_y, 100),
-      w: parseNumber(params.item_width, parseNumber(params.width, 320)),
-      h: parseNumber(params.item_height, parseNumber(params.height, 180)),
+      w,
+      h,
       rot: parseNumber(params.rot, parseNumber(params.rotation, 0)),
       cropL: parseNumber(params.crop_left, 0),
       cropR: parseNumber(params.crop_right, 0),
@@ -194,9 +222,26 @@
     const next = { ...transforms };
     let changed = false;
     for (const s of sources) {
-      if (!next[s.id]) {
+      const existing = next[s.id];
+      if (!existing) {
         next[s.id] = buildInitialTransform(s);
         changed = true;
+        continue;
+      }
+      const params = s.params ?? {};
+      const itemW = parseNumber(params.item_width, 0);
+      const itemH = parseNumber(params.item_height, 0);
+      const dimsReady = params.dims_ready !== "0";
+      const provisional =
+        existing.w <= PROVISIONAL_SIZE ||
+        existing.h <= PROVISIONAL_SIZE ||
+        params.dims_ready === "0";
+      if (provisional && dimsReady && itemW > 0 && itemH > 0) {
+        const rebuilt = buildInitialTransform(s);
+        if (!transformEqual(existing, rebuilt)) {
+          next[s.id] = rebuilt;
+          changed = true;
+        }
       }
     }
     for (const id of Object.keys(next)) {
@@ -703,7 +748,7 @@
     };
   });
 
-  $: syncTransformsFromSources();
+  $: sources, syncTransformsFromSources();
   $: sceneResolution, requestAnimationFrame(updateSceneScale);
   $: showPropertiesPopup, tick().then(() => updateSceneScale());
   $: if (showPropertiesPopup && activeId && activeTransform) {
