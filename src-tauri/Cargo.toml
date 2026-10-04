@@ -17,6 +17,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = []
 cef = ["dep:revo-cef"]
+# Used for production builds (embedded assets) — `tauri build` enables it;
+# for plain `cargo build --release` pass `--features custom-protocol`.
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
