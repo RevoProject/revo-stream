@@ -189,7 +189,11 @@ pub(crate) fn start(
 	}
 
 	unsafe {
-		revo_lib::obs::base_set_log_handler(Some(crate::logging::obs_logger::obs_log_handler), std::ptr::null_mut());
+		#[cfg(unix)]
+        revo_lib::obs::base_set_log_handler(
+            Some(crate::logging::obs_logger::obs_log_handler),
+            std::ptr::null_mut(),
+        );
 
 		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
 			return Err("obs_startup failed".to_string());
