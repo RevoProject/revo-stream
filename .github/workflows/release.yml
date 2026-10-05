@@ -286,7 +286,6 @@ jobs:
         working-directory: src-tauri
         run: |
           cargo obs-build build \
-            --target "${{ matrix.target }}" \
             --out-dir "target/${{ matrix.target }}/release"
 
       - name: Build macOS DMG
