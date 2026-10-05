@@ -82,7 +82,8 @@ jobs:
         run: cargo install cargo-obs-build --locked
 
       - name: Bootstrap OBS
-        run: cargo obs-build build --out-dir src-tauri/target/release
+        working-directory: src-tauri
+        run: cargo obs-build build --out-dir target/release
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -220,23 +221,24 @@ jobs:
               print(f"Patch already applied: {p}")
               raise SystemExit(0)
 
-          pattern = r'(\.clang_arg\(format!\("-I\{\}", "headers/obs"\)\);)'
+          marker = '''    let mut builder = bindgen::builder()
+              .header("headers/wrapper.h")
+              .blocklist_function("^_.*")
+              .clang_arg(format!("-I{}", "headers/obs"));'''
 
-          replacement = r'''$1
+          replacement = marker + '''
 
-          #[cfg(target_os = "macos")]
-          {
-              builder = builder.layout_tests(false);
-          }'''
+              #[cfg(target_os = "macos")]
+              {
+                  builder = builder.layout_tests(false);
+              }'''
 
-          patched, count = re.subn(pattern, replacement, s, count=1)
-
-          if count != 1:
+          if marker not in s:
               raise SystemExit(
-                  f"Could not find bindgen builder clang_arg in {p}"
+                  f"Expected bindgen builder block not found in {p}"
               )
 
-          p.write_text(patched)
+          p.write_text(s.replace(marker, replacement, 1))
           print(f"Patched: {p}")
           PY
 
@@ -245,11 +247,19 @@ jobs:
           grep -n -C 5 'layout_tests' \
             "$HOME"/.cargo/git/checkouts/libobs-rs-*/7e76c91/libobs/build.rs
 
+      - name: Prepare revo-root
+        run: |
+          mkdir -p src-tauri/resources/revo-root
+
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
 
       - name: Bootstrap OBS
-        run: cargo obs-build build --out-dir "src-tauri/target/${{ matrix.target }}/release"
+        working-directory: src-tauri
+        run: |
+          cargo obs-build build \
+            --target ${{ matrix.target }} \
+            --out-dir "target/${{ matrix.target }}/release"
 
       - name: Build macOS DMG
         run: |
