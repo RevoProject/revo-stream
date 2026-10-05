@@ -12,6 +12,7 @@ permissions:
 env:
   PNPM_VERSION: 10
   NODE_VERSION: 24
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   windows:
@@ -83,7 +84,9 @@ jobs:
 
       - name: Bootstrap OBS
         working-directory: src-tauri
-        run: cargo obs-build build --out-dir target/release
+        run: |
+          cargo obs-build build \
+            --out-dir target/release
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -259,9 +262,70 @@ jobs:
           print("libobs bindgen patch applied successfully")
           PY
 
-      - name: Verify libobs bindgen patch
+      - name: Patch libobs-wrapper for macOS
         shell: bash
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.home() / ".cargo/git/checkouts"
+          matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
+
+          if not matches:
+              raise SystemExit("libobs-wrapper source not found")
+
+          src = matches[0]
+          other = src / "utils/initialization/other.rs"
+          runtime = src / "runtime.rs"
+
+          print(f"libobs-wrapper source: {src}")
+
+          if not other.exists():
+              raise SystemExit(f"Missing: {other}")
+
+          if not runtime.exists():
+              raise SystemExit(f"Missing: {runtime}")
+
+          # ------------------------------------------------------------
+          # Disable Linux/X11/Wayland initialization module on macOS.
+          # ------------------------------------------------------------
+
+          s = other.read_text()
+
+          marker = '#![cfg(target_os = "linux")]'
+
+          if marker not in s:
+              s = marker + "\n" + s
+              other.write_text(s)
+              print(f"Patched: {other}")
+          else:
+              print(f"other.rs already patched: {other}")
+
+          # ------------------------------------------------------------
+          # Only call platform_specific_setup on Linux.
+          # ------------------------------------------------------------
+
+          s = runtime.read_text()
+
+          old = "            platform_specific_setup(info.nix_display.clone())?"
+
+          if old in s:
+              new = """            #[cfg(target_os = "linux")]
+            platform_specific_setup(info.nix_display.clone())?"""
+
+              s = s.replace(old, new, 1)
+              runtime.write_text(s)
+              print(f"Patched: {runtime}")
+          else:
+              print("platform_specific_setup call already patched or not found")
+
+          PY
+
+      - name: Verify libobs patches
+        shell: bash
+        run: |
+          echo "=== libobs bindgen ==="
+
           BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
             -path "*/7e76c91/libobs/build.rs" \
             -print -quit)
@@ -272,8 +336,31 @@ jobs:
           fi
 
           echo "Using: $BUILD_RS"
-
           grep -n -C 5 "layout_tests" "$BUILD_RS"
+
+          echo
+          echo "=== libobs-wrapper ==="
+
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs-wrapper/src" \
+            -type d \
+            -print -quit)
+
+          if [ -z "$WRAPPER_SRC" ]; then
+            echo "libobs-wrapper source not found"
+            exit 1
+          fi
+
+          echo "Using: $WRAPPER_SRC"
+
+          echo
+          echo "--- other.rs ---"
+          head -n 5 "$WRAPPER_SRC/utils/initialization/other.rs"
+
+          echo
+          echo "--- runtime.rs ---"
+          grep -n -C 4 "platform_specific_setup" \
+            "$WRAPPER_SRC/runtime.rs" || true
 
       - name: Prepare revo-root
         run: |
