@@ -86,8 +86,16 @@ jobs:
       - name: Prepare revo-root
         shell: pwsh
         run: |
-          Remove-Item "src-tauri/resources/revo-root" -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
+          Remove-Item `
+            "src-tauri/resources/revo-root" `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            "src-tauri/resources/revo-root" | Out-Null
 
       # ----------------------------------------------------------
       # Rust dependencies
@@ -105,7 +113,10 @@ jobs:
         run: |
           $root = "$env:USERPROFILE\.cargo\git\checkouts"
 
-          $bootstrapper = Get-ChildItem $root -Recurse -Filter Cargo.toml |
+          $bootstrapper = Get-ChildItem `
+            $root `
+            -Recurse `
+            -Filter Cargo.toml |
             Where-Object {
               $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
@@ -137,7 +148,7 @@ jobs:
         run: cargo install cargo-obs-build --locked
 
       # ----------------------------------------------------------
-      # OBS bootstrap
+      # OBS runtime
       # ----------------------------------------------------------
 
       - name: Bootstrap OBS
@@ -163,7 +174,247 @@ jobs:
             throw "obs.dll is unexpectedly small"
           }
 
+          $plugins = "$out/obs-plugins"
+
+          if (-not (Test-Path $plugins)) {
+            throw "OBS plugin directory missing: $plugins"
+          }
+
+          $pluginCount = @(
+            Get-ChildItem `
+              $plugins `
+              -Recurse `
+              -Filter "*.dll" `
+              -File
+          ).Count
+
+          Write-Host "OBS plugin DLLs: $pluginCount"
+
+          if ($pluginCount -eq 0) {
+            throw "No OBS plugin DLLs found"
+          }
+
+          if (Test-Path "$out/data") {
+            Write-Host "OBS data directory found"
+          }
+          else {
+            throw "OBS data directory missing"
+          }
+
           Write-Host "Windows OBS runtime looks valid"
+
+      # ----------------------------------------------------------
+      # Prepare complete Windows runtime
+      #
+      # Final:
+      #
+      # revo-root/
+      # ├── data/
+      # └── core/
+      #     ├── bin/
+      #     ├── lib/
+      #     │   ├── *.dll
+      #     │   └── obs-plugins/
+      #     └── share/
+      # ----------------------------------------------------------
+
+      - name: Populate Windows revo-root
+        shell: pwsh
+        run: |
+          $OUT = "src-tauri/target/release"
+          $ROOT = "src-tauri/resources/revo-root"
+
+          Remove-Item `
+            $ROOT `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
+          New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
+          New-Item -ItemType Directory -Force "$ROOT\core\lib" | Out-Null
+          New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
+          New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
+
+          # --------------------------------------------------------
+          # RevoStream application data
+          # --------------------------------------------------------
+
+          if (Test-Path "data") {
+            Copy-Item `
+              "data\*" `
+              "$ROOT\data" `
+              -Recurse `
+              -Force
+          }
+
+          # --------------------------------------------------------
+          # OBS root DLLs
+          #
+          # obs.dll and its dependent runtime DLLs
+          # --------------------------------------------------------
+
+          $dlls = Get-ChildItem `
+            $OUT `
+            -Filter "*.dll" `
+            -File `
+            -ErrorAction SilentlyContinue
+
+          if (-not $dlls) {
+            throw "No OBS DLLs found in $OUT"
+          }
+
+          foreach ($dll in $dlls) {
+            Write-Host "Copying OBS DLL: $($dll.Name)"
+
+            Copy-Item `
+              $dll.FullName `
+              "$ROOT\core\lib\$($dll.Name)" `
+              -Force
+          }
+
+          # --------------------------------------------------------
+          # OBS plugins
+          #
+          # Preserve OBS's native obs-plugins tree.
+          # --------------------------------------------------------
+
+          if (Test-Path "$OUT\obs-plugins") {
+            Copy-Item `
+              "$OUT\obs-plugins" `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
+              -Force
+          }
+          else {
+            throw "OBS obs-plugins directory missing"
+          }
+
+          # --------------------------------------------------------
+          # OBS bin
+          # --------------------------------------------------------
+
+          if (Test-Path "$OUT\bin") {
+            Copy-Item `
+              "$OUT\bin\*" `
+              "$ROOT\core\bin" `
+              -Recurse `
+              -Force
+          }
+
+          # --------------------------------------------------------
+          # OBS share
+          # --------------------------------------------------------
+
+          if (Test-Path "$OUT\share") {
+            Copy-Item `
+              "$OUT\share\*" `
+              "$ROOT\core\share" `
+              -Recurse `
+              -Force
+          }
+
+          # --------------------------------------------------------
+          # OBS data
+          #
+          # Merge OBS data into the runtime data tree.
+          # --------------------------------------------------------
+
+          if (Test-Path "$OUT\data") {
+            Copy-Item `
+              "$OUT\data\*" `
+              "$ROOT\data" `
+              -Recurse `
+              -Force
+          }
+
+          # --------------------------------------------------------
+          # Verify
+          # --------------------------------------------------------
+
+          $runtimeObs = "$ROOT\core\lib\obs.dll"
+
+          if (-not (Test-Path $runtimeObs)) {
+            throw "Staged obs.dll missing: $runtimeObs"
+          }
+
+          $runtimePlugins = @(
+            Get-ChildItem `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
+              -File
+          ).Count
+
+          if ($runtimePlugins -eq 0) {
+            throw "No staged OBS plugins found"
+          }
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "WINDOWS revo-root"
+          Write-Host "============================================================"
+
+          Get-ChildItem `
+            $ROOT `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Write-Host ""
+          Write-Host "Staged OBS plugin DLLs: $runtimePlugins"
+
+      # ----------------------------------------------------------
+      # Verify Windows runtime before Tauri
+      # ----------------------------------------------------------
+
+      - name: Verify Windows runtime
+        shell: pwsh
+        run: |
+          $ROOT = "src-tauri/resources/revo-root"
+
+          $required = @(
+            "$ROOT\core\lib\obs.dll",
+            "$ROOT\core\lib\obs-plugins",
+            "$ROOT\data"
+          )
+
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Required runtime path missing: $path"
+            }
+
+            Write-Host "OK: $path"
+          }
+
+          $dllCount = @(
+            Get-ChildItem `
+              "$ROOT\core\lib" `
+              -Filter "*.dll" `
+              -File
+          ).Count
+
+          $pluginCount = @(
+            Get-ChildItem `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
+              -File
+          ).Count
+
+          Write-Host "Core DLLs: $dllCount"
+          Write-Host "Plugin DLLs: $pluginCount"
+
+          if ($dllCount -eq 0) {
+            throw "No core DLLs staged"
+          }
+
+          if ($pluginCount -eq 0) {
+            throw "No plugin DLLs staged"
+          }
+
+          Write-Host "Windows runtime is complete"
 
       # ----------------------------------------------------------
       # Tauri
@@ -171,6 +422,10 @@ jobs:
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
+
+      # ----------------------------------------------------------
+      # Verify MSI
+      # ----------------------------------------------------------
 
       - name: Verify Windows MSI
         shell: pwsh
@@ -189,25 +444,124 @@ jobs:
             Write-Host "MSI: $($_.FullName)"
           }
 
-      - name: Create Windows ZIP
+      # ----------------------------------------------------------
+      # Portable ZIP
+      #
+      # Keep final name unchanged:
+      # revo-ui-windows-x64.zip
+      #
+      # ZIP contains:
+      #
+      # revo-ui.exe
+      # revo-root/
+      #   data/
+      #   core/
+      #     bin/
+      #     lib/
+      #       *.dll
+      #       obs-plugins/
+      #     share/
+      # ----------------------------------------------------------
+
+      - name: Create Windows Portable ZIP
         shell: pwsh
         run: |
-          $zip = "src-tauri/target/release/bundle/revo-ui-windows-x64.zip"
-          $exe = "src-tauri/target/release/revo-ui.exe"
+          $bundleDir = "src-tauri/target/release/bundle"
+          $portable = "$bundleDir/revo-ui-windows-x64-portable"
+          $zip = "$bundleDir/revo-ui-windows-x64.zip"
 
-          if (Test-Path $zip) {
-            Remove-Item $zip -Force
-          }
+          $exe = "src-tauri/target/release/revo-ui.exe"
+          $root = "src-tauri/resources/revo-root"
+
+          Remove-Item `
+            $portable `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          Remove-Item `
+            $zip `
+            -Force `
+            -ErrorAction SilentlyContinue
 
           if (-not (Test-Path $exe)) {
             throw "Executable not found: $exe"
           }
 
-          Compress-Archive `
-            -Path $exe `
-            -DestinationPath $zip
+          if (-not (Test-Path $root)) {
+            throw "revo-root not found: $root"
+          }
 
-          Write-Host "Created: $zip"
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            $portable | Out-Null
+
+          Copy-Item `
+            $exe `
+            "$portable\revo-ui.exe" `
+            -Force
+
+          Copy-Item `
+            $root `
+            "$portable\revo-root" `
+            -Recurse `
+            -Force
+
+          $portableExe = "$portable\revo-ui.exe"
+          $portableObs = "$portable\revo-root\core\lib\obs.dll"
+
+          if (-not (Test-Path $portableExe)) {
+            throw "Portable executable missing"
+          }
+
+          if (-not (Test-Path $portableObs)) {
+            throw "Portable OBS runtime missing"
+          }
+
+          $portablePlugins = @(
+            Get-ChildItem `
+              "$portable\revo-root\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
+              -File
+          ).Count
+
+          if ($portablePlugins -eq 0) {
+            throw "Portable OBS plugins missing"
+          }
+
+          Compress-Archive `
+            -Path "$portable\*" `
+            -DestinationPath $zip `
+            -CompressionLevel Optimal
+
+          Write-Host ""
+          Write-Host "Portable ZIP:"
+          Write-Host "$zip"
+
+          Get-Item $zip |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Write-Host ""
+          Write-Host "Portable contents:"
+
+          Get-ChildItem `
+            $portable `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Remove-Item `
+            $portable `
+            -Recurse `
+            -Force
+
+      # ----------------------------------------------------------
+      # Upload Windows artifacts
+      # ----------------------------------------------------------
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -416,7 +770,7 @@ jobs:
           print(f"Using libobs-wrapper source: {src}")
 
           # ------------------------------------------------------
-          # Rc is required by the non-Linux implementation too.
+          # Rc is required by non-Linux implementation too.
           # ------------------------------------------------------
 
           lines = other.read_text().splitlines()
@@ -425,7 +779,8 @@ jobs:
               if line.strip() == "use std::rc::Rc;":
                   if (
                       i > 0
-                      and lines[i - 1].strip() == '#[cfg(target_os = "linux")]'
+                      and lines[i - 1].strip()
+                      == '#[cfg(target_os = "linux")]'
                   ):
                       del lines[i - 1]
                   break
@@ -467,7 +822,6 @@ jobs:
                   '#[cfg(target_os = "linux")]'
               )
 
-          # Recalculate struct index.
           struct_index = None
 
           for i, line in enumerate(lines):
@@ -604,10 +958,6 @@ jobs:
 
       # ----------------------------------------------------------
       # OBS Studio
-      #
-      # Do NOT use cargo-obs-build on macOS.
-      # It currently resolves a Windows OBS package for this target.
-      # Build OBS Studio from source instead.
       # ----------------------------------------------------------
 
       - name: Checkout OBS Studio
@@ -625,8 +975,7 @@ jobs:
           git -C "$RUNNER_TEMP/obs-studio" log -1 --oneline
 
       # ----------------------------------------------------------
-      # OBS 32.1.2 + modern Xcode:
-      # libobs-metal needs Swift explicitly enabled.
+      # OBS 32.1.2 + modern Xcode
       # ----------------------------------------------------------
 
       - name: Patch OBS libobs-metal Swift
@@ -653,26 +1002,10 @@ jobs:
                   "enable_language(Swift)\n\n" + text
               )
               print("Added enable_language(Swift)")
-
-          print()
-          print("=== libobs-metal/CMakeLists.txt ===")
-
-          for i, line in enumerate(
-              path.read_text().splitlines()[:12],
-              1
-          ):
-              print(f"{i}: {line}")
           PY
 
       # ----------------------------------------------------------
-      # OBS 32.1.2 + Xcode 26.4:
-      # demote the warnings that became errors in
-      # mac-virtualcam/OBSDALStream.mm.
-      #
-      # The regular macos preset does not enable
-      # CMAKE_COMPILE_WARNING_AS_ERROR, but compiler flags in the
-      # OBS source/toolchain can still promote these warnings.
-      # Explicit -Wno-error flags make this target buildable.
+      # OBS 32.1.2 + Xcode 26.x
       # ----------------------------------------------------------
 
       - name: Patch OBS macOS virtual camera warnings
@@ -692,13 +1025,6 @@ jobs:
 
           text = path.read_text()
 
-          flags = [
-              "-Wno-error=implicit-int-float-conversion",
-              "-Wno-error=enum-enum-conversion",
-          ]
-
-          # Add a local pragma so this workaround affects only the
-          # problematic OBS DAL implementation.
           pragma = (
               "#pragma clang diagnostic push\n"
               "#pragma clang diagnostic ignored "
@@ -716,9 +1042,6 @@ jobs:
           path.write_text(text)
 
           print(f"Patched: {path}")
-          print("Added diagnostic suppression for:")
-          for flag in flags:
-              print(f"  {flag}")
           PY
 
       - name: Verify OBS source patches
@@ -803,45 +1126,79 @@ jobs:
       - name: Inspect macOS OBS build
         shell: bash
         run: |
-          echo "=== OBS dynamic libraries ==="
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+          OBS_INSTALL="$RUNNER_TEMP/obs-install"
 
-          find "$RUNNER_TEMP/obs-install" \
+          echo "============================================================"
+          echo "OBS BUILD: dylibs"
+          echo "============================================================"
+
+          find "$OBS_BUILD" \
             -type f \
-            \( \
-              -name "*.dylib" \
-              -o -name "*.so" \
-            \) \
-            -print | sort | head -300
+            -name "*.dylib" \
+            -print | sort
 
           echo
-          echo "=== OBS frameworks ==="
+          echo "============================================================"
+          echo "OBS BUILD: plugins"
+          echo "============================================================"
 
-          find "$RUNNER_TEMP/obs-install" \
+          find "$OBS_BUILD" \
+            -type d \
+            -name "*.plugin" \
+            -print | sort
+
+          echo
+          echo "============================================================"
+          echo "OBS BUILD: frameworks"
+          echo "============================================================"
+
+          find "$OBS_BUILD" \
             -type d \
             -name "*.framework" \
-            -print | sort | head -100
+            -print | sort
 
           echo
-          echo "=== OBS files ==="
+          echo "============================================================"
+          echo "OBS INSTALL: files"
+          echo "============================================================"
 
-          find "$RUNNER_TEMP/obs-install" \
+          find "$OBS_INSTALL" \
             -type f \
-            -print | sort | head -400
+            -print | sort | head -500
+
+      # ----------------------------------------------------------
+      # Reject Windows OBS binaries
+      # ----------------------------------------------------------
 
       - name: Reject Windows OBS binaries
         shell: bash
         run: |
-          WINDOWS_BINARIES=$(find "$RUNNER_TEMP/obs-install" \
-            -type f \
-            \( \
-              -name "*.dll" \
-              -o -name "*.exe" \
-              -o -name "*.pdb" \
-            \) \
-            -print)
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+          OBS_INSTALL="$RUNNER_TEMP/obs-install"
+
+          WINDOWS_BINARIES=$(
+            {
+              find "$OBS_BUILD" \
+                -type f \
+                \( \
+                  -name "*.dll" \
+                  -o -name "*.exe" \
+                  -o -name "*.pdb" \
+                \)
+
+              find "$OBS_INSTALL" \
+                -type f \
+                \( \
+                  -name "*.dll" \
+                  -o -name "*.exe" \
+                  -o -name "*.pdb" \
+                \)
+            } | sort -u
+          )
 
           if [ -n "$WINDOWS_BINARIES" ]; then
-            echo "ERROR: Windows binaries found in macOS OBS installation:"
+            echo "ERROR: Windows binaries found in macOS OBS build:"
             echo "$WINDOWS_BINARIES"
             exit 1
           fi
@@ -849,51 +1206,160 @@ jobs:
           echo "No Windows binaries found"
 
       # ----------------------------------------------------------
-      # Prepare RevoStream runtime layout
+      # Prepare complete macOS runtime
       # ----------------------------------------------------------
 
-      - name: Populate revo-root
+      - name: Populate macOS revo-root
         shell: bash
         run: |
           ROOT="src-tauri/resources/revo-root"
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+          OBS_INSTALL="$RUNNER_TEMP/obs-install"
 
-          mkdir -p "$ROOT"
+          rm -rf "$ROOT"
 
-          # RevoStream application data.
+          mkdir -p \
+            "$ROOT/data" \
+            "$ROOT/core/bin" \
+            "$ROOT/core/lib" \
+            "$ROOT/core/lib/obs-plugins" \
+            "$ROOT/core/share"
+
+          # ------------------------------------------------------
+          # RevoStream data
+          # ------------------------------------------------------
+
           if [ -d "data" ]; then
             rsync -a \
               "data/" \
               "$ROOT/data/"
           fi
 
-          # OBS runtime.
-          mkdir -p "$ROOT/core"
+          # ------------------------------------------------------
+          # OBS dylibs
+          # ------------------------------------------------------
 
-          if [ -d "$RUNNER_TEMP/obs-install/lib" ]; then
-            rsync -a \
-              "$RUNNER_TEMP/obs-install/lib/" \
-              "$ROOT/core/lib/"
+          DYLIB_COUNT=0
+
+          while IFS= read -r dylib; do
+            [ -n "$dylib" ] || continue
+
+            echo "Copying dylib: $dylib"
+
+            cp -L \
+              "$dylib" \
+              "$ROOT/core/lib/$(basename "$dylib")"
+
+            DYLIB_COUNT=$((DYLIB_COUNT + 1))
+          done < <(
+            find "$OBS_BUILD" \
+              -type f \
+              -name "*.dylib" \
+              -print | sort
+          )
+
+          if [ "$DYLIB_COUNT" -eq 0 ]; then
+            echo "ERROR: no OBS dylibs found"
+            exit 1
           fi
 
-          if [ -d "$RUNNER_TEMP/obs-install/share" ]; then
+          echo "Collected dylibs: $DYLIB_COUNT"
+
+          # ------------------------------------------------------
+          # Frameworks
+          # ------------------------------------------------------
+
+          FRAMEWORK_COUNT=0
+
+          while IFS= read -r framework; do
+            [ -n "$framework" ] || continue
+
+            name="$(basename "$framework")"
+
+            echo "Copying framework: $name"
+
+            rm -rf "$ROOT/core/lib/$name"
+
+            cp -R \
+              "$framework" \
+              "$ROOT/core/lib/$name"
+
+            FRAMEWORK_COUNT=$((FRAMEWORK_COUNT + 1))
+          done < <(
+            find "$OBS_BUILD" \
+              -type d \
+              -name "*.framework" \
+              -print | sort -u
+          )
+
+          echo "Collected frameworks: $FRAMEWORK_COUNT"
+
+          # ------------------------------------------------------
+          # OBS plugins
+          # ------------------------------------------------------
+
+          PLUGIN_COUNT=0
+
+          while IFS= read -r plugin; do
+            [ -n "$plugin" ] || continue
+
+            name="$(basename "$plugin")"
+
+            echo "Copying plugin: $name"
+
+            rm -rf "$ROOT/core/lib/obs-plugins/$name"
+
+            cp -R \
+              "$plugin" \
+              "$ROOT/core/lib/obs-plugins/$name"
+
+            PLUGIN_COUNT=$((PLUGIN_COUNT + 1))
+          done < <(
+            find "$OBS_BUILD" \
+              -type d \
+              -name "*.plugin" \
+              -print | sort -u
+          )
+
+          if [ "$PLUGIN_COUNT" -eq 0 ]; then
+            echo "ERROR: no OBS .plugin bundles found"
+            exit 1
+          fi
+
+          echo "Collected plugins: $PLUGIN_COUNT"
+
+          # ------------------------------------------------------
+          # Installed resources
+          # ------------------------------------------------------
+
+          if [ -d "$OBS_INSTALL/share" ]; then
             rsync -a \
-              "$RUNNER_TEMP/obs-install/share/" \
+              "$OBS_INSTALL/share/" \
               "$ROOT/core/share/"
           fi
 
-          if [ -d "$RUNNER_TEMP/obs-install/bin" ]; then
+          if [ -d "$OBS_INSTALL/bin" ]; then
             rsync -a \
-              "$RUNNER_TEMP/obs-install/bin/" \
+              "$OBS_INSTALL/bin/" \
               "$ROOT/core/bin/"
           fi
 
+          # ------------------------------------------------------
+          # Final tree
+          # ------------------------------------------------------
+
           echo
-          echo "=== revo-root ==="
+          echo "============================================================"
+          echo "FINAL macOS revo-root"
+          echo "============================================================"
 
           find "$ROOT" \
-            -maxdepth 5 \
-            -type f \
-            -print | sort | head -500
+            -maxdepth 8 \
+            -print | sort | head -2000
+
+      # ----------------------------------------------------------
+      # Verify macOS runtime
+      # ----------------------------------------------------------
 
       - name: Verify macOS runtime
         shell: bash
@@ -905,18 +1371,36 @@ jobs:
             exit 1
           fi
 
+          if [ ! -d "$ROOT/core/lib/obs-plugins" ]; then
+            echo "ERROR: core/lib/obs-plugins does not exist"
+            exit 1
+          fi
+
           DYLIB_COUNT=$(find "$ROOT/core/lib" \
             -type f \
-            -name "*.dylib" \
-            | wc -l \
-            | tr -d ' ')
+            -name "*.dylib" |
+            wc -l |
+            tr -d ' ')
+
+          echo "macOS dylibs: $DYLIB_COUNT"
 
           if [ "$DYLIB_COUNT" -eq 0 ]; then
             echo "ERROR: no macOS dylibs found"
             exit 1
           fi
 
-          echo "macOS dylibs: $DYLIB_COUNT"
+          PLUGIN_COUNT=$(find "$ROOT/core/lib/obs-plugins" \
+            -type d \
+            -name "*.plugin" |
+            wc -l |
+            tr -d ' ')
+
+          echo "macOS OBS plugins: $PLUGIN_COUNT"
+
+          if [ "$PLUGIN_COUNT" -eq 0 ]; then
+            echo "ERROR: no OBS .plugin bundles found"
+            exit 1
+          fi
 
           WINDOWS_BINARIES=$(find "$ROOT" \
             -type f \
@@ -933,6 +1417,37 @@ jobs:
             exit 1
           fi
 
+          echo
+          echo "============================================================"
+          echo "macOS dylibs"
+          echo "============================================================"
+
+          find "$ROOT/core/lib" \
+            -type f \
+            -name "*.dylib" \
+            -print | sort
+
+          echo
+          echo "============================================================"
+          echo "macOS OBS plugins"
+          echo "============================================================"
+
+          find "$ROOT/core/lib/obs-plugins" \
+            -type d \
+            -name "*.plugin" \
+            -print | sort
+
+          echo
+          echo "============================================================"
+          echo "macOS frameworks"
+          echo "============================================================"
+
+          find "$ROOT/core/lib" \
+            -type d \
+            -name "*.framework" \
+            -print | sort
+
+          echo
           echo "macOS runtime layout looks valid"
 
       # ----------------------------------------------------------
@@ -947,19 +1462,33 @@ jobs:
             -- \
             --no-default-features
 
+      # ----------------------------------------------------------
+      # Verify DMG
+      # ----------------------------------------------------------
+
       - name: Verify macOS DMG
         shell: bash
         run: |
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
 
-          if ! compgen -G "$DMG_DIR/*.dmg" > /dev/null; then
+          DMG=$(find "$DMG_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.dmg" \
+            -print -quit)
+
+          if [ -z "$DMG" ]; then
             echo "ERROR: DMG was not produced"
             echo "Expected directory: $DMG_DIR"
             exit 1
           fi
 
           echo "macOS DMG:"
-          ls -lh "$DMG_DIR"/*.dmg
+          ls -lh "$DMG"
+
+      # ----------------------------------------------------------
+      # Upload macOS artifact
+      # ----------------------------------------------------------
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
