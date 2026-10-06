@@ -1166,6 +1166,55 @@ jobs:
           OBS_BUILD="$RUNNER_TEMP/obs-build"
 
           echo "============================================================"
+          echo "Locate real OBS libobs framework"
+          echo "============================================================"
+
+          LIBOBS_BINARY=$(
+            find "$OBS_BUILD" \
+              -type f \
+              -path "*/libobs.framework/Versions/*/libobs" \
+              ! -path "*/EagerLinkingTBDs/*" \
+              -print |
+            sort |
+            head -n 1
+          )
+
+          if [ -z "$LIBOBS_BINARY" ]; then
+            echo "ERROR: real libobs framework binary not found"
+            echo
+            echo "Found libobs framework files:"
+            find "$OBS_BUILD" \
+              -path "*/libobs.framework/*" \
+              -print |
+            sort
+            exit 1
+          fi
+
+          echo "libobs binary:"
+          echo "$LIBOBS_BINARY"
+
+          file "$LIBOBS_BINARY"
+          lipo -info "$LIBOBS_BINARY" || true
+
+          LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
+
+          if [ ! -e "$LIBOBS_DIR/libobs.dylib" ]; then
+            ln -s "$(basename "$LIBOBS_BINARY")" "$LIBOBS_DIR/libobs.dylib"
+          fi
+
+          echo "LIBOBS_PATH=$LIBOBS_DIR"
+          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+
+          echo
+          echo "libobs directory:"
+          ls -lah "$LIBOBS_DIR"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+
+          echo "============================================================"
           echo "Locate OBS libobs framework"
           echo "============================================================"
 
