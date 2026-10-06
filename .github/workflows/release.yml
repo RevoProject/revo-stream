@@ -262,64 +262,111 @@ jobs:
           print("libobs bindgen patch applied successfully")
           PY
 
-      # - name: Patch libobs-wrapper for macOS
-      #   shell: bash
-      #   run: |
-      #     python3 - <<'PY'
-      #     from pathlib import Path
+      - name: Patch libobs-wrapper for macOS
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
 
-      #     root = Path.home() / ".cargo/git/checkouts"
-      #     matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
+          root = Path.home() / ".cargo/git/checkouts"
+          matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
 
-      #     if not matches:
-      #         raise SystemExit("libobs-wrapper source not found")
+          if not matches:
+              raise SystemExit("libobs-wrapper source not found")
 
-      #     src = matches[0]
-      #     other = src / "utils/initialization/other.rs"
-      #     runtime = src / "runtime.rs"
+          src = matches[0]
+          other = src / "utils/initialization/other.rs"
+          runtime = src / "runtime.rs"
 
-      #     print(f"libobs-wrapper source: {src}")
+          print(f"Using libobs-wrapper source: {src}")
 
-      #     if not other.exists():
-      #         raise SystemExit(f"Missing: {other}")
+          # ------------------------------------------------------------
+          # other.rs
+          # ------------------------------------------------------------
 
-      #     if not runtime.exists():
-      #         raise SystemExit(f"Missing: {runtime}")
+          s = other.read_text()
 
-      #     # ------------------------------------------------------------
-      #     # Disable Linux/X11/Wayland initialization module on macOS.
-      #     # ------------------------------------------------------------
+          # Rc is also required by the non-Linux macOS stub.
+          old = '#[cfg(target_os = "linux")]\nuse std::rc::Rc;'
+          new = 'use std::rc::Rc;'
 
-      #     s = other.read_text()
+          if old in s:
+              s = s.replace(old, new, 1)
+              print("Made Rc import platform-independent")
+          elif 'use std::rc::Rc;' not in s:
+              s = 'use std::rc::Rc;\n' + s
+              print("Added Rc import")
+          else:
+              print("Rc import already present")
 
-      #     marker = '#![cfg(target_os = "linux")]'
+          # PlatformSpecificGuard contains PlatformType and Linux display
+          # handling, so the real implementation must only exist on Linux.
+          old = '''#[derive(Debug)]
+          pub(crate) struct PlatformSpecificGuard {
+              display: Sendable<*mut std::os::raw::c_void>,
+              platform: PlatformType,
+              /// Whether the guard owns the display connection and should close it on drop
+              owned: bool,
+          }'''
 
-      #     if marker not in s:
-      #         s = marker + "\n" + s
-      #         other.write_text(s)
-      #         print(f"Patched: {other}")
-      #     else:
-      #         print(f"other.rs already patched: {other}")
+          new = '''#[cfg(target_os = "linux")]
+          #[derive(Debug)]
+          pub(crate) struct PlatformSpecificGuard {
+              display: Sendable<*mut std::os::raw::c_void>,
+              platform: PlatformType,
+              /// Whether the guard owns the display connection and should close it on drop
+              owned: bool,
+          }
 
-      #     # ------------------------------------------------------------
-      #     # Only call platform_specific_setup on Linux.
-      #     # ------------------------------------------------------------
+          #[cfg(not(target_os = "linux"))]
+          #[derive(Debug)]
+          pub(crate) struct PlatformSpecificGuard;'''
 
-      #     s = runtime.read_text()
+          if old in s:
+              s = s.replace(old, new, 1)
+              print("Patched PlatformSpecificGuard")
+          elif "pub(crate) struct PlatformSpecificGuard;" in s:
+              print("PlatformSpecificGuard already patched")
+          else:
+              raise SystemExit(
+                  "Could not find expected PlatformSpecificGuard definition"
+              )
 
-      #     old = "            platform_specific_setup(info.nix_display.clone())?"
+          # Drop implementation uses X11/Wayland functions and is Linux-only.
+          old = 'impl Drop for PlatformSpecificGuard {'
+          new = '''#[cfg(target_os = "linux")]
+          impl Drop for PlatformSpecificGuard {'''
 
-      #     if old in s:
-      #         new = """            #[cfg(target_os = "linux")]
-      #       platform_specific_setup(info.nix_display.clone())?"""
+          if old in s and '#[cfg(target_os = "linux")]\nimpl Drop for PlatformSpecificGuard {' not in s:
+              s = s.replace(old, new, 1)
+              print("Made PlatformSpecificGuard::drop Linux-only")
+          else:
+              print("PlatformSpecificGuard::drop already patched")
 
-      #         s = s.replace(old, new, 1)
-      #         runtime.write_text(s)
-      #         print(f"Patched: {runtime}")
-      #     else:
-      #         print("platform_specific_setup call already patched or not found")
+          other.write_text(s)
 
-      #     PY
+          # ------------------------------------------------------------
+          # runtime.rs
+          # ------------------------------------------------------------
+
+          s = runtime.read_text()
+
+          old = 'platform_specific_setup(info.nix_display.clone())?'
+          new = 'platform_specific_setup()?'
+
+          if old in s:
+              s = s.replace(old, new, 1)
+              runtime.write_text(s)
+              print("Patched runtime.rs to use macOS platform_specific_setup()")
+          elif 'platform_specific_setup()?' in s:
+              print("runtime.rs already patched")
+          else:
+              raise SystemExit(
+                  "Could not find platform_specific_setup call in runtime.rs"
+              )
+
+          print("libobs-wrapper macOS patch applied successfully")
+          PY
 
       - name: Inspect libobs-wrapper platform code
         shell: bash
