@@ -1164,6 +1164,32 @@ jobs:
             --config RelWithDebInfo \
             --prefix "$OBS_INSTALL"
 
+      - name: Configure libobs linker path
+        shell: bash
+        run: |
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+
+          LIBOBS=$(find "$OBS_BUILD" \
+            -type f \
+            -name "libobs.dylib" \
+            -print -quit)
+
+          if [ -z "$LIBOBS" ]; then
+            echo "ERROR: libobs.dylib not found"
+            exit 1
+          fi
+
+          LIBOBS_DIR="$(dirname "$LIBOBS")"
+
+          echo "Found libobs:"
+          echo "$LIBOBS"
+
+          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+
+          echo "LIBOBS_PATH=$LIBOBS_DIR"
+
+          ls -lah "$LIBOBS_DIR"
+
       # ----------------------------------------------------------
       # Inspect OBS
       # ----------------------------------------------------------
