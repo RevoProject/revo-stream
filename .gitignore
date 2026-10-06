@@ -23,4 +23,8 @@ countlines.sh
 logs
 data/
 .local/
+plans/
 
+# Local build artifacts
+.cache/
+*.AppImage
