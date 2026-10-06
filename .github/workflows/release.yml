@@ -429,9 +429,6 @@ jobs:
 
       # ----------------------------------------------------------
       # Portable ZIP
-      #
-      # Final name:
-      # revo-ui-windows-x64.zip
       # ----------------------------------------------------------
 
       - name: Create Windows Portable ZIP
@@ -740,13 +737,6 @@ jobs:
 
           print(f"Using libobs-wrapper source: {src}")
 
-          # ------------------------------------------------------
-          # Rc must be available on macOS too.
-          #
-          # IMPORTANT:
-          # Do not re-read the file after this modification.
-          # ------------------------------------------------------
-
           text = other.read_text()
 
           linux_rc = (
@@ -768,15 +758,7 @@ jobs:
                   "use std::rc::Rc; not found in libobs-wrapper"
               )
 
-          # ------------------------------------------------------
-          # Work with the already modified text.
-          # ------------------------------------------------------
-
           lines = text.splitlines()
-
-          # ------------------------------------------------------
-          # Linux-specific PlatformSpecificGuard
-          # ------------------------------------------------------
 
           struct_index = None
 
@@ -809,10 +791,6 @@ jobs:
                   '#[cfg(target_os = "linux")]'
               )
 
-          # ------------------------------------------------------
-          # Recalculate struct index.
-          # ------------------------------------------------------
-
           struct_index = None
 
           for i, line in enumerate(lines):
@@ -824,10 +802,6 @@ jobs:
               raise SystemExit(
                   "PlatformSpecificGuard struct disappeared"
               )
-
-          # ------------------------------------------------------
-          # Find end of Linux struct.
-          # ------------------------------------------------------
 
           depth = 0
           end_index = None
@@ -852,10 +826,6 @@ jobs:
                   "Could not find end of PlatformSpecificGuard"
               )
 
-          # ------------------------------------------------------
-          # Add non-Linux stub.
-          # ------------------------------------------------------
-
           stub_exists = any(
               line.strip()
               == "pub(crate) struct PlatformSpecificGuard;"
@@ -869,10 +839,6 @@ jobs:
                   "#[derive(Debug)]",
                   "pub(crate) struct PlatformSpecificGuard;",
               ]
-
-          # ------------------------------------------------------
-          # Drop is Linux-specific.
-          # ------------------------------------------------------
 
           for i, line in enumerate(lines):
               if line.strip() == "impl Drop for PlatformSpecificGuard {":
@@ -890,10 +856,6 @@ jobs:
           other.write_text(
               "\n".join(lines) + "\n"
           )
-
-          # ------------------------------------------------------
-          # macOS has no Linux nix_display argument.
-          # ------------------------------------------------------
 
           runtime_text = runtime.read_text()
 
@@ -1164,31 +1126,198 @@ jobs:
             --config RelWithDebInfo \
             --prefix "$OBS_INSTALL"
 
+      # ----------------------------------------------------------
+      # libobs linker path
+      # ----------------------------------------------------------
+
       - name: Configure libobs linker path
         shell: bash
         run: |
           OBS_BUILD="$RUNNER_TEMP/obs-build"
+          OBS_INSTALL="$RUNNER_TEMP/obs-install"
 
-          LIBOBS=$(find "$OBS_BUILD" \
-            -type f \
-            -name "libobs.dylib" \
-            -print -quit)
+          echo "============================================================"
+          echo "Searching for libobs"
+          echo "============================================================"
+
+          echo
+          echo "--- Build tree ---"
+
+          find "$OBS_BUILD" \
+            \( \
+              -type f -o \
+              -type l \
+            \) \
+            \( \
+              -name "libobs.dylib" -o \
+              -name "libobs*.dylib" \
+            \) \
+            -print | sort || true
+
+          echo
+          echo "--- Install tree ---"
+
+          find "$OBS_INSTALL" \
+            \( \
+              -type f -o \
+              -type l \
+            \) \
+            \( \
+              -name "libobs.dylib" -o \
+              -name "libobs*.dylib" \
+            \) \
+            -print | sort || true
+
+          echo
+          echo "--- All build dylibs ---"
+
+          find "$OBS_BUILD" \
+            \( \
+              -type f -o \
+              -type l \
+            \) \
+            -name "*.dylib" \
+            -print | sort | head -200 || true
+
+          # --------------------------------------------------------
+          # Prefer the build tree because this is the library used
+          # for linking the Rust application.
+          # --------------------------------------------------------
+
+          LIBOBS=""
+
+          while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+
+            case "$(basename "$candidate")" in
+              libobs.dylib)
+                LIBOBS="$candidate"
+                break
+                ;;
+            esac
+          done < <(
+            find "$OBS_BUILD" \
+              \( \
+                -type f -o \
+                -type l \
+              \) \
+              -name "libobs.dylib" \
+              -print | sort
+          )
+
+          # --------------------------------------------------------
+          # If CMake produced only a versioned libobs dylib, use it.
+          # --------------------------------------------------------
 
           if [ -z "$LIBOBS" ]; then
-            echo "ERROR: libobs.dylib not found"
+            LIBOBS=$(
+              find "$OBS_BUILD" \
+                \( \
+                  -type f -o \
+                  -type l \
+                \) \
+                -name "libobs*.dylib" \
+                -print |
+              sort |
+              head -n 1
+            )
+          fi
+
+          # --------------------------------------------------------
+          # Fall back to install tree.
+          # --------------------------------------------------------
+
+          if [ -z "$LIBOBS" ]; then
+            LIBOBS=$(
+              find "$OBS_INSTALL" \
+                \( \
+                  -type f -o \
+                  -type l \
+                \) \
+                -name "libobs*.dylib" \
+                -print |
+              sort |
+              head -n 1
+            )
+          fi
+
+          if [ -z "$LIBOBS" ]; then
+            echo
+            echo "ERROR: no libobs*.dylib found"
+            echo
+            echo "Build tree:"
+            find "$OBS_BUILD" \
+              -type f \
+              -name "*.dylib" \
+              -print | sort || true
+            echo
+            echo "Install tree:"
+            find "$OBS_INSTALL" \
+              -type f \
+              -name "*.dylib" \
+              -print | sort || true
             exit 1
           fi
 
           LIBOBS_DIR="$(dirname "$LIBOBS")"
+          LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
 
+          echo
           echo "Found libobs:"
           echo "$LIBOBS"
 
-          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+          echo
+          echo "libobs directory:"
+          echo "$LIBOBS_DIR"
 
-          echo "LIBOBS_PATH=$LIBOBS_DIR"
+          # --------------------------------------------------------
+          # libobs-rs links with -lobs, therefore the linker needs
+          # libobs.dylib in the search directory.
+          # --------------------------------------------------------
+
+          if [ ! -e "$LIBOBS_LINK" ]; then
+            echo
+            echo "Creating linker symlink:"
+            echo "$LIBOBS_LINK -> $(basename "$LIBOBS")"
+
+            ln -s \
+              "$(basename "$LIBOBS")" \
+              "$LIBOBS_LINK"
+          else
+            echo
+            echo "libobs.dylib already exists"
+          fi
+
+          echo
+          echo "============================================================"
+          echo "libobs linker directory"
+          echo "============================================================"
 
           ls -lah "$LIBOBS_DIR"
+
+          echo
+          echo "============================================================"
+          echo "libobs architecture"
+          echo "============================================================"
+
+          file "$LIBOBS"
+
+          if command -v lipo >/dev/null 2>&1; then
+            lipo -info "$LIBOBS" || true
+          fi
+
+          # --------------------------------------------------------
+          # libobs-rs build.rs consumes LIBOBS_PATH and adds:
+          #
+          #   -L <LIBOBS_PATH>
+          #   -lobs
+          #
+          # --------------------------------------------------------
+
+          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+
+          echo
+          echo "LIBOBS_PATH=$LIBOBS_DIR"
 
       # ----------------------------------------------------------
       # Inspect OBS
