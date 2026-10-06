@@ -548,6 +548,9 @@ jobs:
     name: macOS ${{ matrix.arch }}
     runs-on: macos-latest
 
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+
     strategy:
       fail-fast: false
       matrix:
@@ -645,6 +648,31 @@ jobs:
           path.write_text(text)
 
           print("CEF disabled for CI")
+          PY
+
+      - name: Disable OBS logger on non-Linux CI
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          mod = Path("src-tauri/src/logging/mod.rs")
+          text = mod.read_text()
+          text = text.replace(
+              '#[cfg(unix)]\npub mod obs_logger;',
+              '#[cfg(target_os = "linux")]\npub mod obs_logger;'
+          )
+          mod.write_text(text)
+
+          init = Path("src-tauri/src/runtime/init.rs")
+          text = init.read_text()
+          text = text.replace(
+              '#[cfg(unix)]\nrevo_lib::obs::base_set_log_handler(',
+              '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler('
+          )
+          init.write_text(text)
+
+          print("OBS logger restricted to Linux")
           PY
 
       # ----------------------------------------------------------
@@ -1138,189 +1166,87 @@ jobs:
           OBS_BUILD="$RUNNER_TEMP/obs-build"
 
           echo "============================================================"
-          echo "Build libobs target explicitly"
+          echo "Locate OBS libobs framework"
           echo "============================================================"
 
-          cmake \
-            --build "$OBS_BUILD" \
-            --config RelWithDebInfo \
-            --target libobs \
-            --parallel "$(sysctl -n hw.ncpu)"
-
-          echo
-          echo "============================================================"
-          echo "Search for libobs artifacts"
-          echo "============================================================"
-
-          echo "--- all libobs-related files ---"
-
-          find "$OBS_BUILD" \
-            \( -type f -o -type l \) \
-            \( \
-              -iname "*libobs*" -o \
-              -iname "obs*.dylib" \
-            \) \
-            -print | sort || true
-
-          echo
-          echo "--- all dylibs ---"
-
-          find "$OBS_BUILD" \
-            \( -type f -o -type l \) \
-            -name "*.dylib" \
-            -print | sort || true
-
-          echo
-          echo "--- possible libobs directories ---"
-
-          find "$OBS_BUILD" \
-            -type d \
-            \( \
-              -iname "*libobs*" -o \
-              -iname "*RelWithDebInfo*" \
-            \) \
-            -print | sort | head -200 || true
-
-          # --------------------------------------------------------
-          # Locate actual libobs dylib.
-          #
-          # Xcode/CMake can place it in different directories and
-          # may produce a versioned dylib.
-          # --------------------------------------------------------
-
-          LIBOBS=""
-
-          while IFS= read -r candidate; do
-            [ -n "$candidate" ] || continue
-
-            name="$(basename "$candidate")"
-
-            case "$name" in
-              libobs.dylib)
-                LIBOBS="$candidate"
-                break
-                ;;
-            esac
-          done < <(
+          LIBOBS_FRAMEWORK=$(
             find "$OBS_BUILD" \
-              \( -type f -o -type l \) \
-              -name "libobs.dylib" \
-              -print | sort
+              -type d \
+              -path "*/libobs.framework" \
+              -print |
+            sort |
+            head -n 1
           )
 
-          # --------------------------------------------------------
-          # Fall back to versioned libobs dylib.
-          # --------------------------------------------------------
+          if [ -z "$LIBOBS_FRAMEWORK" ]; then
+            echo "ERROR: libobs.framework not found"
 
-          if [ -z "$LIBOBS" ]; then
-            LIBOBS=$(
-              find "$OBS_BUILD" \
-                \( -type f -o -type l \) \
-                -name "libobs*.dylib" \
-                -print |
-              sort |
-              head -n 1
-            )
-          fi
-
-          # --------------------------------------------------------
-          # Last fallback: any dylib whose filename contains libobs.
-          # --------------------------------------------------------
-
-          if [ -z "$LIBOBS" ]; then
-            LIBOBS=$(
-              find "$OBS_BUILD" \
-                \( -type f -o -type l \) \
-                -name "*.dylib" \
-                -print |
-              grep '/libobs' |
-              head -n 1 || true
-            )
-          fi
-
-          if [ -z "$LIBOBS" ]; then
-            echo
-            echo "============================================================"
-            echo "ERROR: libobs dylib was not produced"
-            echo "============================================================"
-
-            echo
-            echo "CMake libobs target:"
-            cmake \
-              --build "$OBS_BUILD" \
-              --config RelWithDebInfo \
-              --target help |
-              grep -i obs |
-              head -100 || true
-
-            echo
-            echo "All dylibs in build tree:"
             find "$OBS_BUILD" \
-              \( -type f -o -type l \) \
-              -name "*.dylib" \
-              -print | sort || true
+              -type d \
+              -name "*.framework" \
+              -print | sort
 
             exit 1
           fi
 
-          LIBOBS_DIR="$(dirname "$LIBOBS")"
-          LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
+          LIBOBS_BINARY="$LIBOBS_FRAMEWORK/Versions/A/libobs"
+
+          if [ ! -f "$LIBOBS_BINARY" ]; then
+            echo "ERROR: libobs framework binary not found:"
+            echo "$LIBOBS_BINARY"
+            find "$LIBOBS_FRAMEWORK" -maxdepth 4 -print
+            exit 1
+          fi
+
+          echo "libobs framework:"
+          echo "$LIBOBS_FRAMEWORK"
 
           echo
-          echo "============================================================"
-          echo "libobs found"
-          echo "============================================================"
-
-          echo "LIBOBS      = $LIBOBS"
-          echo "LIBOBS_DIR  = $LIBOBS_DIR"
+          echo "libobs binary:"
+          echo "$LIBOBS_BINARY"
 
           echo
           echo "Architecture:"
-          file "$LIBOBS"
-
-          if command -v lipo >/dev/null 2>&1; then
-            lipo -info "$LIBOBS" || true
-          fi
+          file "$LIBOBS_BINARY"
+          lipo -info "$LIBOBS_BINARY" || true
 
           # --------------------------------------------------------
-          # libobs-rs uses:
+          # libobs-rs asks the linker for:
           #
           #     -L <LIBOBS_PATH>
           #     -lobs
           #
-          # Therefore a libobs.dylib name must be available in the
-          # linker directory.
+          # Therefore expose the framework binary as libobs.dylib.
           # --------------------------------------------------------
 
-          if [ ! -e "$LIBOBS_LINK" ]; then
-            echo
-            echo "Creating linker symlink:"
-            echo "$LIBOBS_LINK -> $(basename "$LIBOBS")"
+          LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
+          LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
 
+          if [ ! -e "$LIBOBS_LINK" ]; then
             ln -s \
-              "$(basename "$LIBOBS")" \
+              "$(basename "$LIBOBS_BINARY")" \
               "$LIBOBS_LINK"
-          else
-            echo
-            echo "libobs.dylib already exists"
           fi
 
           echo
-          echo "============================================================"
-          echo "Final libobs linker directory"
-          echo "============================================================"
+          echo "Linker directory:"
+          echo "$LIBOBS_DIR"
 
+          echo
           ls -lah "$LIBOBS_DIR"
 
-          # --------------------------------------------------------
-          # Export for libobs-rs build.rs
-          # --------------------------------------------------------
+          echo
+          echo "Checking exported OBS symbols..."
 
-          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+          nm -gU "$LIBOBS_BINARY" |
+            grep -E \
+              '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' \
+            | head -20 || true
 
           echo
           echo "LIBOBS_PATH=$LIBOBS_DIR"
 
+          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
       # ----------------------------------------------------------
       # Inspect OBS
       # ----------------------------------------------------------
