@@ -13,6 +13,7 @@ env:
   PNPM_VERSION: 10
   NODE_VERSION: 24
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  OBS_VERSION: 32.1.2
 
 jobs:
   windows:
@@ -94,10 +95,9 @@ jobs:
           }
 
           $dir = Split-Path $bootstrapper.FullName
-
-          Write-Host "Using: $dir"
-
           $cargo = Get-Content $bootstrapper.FullName -Raw
+
+          Write-Host "Using bootstrapper: $dir"
 
           if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
@@ -119,6 +119,24 @@ jobs:
         working-directory: src-tauri
         shell: pwsh
         run: cargo obs-build build --out-dir target/release
+
+      - name: Verify Windows OBS runtime
+        shell: pwsh
+        run: |
+          $out = "src-tauri/target/release"
+
+          if (-not (Test-Path "$out/obs.dll")) {
+            throw "OBS runtime missing: $out/obs.dll"
+          }
+
+          $size = (Get-Item "$out/obs.dll").Length
+          Write-Host "obs.dll size: $size bytes"
+
+          if ($size -lt 500000) {
+            throw "obs.dll is unexpectedly small"
+          }
+
+          Write-Host "Windows OBS runtime looks valid"
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -160,8 +178,10 @@ jobs:
         include:
           - arch: arm64
             target: aarch64-apple-darwin
+            cmake_arch: arm64
           - arch: x64
             target: x86_64-apple-darwin
+            cmake_arch: x86_64
 
     steps:
       - name: Checkout
@@ -191,6 +211,8 @@ jobs:
           pnpm --version
           cargo --version
           rustc --version
+          cmake --version
+          xcodebuild -version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -284,8 +306,7 @@ jobs:
               + "    }"
           )
 
-          s = s.replace(needle, replacement, 1)
-          p.write_text(s)
+          p.write_text(s.replace(needle, replacement, 1))
 
           print("libobs bindgen patch applied successfully")
           PY
@@ -306,13 +327,11 @@ jobs:
               raise SystemExit("libobs-wrapper source not found")
 
           src = matches[0]
-
           other = src / "utils/initialization/other.rs"
           runtime = src / "runtime.rs"
 
           print(f"Using libobs-wrapper source: {src}")
 
-          # Rc is also required by the non-Linux stub.
           s = other.read_text()
 
           old = '#[cfg(target_os = "linux")]\nuse std::rc::Rc;'
@@ -321,7 +340,6 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
-          # Linux implementation.
           old = '''#[derive(Debug)]
           pub(crate) struct PlatformSpecificGuard {
               display: Sendable<*mut std::os::raw::c_void>,
@@ -346,9 +364,7 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
-          # X11/Wayland Drop is Linux-only.
           old = 'impl Drop for PlatformSpecificGuard {'
-
           new = '''#[cfg(target_os = "linux")]
           impl Drop for PlatformSpecificGuard {'''
 
@@ -357,7 +373,6 @@ jobs:
 
           other.write_text(s)
 
-          # macOS does not pass the Linux display handle.
           s = runtime.read_text()
 
           old = 'platform_specific_setup(info.nix_display.clone())?'
@@ -384,7 +399,6 @@ jobs:
             exit 1
           fi
 
-          echo "Using: $BUILD_RS"
           grep -n -C 5 "layout_tests" "$BUILD_RS"
 
           echo
@@ -400,10 +414,8 @@ jobs:
             exit 1
           fi
 
-          echo "Using: $WRAPPER_SRC"
-
           echo "--- other.rs ---"
-          head -n 8 "$WRAPPER_SRC/utils/initialization/other.rs"
+          head -n 12 "$WRAPPER_SRC/utils/initialization/other.rs"
 
           echo
           echo "--- runtime.rs ---"
@@ -412,39 +424,150 @@ jobs:
 
       - name: Prepare revo-root
         run: |
+          rm -rf src-tauri/resources/revo-root
           mkdir -p src-tauri/resources/revo-root
 
-      - name: Install cargo-obs-build
-        run: cargo install cargo-obs-build --locked
+      # ------------------------------------------------------------------
+      # OBS Studio is built natively on macOS.
+      #
+      # cargo-obs-build currently downloads Windows OBS assets, which are
+      # not usable on macOS. Do not use it here.
+      # ------------------------------------------------------------------
 
-      - name: Bootstrap OBS
-        working-directory: src-tauri
-        run: |
-          cargo obs-build build \
-            --out-dir "target/${{ matrix.target }}/release"
-
-
-      - name: Inspect OBS bootstrap output
+      - name: Checkout OBS Studio
         shell: bash
         run: |
-          OUT="src-tauri/target/${{ matrix.target }}/release"
+          rm -rf "$RUNNER_TEMP/obs-studio"
 
-          echo "=== OBS bootstrap output ==="
-          find "$OUT" -maxdepth 4 -type f -print | sort | head -300
+          git clone \
+            --depth 1 \
+            --branch "${OBS_VERSION}" \
+            --recursive \
+            https://github.com/obsproject/obs-studio.git \
+            "$RUNNER_TEMP/obs-studio"
+
+      - name: Configure OBS Studio
+        shell: bash
+        run: |
+          cmake \
+            -S "$RUNNER_TEMP/obs-studio" \
+            -B "$RUNNER_TEMP/obs-studio/build" \
+            -G Xcode \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DENABLE_BROWSER=OFF \
+            -DENABLE_SCRIPTING=OFF \
+            -DENABLE_FRONTEND=OFF
+
+      - name: Build OBS Studio
+        shell: bash
+        run: |
+          cmake \
+            --build "$RUNNER_TEMP/obs-studio/build" \
+            --config RelWithDebInfo \
+            --parallel "$(sysctl -n hw.ncpu)"
+
+      - name: Install OBS Studio
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/obs-install"
+
+          cmake \
+            --install "$RUNNER_TEMP/obs-studio/build" \
+            --config RelWithDebInfo \
+            --prefix "$RUNNER_TEMP/obs-install"
+
+      - name: Inspect macOS OBS build
+        shell: bash
+        run: |
+          echo "=== OBS build ==="
+
+          find "$RUNNER_TEMP/obs-studio/build" \
+            -type f \
+            \( -name "*.dylib" -o -name "*.framework" \) \
+            -print | sort | head -300
 
           echo
-          echo "=== Windows binaries ==="
-          find "$OUT" -type f \( \
-            -name "*.dll" -o \
-            -name "*.exe" \
-          \) -print
+          echo "=== OBS install ==="
 
-          echo
-          echo "=== macOS binaries ==="
-          find "$OUT" -type f \( \
-            -name "*.dylib" -o \
-            -name "*.app" \
-          \) -print
+          find "$RUNNER_TEMP/obs-install" \
+            -type f \
+            -print | sort | head -300
+
+      - name: Reject Windows OBS binaries
+        shell: bash
+        run: |
+          if find "$RUNNER_TEMP/obs-install" \
+            -type f \
+            \( -name "*.dll" -o -name "*.exe" -o -name "*.pdb" \) \
+            -print -quit | grep -q .; then
+            echo "ERROR: Windows OBS binaries found in macOS OBS installation"
+            find "$RUNNER_TEMP/obs-install" \
+              -type f \
+              \( -name "*.dll" -o -name "*.exe" -o -name "*.pdb" \) \
+              -print
+            exit 1
+          fi
+
+      - name: Populate revo-root
+        shell: bash
+        run: |
+          ROOT="src-tauri/resources/revo-root"
+
+          mkdir -p "$ROOT"
+
+          if [ -d "$RUNNER_TEMP/obs-install/data" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/data/" \
+              "$ROOT/data/"
+          fi
+
+          if [ -d "$RUNNER_TEMP/obs-install/lib" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/lib/" \
+              "$ROOT/lib/"
+          fi
+
+          if [ -d "$RUNNER_TEMP/obs-install/share" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/share/" \
+              "$ROOT/share/"
+          fi
+
+          if [ -d "$RUNNER_TEMP/obs-install/bin" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/bin/" \
+              "$ROOT/bin/"
+          fi
+
+          find "$ROOT" -maxdepth 4 -type f -print | sort | head -300
+
+      - name: Verify macOS runtime
+        shell: bash
+        run: |
+          ROOT="src-tauri/resources/revo-root"
+
+          if find "$ROOT" \
+            -type f \
+            \( -name "*.dll" -o -name "*.exe" \) \
+            -print -quit | grep -q .; then
+            echo "ERROR: Windows binaries leaked into macOS revo-root"
+            find "$ROOT" \
+              -type f \
+              \( -name "*.dll" -o -name "*.exe" \) \
+              -print
+            exit 1
+          fi
+
+          DYLIBS=$(find "$ROOT" -type f -name "*.dylib" | wc -l | tr -d ' ')
+
+          if [ "$DYLIBS" -eq 0 ]; then
+            echo "ERROR: No macOS dylibs found in revo-root"
+            exit 1
+          fi
+
+          echo "macOS dylibs: $DYLIBS"
 
       - name: Build macOS DMG
         run: |
@@ -453,6 +576,18 @@ jobs:
             --target "${{ matrix.target }}" \
             -- \
             --no-default-features
+
+      - name: Verify macOS DMG
+        shell: bash
+        run: |
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+
+          if ! compgen -G "$DMG_DIR/*.dmg" > /dev/null; then
+            echo "DMG not found: $DMG_DIR"
+            exit 1
+          fi
+
+          ls -lh "$DMG_DIR"/*.dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -490,7 +625,7 @@ jobs:
 
       - name: Show release files
         run: |
-          find release -maxdepth 4 -type f -print
+          find release -type f -print | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
