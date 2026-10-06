@@ -205,17 +205,6 @@ jobs:
 
       # ----------------------------------------------------------
       # Prepare complete Windows runtime
-      #
-      # Final:
-      #
-      # revo-root/
-      # ├── data/
-      # └── core/
-      #     ├── bin/
-      #     ├── lib/
-      #     │   ├── *.dll
-      #     │   └── obs-plugins/
-      #     └── share/
       # ----------------------------------------------------------
 
       - name: Populate Windows revo-root
@@ -250,8 +239,6 @@ jobs:
 
           # --------------------------------------------------------
           # OBS root DLLs
-          #
-          # obs.dll and its dependent runtime DLLs
           # --------------------------------------------------------
 
           $dlls = Get-ChildItem `
@@ -275,8 +262,6 @@ jobs:
 
           # --------------------------------------------------------
           # OBS plugins
-          #
-          # Preserve OBS's native obs-plugins tree.
           # --------------------------------------------------------
 
           if (Test-Path "$OUT\obs-plugins") {
@@ -316,8 +301,6 @@ jobs:
 
           # --------------------------------------------------------
           # OBS data
-          #
-          # Merge OBS data into the runtime data tree.
           # --------------------------------------------------------
 
           if (Test-Path "$OUT\data") {
@@ -447,20 +430,8 @@ jobs:
       # ----------------------------------------------------------
       # Portable ZIP
       #
-      # Keep final name unchanged:
+      # Final name:
       # revo-ui-windows-x64.zip
-      #
-      # ZIP contains:
-      #
-      # revo-ui.exe
-      # revo-root/
-      #   data/
-      #   core/
-      #     bin/
-      #     lib/
-      #       *.dll
-      #       obs-plugins/
-      #     share/
       # ----------------------------------------------------------
 
       - name: Create Windows Portable ZIP
@@ -770,26 +741,42 @@ jobs:
           print(f"Using libobs-wrapper source: {src}")
 
           # ------------------------------------------------------
-          # Rc is required by non-Linux implementation too.
+          # Rc must be available on macOS too.
+          #
+          # IMPORTANT:
+          # Do not re-read the file after this modification.
           # ------------------------------------------------------
 
-          lines = other.read_text().splitlines()
+          text = other.read_text()
 
-          for i, line in enumerate(lines):
-              if line.strip() == "use std::rc::Rc;":
-                  if (
-                      i > 0
-                      and lines[i - 1].strip()
-                      == '#[cfg(target_os = "linux")]'
-                  ):
-                      del lines[i - 1]
-                  break
+          linux_rc = (
+              '#[cfg(target_os = "linux")]\n'
+              'use std::rc::Rc;'
+          )
+
+          if linux_rc in text:
+              text = text.replace(
+                  linux_rc,
+                  'use std::rc::Rc;',
+                  1
+              )
+              print("Removed Linux-only cfg from Rc import")
+          elif 'use std::rc::Rc;' in text:
+              print("Rc import is already unconditional")
+          else:
+              raise SystemExit(
+                  "use std::rc::Rc; not found in libobs-wrapper"
+              )
+
+          # ------------------------------------------------------
+          # Work with the already modified text.
+          # ------------------------------------------------------
+
+          lines = text.splitlines()
 
           # ------------------------------------------------------
           # Linux-specific PlatformSpecificGuard
           # ------------------------------------------------------
-
-          lines = other.read_text().splitlines()
 
           struct_index = None
 
@@ -822,6 +809,10 @@ jobs:
                   '#[cfg(target_os = "linux")]'
               )
 
+          # ------------------------------------------------------
+          # Recalculate struct index.
+          # ------------------------------------------------------
+
           struct_index = None
 
           for i, line in enumerate(lines):
@@ -833,6 +824,10 @@ jobs:
               raise SystemExit(
                   "PlatformSpecificGuard struct disappeared"
               )
+
+          # ------------------------------------------------------
+          # Find end of Linux struct.
+          # ------------------------------------------------------
 
           depth = 0
           end_index = None
@@ -856,6 +851,10 @@ jobs:
               raise SystemExit(
                   "Could not find end of PlatformSpecificGuard"
               )
+
+          # ------------------------------------------------------
+          # Add non-Linux stub.
+          # ------------------------------------------------------
 
           stub_exists = any(
               line.strip()
@@ -888,7 +887,9 @@ jobs:
                       )
                   break
 
-          other.write_text("\n".join(lines) + "\n")
+          other.write_text(
+              "\n".join(lines) + "\n"
+          )
 
           # ------------------------------------------------------
           # macOS has no Linux nix_display argument.
@@ -900,8 +901,19 @@ jobs:
           new = "platform_specific_setup()?"
 
           if old in runtime_text:
-              runtime_text = runtime_text.replace(old, new, 1)
+              runtime_text = runtime_text.replace(
+                  old,
+                  new,
+                  1
+              )
               runtime.write_text(runtime_text)
+              print("Removed nix_display argument for macOS")
+          elif "platform_specific_setup()?" in runtime_text:
+              print("macOS platform_specific_setup call already patched")
+          else:
+              raise SystemExit(
+                  "Expected platform_specific_setup call not found"
+              )
 
           print("libobs-wrapper macOS patch applied")
           PY
@@ -939,11 +951,44 @@ jobs:
             exit 1
           fi
 
-          grep -n -C 3 "PlatformSpecificGuard" \
-            "$WRAPPER_SRC/utils/initialization/other.rs"
+          OTHER_RS="$WRAPPER_SRC/utils/initialization/other.rs"
 
           echo
-          grep -n -C 4 "platform_specific_setup" \
+          echo "--- Rc import ---"
+
+          grep -n -C 3 \
+            "use std::rc::Rc;" \
+            "$OTHER_RS"
+
+          if grep -B1 \
+            'use std::rc::Rc;' \
+            "$OTHER_RS" |
+            grep -q 'cfg(target_os = "linux")'; then
+            echo "ERROR: Rc is still Linux-only"
+            exit 1
+          fi
+
+          if ! grep -q \
+            '^use std::rc::Rc;$' \
+            "$OTHER_RS"; then
+            echo "ERROR: Rc import is missing"
+            exit 1
+          fi
+
+          echo "OK: Rc is available on macOS"
+
+          echo
+          echo "--- PlatformSpecificGuard ---"
+
+          grep -n -C 5 \
+            "PlatformSpecificGuard" \
+            "$OTHER_RS"
+
+          echo
+          echo "--- platform_specific_setup ---"
+
+          grep -n -C 5 \
+            "platform_specific_setup" \
             "$WRAPPER_SRC/runtime.rs" || true
 
       # ----------------------------------------------------------
