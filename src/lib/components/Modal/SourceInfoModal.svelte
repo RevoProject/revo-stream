@@ -79,7 +79,7 @@
 
   button.primary {
     background: var(--accent);
-    color: #ffffff;
+    color: var(--text-on-primary);
   }
 
   button:disabled {

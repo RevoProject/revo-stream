@@ -605,7 +605,7 @@
   }
 
   .settings-placeholder {
-    color: color-mix(in srgb, var(--text-muted) 88%, #c8ceda 12%);
+    color: color-mix(in srgb, var(--text-muted) 88%, var(--text-secondary) 12%);
     font-size: 1rem;
     line-height: 1.35;
     opacity: .88;
@@ -649,7 +649,7 @@
   .ghost:hover { background: var(--surface-3); }
   .primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border: 1px solid color-mix(in srgb, var(--accent) 55%, #000 45%);
   }
   .primary:hover { filter: brightness(1.04); }

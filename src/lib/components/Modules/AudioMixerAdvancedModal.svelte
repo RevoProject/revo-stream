@@ -207,7 +207,7 @@
   .audio-mixer-track-list.improved button.active {
     background: color-mix(in srgb, var(--accent) 35%, var(--surface-3));
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
-    color: #fff;
+    color: var(--text-on-primary);
   }
 
   .muted {

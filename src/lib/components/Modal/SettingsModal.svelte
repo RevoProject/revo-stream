@@ -3,6 +3,11 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import {
+    DEFAULT_REVO_THEME,
+    normalizeRevoTheme,
+    type RevoTheme
+  } from "../../theme/revoTheme";
 
   export let rootDir: string;
   export let demoMode: boolean;
@@ -640,7 +645,8 @@
       accessibilityColorVision
     },
     look: {
-      selectedThemeId
+      selectedThemeId,
+      revoTheme
     }
   });
 
@@ -670,6 +676,7 @@
   let uiLanguage = "en";
   let availableThemes: ThemeInfo[] = [];
   let selectedThemeId = "";
+  let revoTheme: RevoTheme = DEFAULT_REVO_THEME;
   let themesLoading = false;
   let themesError = "";
   let themesInfo = "";
@@ -1101,6 +1108,7 @@
     accessibilityFontFamily = readString(accessibility, "accessibilityFontFamily", initialAccessibilityFontFamily);
     accessibilityColorVision = readString(accessibility, "accessibilityColorVision", initialAccessibilityColorVision);
     selectedThemeId = readString(look, "selectedThemeId", "");
+    revoTheme = normalizeRevoTheme(look.revoTheme);
   };
 
   const toggleRecordingAdvanced = (checked: boolean) => {
@@ -1252,6 +1260,18 @@
     if (showOtherServices) {
       await loadLocalServices();
     }
+  };
+
+  const pageDescriptions: Record<string, string> = {
+    General: "Configure application behavior, confirmations and scene import/export options.",
+    Look: "Choose how RevoStream looks and feels.",
+    Broadcast: "Configure your streaming services and stream settings.",
+    Output: "Configure recording, streaming and encoder output.",
+    Audio: "Configure audio devices, channels and monitoring.",
+    Video: "Configure base resolution, output resolution and framerate.",
+    Shortcuts: "Assign keyboard shortcuts to RevoStream actions.",
+    Accessibility: "Adjust contrast, focus indicators, scale and motion.",
+    Other: "Configure auxiliary application options."
   };
 
   const navItems = [
@@ -1436,6 +1456,10 @@
     onclick={(e) => e.stopPropagation()}
     onkeydown={(e) => e.stopPropagation()}
   >
+    <div class="settings-titlebar">
+      <span class="settings-titlebar__title">Settings</span>
+      <button class="settings-titlebar__close" aria-label="Close settings" onclick={close}>✕</button>
+    </div>
     <div class="settings-grid">
       <aside class="sidebar" role="navigation" aria-label="Settings sections">
         <div class="sidebar-top">
@@ -1463,6 +1487,7 @@
           <div class="title-row">
             <h2>{active}</h2>
           </div>
+          <span class="page-description">{pageDescriptions[active] ?? ""}</span>
           <button class="icon" aria-label="Close settings" onclick={close}>✕</button>
         </header>
 
@@ -1473,6 +1498,7 @@
               <div class="import-export-grid">
                 <div class="io-group">
                   <div class="io-title">RevoStream</div>
+                  <div class="io-desc">Export and import scenes using RevoStream format.</div>
                   <div class="io-actions">
                     <button type="button" class="ghost" onclick={exportScenes}>Export scenes</button>
                     <label class="ghost file-label">
@@ -1488,6 +1514,7 @@
 
                 <div class="io-group">
                   <div class="io-title">OBS Studio</div>
+                  <div class="io-desc">Export scenes for OBS Studio or import existing scenes.</div>
                   <div class="io-actions">
                     <button type="button" class="ghost" onclick={exportObsScenes}>Export as OBS scenes</button>
                     <label class="ghost file-label">
@@ -2087,6 +2114,56 @@
             </div>
           {:else if active === 'Look'}
             <div class="section-block">
+              <div class="section-title">Interface style</div>
+              <div class="field">
+                <div class="theme-gallery">
+                  <!-- Preview swatches intentionally use literal palette colors:
+                       they must show the other theme's colors, not the active ones. -->
+                  <button
+                    type="button"
+                    class="theme-card"
+                    class:selected={revoTheme === "RevoClassic"}
+                    onclick={() => (revoTheme = "RevoClassic")}
+                    aria-label="Use RevoClassic interface style"
+                  >
+                    <div
+                      class="theme-card-preview"
+                      style="background: linear-gradient(135deg, #0f1115 0%, #151820 45%, #232838 70%, #5b7cfa 100%)"
+                    >Classic</div>
+                    <div class="theme-card-body">
+                      <div class="theme-card-name">RevoClassic</div>
+                      <div class="theme-card-meta">Classic RevoStream interface</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="theme-card"
+                    class:selected={revoTheme === "RevoFuture"}
+                    onclick={() => (revoTheme = "RevoFuture")}
+                    aria-label="Use RevoFuture interface style"
+                  >
+                    <div
+                      class="theme-card-preview"
+                      style="background: linear-gradient(135deg, #080810 0%, #0c131b 45%, #152238 70%, #285cfc 100%)"
+                    >Future</div>
+                    <div class="theme-card-body">
+                      <div class="theme-card-name">
+                        RevoFuture
+                        <span class="theme-default-badge">Default</span>
+                      </div>
+                      <div class="theme-card-meta">Modern RevoStream interface</div>
+                    </div>
+                  </button>
+                </div>
+                <div class="services-meta">
+                  Applies to the whole app (all windows). Custom themes below are applied on top
+                  and override the selected style.
+                </div>
+              </div>
+            </div>
+
+            <div class="section-block">
               <div class="section-title">Theme selection</div>
               <div class="field">
                 <input
@@ -2107,8 +2184,8 @@
                   >
                     <div class="theme-card-preview">DEFAULT</div>
                     <div class="theme-card-body">
-                      <div class="theme-card-name">Default (built-in)</div>
-                      <div class="theme-card-meta">RevoStream default UI theme</div>
+                      <div class="theme-card-name">Default</div>
+                      <div class="theme-card-meta">RevoStream default theme</div>
                     </div>
                   </button>
 
@@ -2665,6 +2742,13 @@
     min-height: 480px;
   }
 
+  /* RevoFuture-only settings chrome (hidden in RevoClassic) */
+  .settings-titlebar,
+  .page-description,
+  .io-desc {
+    display: none;
+  }
+
   .sidebar {
     background: var(--surface-3);
     border-right: 1px solid var(--border);
@@ -2894,7 +2978,7 @@
 
   button.primary {
     background: var(--accent);
-    color: #ffffff;
+    color: var(--text-on-primary);
   }
 
   button.ghost {
@@ -3172,6 +3256,22 @@
   .theme-card-meta {
     font-size: 0.88rem;
     color: var(--text-muted);
+  }
+
+  .theme-default-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.45rem;
+    padding: 0.12rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    vertical-align: middle;
   }
 
   .shortcut-input-wrap {

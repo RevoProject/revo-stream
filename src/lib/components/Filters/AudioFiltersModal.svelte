@@ -441,7 +441,7 @@
     border: 1px solid color-mix(in srgb, var(--accent) 55%, #000 45%);
     border-radius: 9px;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     padding: 0.5rem 0.85rem;
     cursor: pointer;
   }
@@ -489,7 +489,7 @@
   }
 
   .filter-settings-placeholder {
-    color: color-mix(in srgb, var(--text-muted) 88%, #c8ceda 12%);
+    color: color-mix(in srgb, var(--text-muted) 88%, var(--text-secondary) 12%);
     font-size: 1rem;
     line-height: 1.35;
     opacity: 0.88;
@@ -580,7 +580,7 @@
 
   .quick-text-actions button.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 55%, #000 45%);
   }
 

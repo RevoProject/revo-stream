@@ -253,7 +253,7 @@
   .audio-mixer-orientation button.active,
   .audio-mixer-volume-mode button.active {
     background: color-mix(in srgb, var(--accent) 35%, var(--surface-3));
-    color: #fff;
+    color: var(--text-on-primary);
   }
 
   .audio-mixer-list {
@@ -378,7 +378,7 @@
 
   .audio-mixer-meter-fill {
     height: 100%;
-    background: linear-gradient(90deg, #22c55e 0%, #eab308 65%, #ef4444 100%);
+    background: linear-gradient(90deg, var(--success) 0%, #eab308 65%, var(--danger) 100%);
     transition: width 120ms ease;
   }
 
@@ -386,7 +386,7 @@
     width: 100%;
     height: 0;
     transition: height 120ms ease;
-    background: linear-gradient(0deg, #22c55e 0%, #eab308 65%, #ef4444 100%);
+    background: linear-gradient(0deg, var(--success) 0%, #eab308 65%, var(--danger) 100%);
   }
 
   .audio-mixer-volume-mode {

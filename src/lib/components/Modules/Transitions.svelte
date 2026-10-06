@@ -427,7 +427,7 @@
   }
 
   .transition-badge.active {
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
     background: color-mix(in srgb, var(--accent) 68%, var(--surface-2));
   }
@@ -467,7 +467,7 @@
     font-weight: 600;
     cursor: pointer;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
   }
 
   .transition-add-btn:hover {
@@ -582,7 +582,7 @@
   .quick-text-actions button.primary,
   .primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 55%, #000 45%);
   }
 

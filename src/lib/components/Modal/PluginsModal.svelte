@@ -390,7 +390,7 @@
   }
 
   .plugin-badge.active {
-    color: #fff;
+    color: var(--text-on-success);
     background: color-mix(in srgb, var(--success) 65%, var(--surface-2));
     border-color: color-mix(in srgb, var(--success) 68%, var(--border-strong));
   }
@@ -404,7 +404,7 @@
   .plugin-badge.pending-disable {
     color: #ffe4e6;
     background: color-mix(in srgb, #dc2626 72%, var(--surface-2));
-    border-color: color-mix(in srgb, #ef4444 75%, var(--border-strong));
+    border-color: color-mix(in srgb, var(--danger) 75%, var(--border-strong));
   }
 
   .plugin-meta {
@@ -534,7 +534,7 @@
 
   button.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
   }
 
   button.ghost {

@@ -1,0 +1,256 @@
+/*
+ * RevoStream — global color token system
+ * Source of truth: plans/NEW_COLORS.md
+ *
+ * ---------------------------------------------------------------------------
+ * RevoClassic (default)
+ * ---------------------------------------------------------------------------
+ * RevoClassic is the application's existing look. Its values are NOT redefined
+ * here — they stay exactly where they already live:
+ *   - src/routes/+page.svelte            -> :global(:root) block
+ *   - src/routes/source-transform/...    -> :root block
+ * This file only adds *new* tokens (with values that mirror the current UI) so
+ * that nothing in RevoClassic changes rendering.
+ *
+ * ---------------------------------------------------------------------------
+ * RevoFuture
+ * ---------------------------------------------------------------------------
+ * Applied through :root[data-theme="RevoFuture"] (higher specificity than the
+ * existing :root declarations), so the whole app is restyled without touching
+ * component CSS. Components must keep using tokens, never raw hexes.
+ *
+ * ---------------------------------------------------------------------------
+ * Token naming
+ * ---------------------------------------------------------------------------
+ * The app already has a semantic layer (--bg, --surface, --accent, --danger…).
+ * Those names stay canonical. The names from NEW_COLORS.md §9 (--color-*) are
+ * exposed as aliases of the existing names, so both spellings resolve to the
+ * active theme.
+ */
+
+/* =========================================================
+   RevoClassic — new tokens added by the color system.
+   Values mirror the existing UI, so RevoClassic is unchanged.
+   ========================================================= */
+:root {
+  /* Typography */
+  --text-strong: #ffffff;
+  --text-secondary: #c8ceda;
+  --text-disabled: #6b7280;
+  --text-on-primary: #ffffff;
+  --text-on-danger: #ffffff;
+  --text-on-success: #ffffff;
+
+  /* Borders */
+  --border-subtle: #232838;
+
+  /* Accent / Revo Blue */
+  --accent-hover: #7690ff;
+  --accent-soft: #5b7cfa22;
+  --accent-glow: rgba(91, 124, 250, 0.22);
+
+  /* Danger / Record / Stop */
+  --danger-hover: #f26767;
+  --danger-active: #d63a3f;
+  --danger-glow: rgba(239, 68, 68, 0.2);
+
+  /* Success */
+  --success-hover: #34d399;
+
+  /* Surfaces */
+  --header-bg: var(--surface);
+  --window-bg: #181c22;
+
+  /* Active / selected blue surfaces (NEW_COLORS §3, NEW_UI §58, §69) */
+  --bg-blue: var(--surface-3);
+  --border-blue: var(--border-strong);
+
+  /* -------------------------------------------------------
+     Semantic aliases — NEW_COLORS.md §9.
+     They follow whatever the active theme defines.
+     ------------------------------------------------------- */
+  --color-bg: var(--bg);
+  --color-bg-blue: var(--bg-blue);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-2);
+  --color-surface-active: var(--surface-3);
+
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-border-blue: var(--border-blue);
+
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-active: var(--accent-strong);
+  --color-primary-glow: var(--accent-glow);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-active: var(--danger-active);
+  --color-danger-glow: var(--danger-glow);
+
+  --color-success: var(--success);
+  --color-success-hover: var(--success-hover);
+  --color-warning: var(--warning);
+
+  --color-text: var(--text);
+  --color-text-strong: var(--text-strong);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-on-primary: var(--text-on-primary);
+  --color-text-on-danger: var(--text-on-danger);
+}
+
+/* =========================================================
+   RevoFuture — core palette + semantic tokens (NEW_COLORS.md)
+   ========================================================= */
+:root[data-theme="RevoFuture"] {
+  /* Backgrounds (NEW_SETTINGS_UI_2 §3 — tonal hierarchy) */
+  --rf-bg-0: #080810;
+  --rf-bg-1: #0A111B;
+  --rf-bg-2: #0c131b;
+  --rf-bg-3: #0f1720;
+  --rf-bg-4: #152238;
+  --rf-bg-sidebar: #0a1017;
+  --rf-bg-blue: #081838;
+
+  /* Borders */
+  --rf-border-subtle: #182230;
+  --rf-border: #202C3C;
+  --rf-border-strong: #2C3A4E;
+  --rf-border-blue: #1C3A78;
+
+  /* Revo Blue (NEW_SETTINGS_UI_2 §3 / §27 — primary #285CFC) */
+  --rf-blue-300: #6C8CFF;
+  --rf-blue-400: #4C78FC;
+  --rf-blue-500: #285CFC;
+  --rf-blue-600: #2048C8;
+  --rf-blue-700: #1A3AA0;
+  --rf-blue-glow: rgba(40, 92, 252, 0.22);
+
+  /* Red — Record / Stop / danger */
+  --rf-red-300: #FF6468;
+  --rf-red-400: #F04448;
+  --rf-red-500: #E42C2C;
+  --rf-red-600: #C82028;
+  --rf-red-glow: rgba(228, 44, 44, 0.2);
+
+  /* Green — LIVE / ONLINE / OK */
+  --rf-green-400: #3CFF78;
+  --rf-green-500: #20E438;
+  --rf-green-600: #18B82F;
+  --rf-green-glow: rgba(32, 228, 56, 0.18);
+
+  /* Yellow — warning */
+  --rf-yellow-400: #FFD060;
+  --rf-yellow-500: #F0AC50;
+  --rf-yellow-600: #C88838;
+
+  /* Typography */
+  --rf-text-strong: #F4F7FC;
+  --rf-text: #E2E8F2;
+  --rf-text-secondary: #B8C2D2;
+  --rf-text-muted: #8B98A9;
+  --rf-text-disabled: #5A6678;
+  --rf-text-on-primary: #FFFFFF;
+  --rf-text-on-danger: #FFFFFF;
+
+  /* --- app semantic tokens -> RevoFuture palette --- */
+
+  /* Backgrounds */
+  --bg: var(--rf-bg-0);
+  --surface: var(--rf-bg-2);
+  --surface-2: var(--rf-bg-3);
+  --surface-3: var(--rf-bg-4);
+  --header-bg: var(--rf-bg-1);
+  --window-bg: var(--rf-bg-1);
+
+  /* Borders */
+  --border: var(--rf-border);
+  --border-subtle: var(--rf-border-subtle);
+  --border-strong: var(--rf-border-strong);
+
+  /* Primary / Revo Blue */
+  --accent: var(--rf-blue-500);
+  --accent-hover: var(--rf-blue-400);
+  --accent-strong: var(--rf-blue-600);
+  --accent-soft: rgba(60, 120, 252, 0.14);
+  --accent-glow: var(--rf-blue-glow);
+
+  /* Danger / Record / Stop */
+  --danger: var(--rf-red-500);
+  --danger-hover: var(--rf-red-400);
+  --danger-active: var(--rf-red-600);
+  --danger-glow: var(--rf-red-glow);
+
+  /* Status */
+  --success: var(--rf-green-500);
+  --success-hover: var(--rf-green-400);
+  --warning: var(--rf-yellow-500);
+
+  /* Typography */
+  --text: var(--rf-text);
+  --text-strong: var(--rf-text-strong);
+  --text-secondary: var(--rf-text-secondary);
+  --text-muted: var(--rf-text-muted);
+  --text-disabled: var(--rf-text-disabled);
+  --text-on-primary: var(--rf-text-on-primary);
+  --text-on-danger: var(--rf-text-on-danger);
+  --text-on-success: var(--rf-text-on-danger);
+
+  /* Active / selected blue surfaces */
+  --bg-blue: var(--rf-bg-blue);
+  --border-blue: var(--rf-border-blue);
+
+  /* =========================================================
+     UI foundation (NEW_UI.md §46–§47)
+     Radius / spacing / motion / layout scale for RevoFuture.
+     Used only by RevoFuture-scoped rules in revo-ui.css.
+     ========================================================= */
+
+  /* Radius scale */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-pill: 999px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+
+  /* Layout */
+  --header-height: 84px;
+  --content-max-width: 1400px;
+
+  /* Motion (micro-interactions, NEW_UI §36) */
+  --transition-fast: 120ms ease;
+  --transition-base: 160ms ease;
+  --transition-slow: 220ms ease;
+
+  /* Surfaces */
+  --surface-padding: var(--space-4);
+  --card-padding: 14px;
+
+  /* =========================================================
+     Settings surface layer (NEW_SETTINGS_UI_2 §3, §4, §6, §10)
+     ========================================================= */
+  --settings-sidebar-bg: var(--rf-bg-sidebar);
+  --settings-overlay: rgba(0, 0, 0, 0.62);
+
+  --settings-radius-sm: 8px;
+  --settings-radius-md: 10px;
+  --settings-radius-lg: 12px;
+  --settings-radius-xl: 16px;
+  --settings-radius-pill: 999px;
+}

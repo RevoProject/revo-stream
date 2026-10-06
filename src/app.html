@@ -5,6 +5,39 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RevoStream.app</title>
+    <link rel="stylesheet" href="%sveltekit.assets%/revo-themes.css" />
+    <link rel="stylesheet" href="%sveltekit.assets%/revo-ui.css" />
+    <script>
+      // RevoStream theme bootstrap — must run before first paint so the
+      // selected look (RevoClassic | RevoFuture) never flashes the wrong colors.
+      // Kept framework-free so every window/route inherits it.
+      (function () {
+        var STORAGE_KEY = 'revo_theme';
+        // NEW_SETTINGS_UI_2 §102 — RevoFuture is the default theme.
+        var DEFAULT_THEME = 'RevoFuture';
+
+        function applyTheme(theme) {
+          document.documentElement.dataset.theme =
+            theme === 'RevoClassic' ? 'RevoClassic' : DEFAULT_THEME;
+        }
+
+        try {
+          applyTheme(localStorage.getItem(STORAGE_KEY));
+        } catch (err) {
+          applyTheme(null);
+        }
+
+        // Same window (dispatched by src/lib/theme/revoTheme.ts).
+        window.addEventListener('revo:theme-change', function (event) {
+          applyTheme(event && event.detail);
+        });
+
+        // Other windows (source transform, planner, …).
+        window.addEventListener('storage', function (event) {
+          if (event.key === STORAGE_KEY) applyTheme(event.newValue);
+        });
+      })();
+    </script>
     <style>
       html,
       body {
