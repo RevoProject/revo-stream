@@ -69,7 +69,6 @@ jobs:
           Set-Content -Path $path -Value $content -NoNewline
 
           Write-Host "CEF disabled for CI"
-          Select-String -Path $path -Pattern "cef|revo-cef" || $true
 
       - name: Prepare revo-root
         shell: pwsh
@@ -79,14 +78,79 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
 
+      - name: Enable libobs-wrapper install_dummy_dll
+        shell: pwsh
+        run: |
+          $root = "$env:USERPROFILE\.cargo\git\checkouts"
+
+          $cargo = Get-ChildItem $root -Recurse -Filter Cargo.toml |
+            Where-Object {
+              $_.FullName -like "*\7e76c91\libobs-wrapper\Cargo.toml"
+            } |
+            Select-Object -First 1
+
+          if (-not $cargo) {
+            throw "libobs-wrapper Cargo.toml not found"
+          }
+
+          Write-Host "Using libobs-wrapper: $($cargo.FullName)"
+
+          $content = Get-Content $cargo.FullName -Raw
+
+          if ($content -notmatch 'install_dummy_dll') {
+            throw "install_dummy_dll feature does not exist in this libobs-wrapper version"
+          }
+
+          Write-Host "install_dummy_dll feature exists"
+
+          $revo = Get-ChildItem $root -Recurse -Filter Cargo.toml |
+            Where-Object {
+              $_.FullName -like "*\66325a65\Cargo.toml" -and
+              (Get-Content $_.FullName -Raw) -match 'libobs-wrapper'
+            } |
+            Select-Object -First 1
+
+          if (-not $revo) {
+            throw "revo-lib Cargo.toml not found"
+          }
+
+          Write-Host "Using revo-lib: $($revo.FullName)"
+
+          $revoContent = Get-Content $revo.FullName -Raw
+
+          if ($revoContent -match 'libobs-wrapper\s*=\s*\{[^}]*features\s*=\s*\[([^\]]*)\]') {
+            if ($revoContent -notmatch 'install_dummy_dll') {
+              $revoContent = [regex]::Replace(
+                $revoContent,
+                '(libobs-wrapper\s*=\s*\{[^}]*features\s*=\s*\[)([^\]]*)(\])',
+                '$1$2, "install_dummy_dll"$3',
+                1
+              )
+            }
+          }
+          elseif ($revoContent -match 'libobs-wrapper\s*=\s*\{') {
+            $revoContent = [regex]::Replace(
+              $revoContent,
+              '(libobs-wrapper\s*=\s*\{)',
+              '$1 features = ["install_dummy_dll"],',
+              1
+            )
+          }
+          else {
+            throw "Could not find libobs-wrapper dependency in revo-lib"
+          }
+
+          Set-Content -Path $revo.FullName -Value $revoContent -NoNewline
+
+          Write-Host "install_dummy_dll enabled for Windows CI"
+
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
 
       - name: Bootstrap OBS
         working-directory: src-tauri
         shell: pwsh
-        run: |
-          cargo obs-build build --out-dir target/release
+        run: cargo obs-build build --out-dir target/release
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -116,6 +180,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/revo-ui-windows-x64.zip
+
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -205,6 +270,88 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
 
+      - name: Enable libobs-wrapper install_dummy_dll
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.home() / ".cargo/git/checkouts"
+
+          wrappers = list(
+              root.glob("*/7e76c91/libobs-wrapper/Cargo.toml")
+          )
+
+          if not wrappers:
+              raise SystemExit("libobs-wrapper Cargo.toml not found")
+
+          wrapper = wrappers[0]
+
+          print(f"Using libobs-wrapper: {wrapper}")
+
+          wrapper_content = wrapper.read_text()
+
+          if "install_dummy_dll" not in wrapper_content:
+              raise SystemExit(
+                  "install_dummy_dll feature does not exist in this "
+                  "libobs-wrapper version"
+              )
+
+          revo_matches = list(
+              root.glob("*/66325a65/Cargo.toml")
+          )
+
+          revo = None
+
+          for candidate in revo_matches:
+              text = candidate.read_text()
+              if "libobs-wrapper" in text:
+                  revo = candidate
+                  break
+
+          if revo is None:
+              raise SystemExit("revo-lib Cargo.toml not found")
+
+          print(f"Using revo-lib: {revo}")
+
+          content = revo.read_text()
+
+          if "install_dummy_dll" in content:
+              print("install_dummy_dll already enabled")
+          else:
+              old = 'libobs-wrapper = {'
+              pos = content.find(old)
+
+              if pos == -1:
+                  raise SystemExit(
+                      "Could not find libobs-wrapper dependency"
+                  )
+
+              end = content.find("}", pos)
+
+              if end == -1:
+                  raise SystemExit(
+                      "Could not parse libobs-wrapper dependency"
+                  )
+
+              dependency = content[pos:end + 1]
+
+              if "features =" in dependency:
+                  dependency = dependency.replace(
+                      "features = [",
+                      'features = ["install_dummy_dll", ',
+                      1,
+                  )
+              else:
+                  dependency = dependency[:-1]
+                  dependency += ', features = ["install_dummy_dll"] }'
+
+              content = content[:pos] + dependency + content[end + 1:]
+              revo.write_text(content)
+
+              print("install_dummy_dll enabled for macOS CI")
+          PY
+
       - name: Patch libobs bindgen for macOS
         shell: bash
         run: |
@@ -212,7 +359,9 @@ jobs:
           from pathlib import Path
 
           root = Path.home() / ".cargo/git/checkouts"
-          matches = list(root.glob("libobs-rs-*/7e76c91/libobs/build.rs"))
+          matches = list(
+              root.glob("libobs-rs-*/7e76c91/libobs/build.rs")
+          )
 
           if not matches:
               raise SystemExit("libobs-rs build.rs not found")
@@ -229,20 +378,9 @@ jobs:
           needle = '        .clang_arg(format!("-I{}", "headers/obs"));'
 
           if needle not in s:
-              print("Could not find expected clang_arg line.")
-              print("Relevant bindgen section:")
-
-              start = s.find("let mut builder = bindgen::builder()")
-
-              if start != -1:
-                  end = s.find("let bindings =", start)
-
-                  if end == -1:
-                      end = min(start + 2500, len(s))
-
-                  print(s[start:end])
-
-              raise SystemExit(1)
+              raise SystemExit(
+                  "Could not find expected clang_arg line"
+              )
 
           replacement = (
               needle
@@ -269,7 +407,9 @@ jobs:
           from pathlib import Path
 
           root = Path.home() / ".cargo/git/checkouts"
-          matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
+          matches = list(
+              root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src")
+          )
 
           if not matches:
               raise SystemExit("libobs-wrapper source not found")
@@ -280,27 +420,14 @@ jobs:
 
           print(f"Using libobs-wrapper source: {src}")
 
-          # ------------------------------------------------------------
-          # other.rs
-          # ------------------------------------------------------------
-
           s = other.read_text()
 
-          # Rc is also required by the non-Linux macOS stub.
           old = '#[cfg(target_os = "linux")]\nuse std::rc::Rc;'
           new = 'use std::rc::Rc;'
 
           if old in s:
               s = s.replace(old, new, 1)
-              print("Made Rc import platform-independent")
-          elif 'use std::rc::Rc;' not in s:
-              s = 'use std::rc::Rc;\n' + s
-              print("Added Rc import")
-          else:
-              print("Rc import already present")
 
-          # PlatformSpecificGuard contains PlatformType and Linux display
-          # handling, so the real implementation must only exist on Linux.
           old = '''#[derive(Debug)]
           pub(crate) struct PlatformSpecificGuard {
               display: Sendable<*mut std::os::raw::c_void>,
@@ -324,30 +451,15 @@ jobs:
 
           if old in s:
               s = s.replace(old, new, 1)
-              print("Patched PlatformSpecificGuard")
-          elif "pub(crate) struct PlatformSpecificGuard;" in s:
-              print("PlatformSpecificGuard already patched")
-          else:
-              raise SystemExit(
-                  "Could not find expected PlatformSpecificGuard definition"
-              )
 
-          # Drop implementation uses X11/Wayland functions and is Linux-only.
           old = 'impl Drop for PlatformSpecificGuard {'
           new = '''#[cfg(target_os = "linux")]
           impl Drop for PlatformSpecificGuard {'''
 
-          if old in s and '#[cfg(target_os = "linux")]\nimpl Drop for PlatformSpecificGuard {' not in s:
+          if old in s and new not in s:
               s = s.replace(old, new, 1)
-              print("Made PlatformSpecificGuard::drop Linux-only")
-          else:
-              print("PlatformSpecificGuard::drop already patched")
 
           other.write_text(s)
-
-          # ------------------------------------------------------------
-          # runtime.rs
-          # ------------------------------------------------------------
 
           s = runtime.read_text()
 
@@ -357,92 +469,9 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
               runtime.write_text(s)
-              print("Patched runtime.rs to use macOS platform_specific_setup()")
-          elif 'platform_specific_setup()?' in s:
-              print("runtime.rs already patched")
-          else:
-              raise SystemExit(
-                  "Could not find platform_specific_setup call in runtime.rs"
-              )
 
-          print("libobs-wrapper macOS patch applied successfully")
+          print("libobs-wrapper macOS patch applied")
           PY
-
-      - name: Inspect libobs-wrapper platform code
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path.home() / ".cargo/git/checkouts"
-          matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
-
-          if not matches:
-              raise SystemExit("libobs-wrapper source not found")
-
-          src = matches[0]
-
-          print("============================================================")
-          print("initialization/mod.rs")
-          print("============================================================")
-          print((src / "utils/initialization/mod.rs").read_text())
-
-          print("============================================================")
-          print("initialization/other.rs")
-          print("============================================================")
-          print((src / "utils/initialization/other.rs").read_text())
-
-          print("============================================================")
-          print("runtime.rs — initialization section")
-          print("============================================================")
-
-          runtime = (src / "runtime.rs").read_text().splitlines()
-
-          for i, line in enumerate(runtime, 1):
-              if 35 <= i <= 90 or "platform_specific_setup" in line:
-                  print(f"{i:4}: {line}")
-          PY
-
-      - name: Verify libobs patches
-        shell: bash
-        run: |
-          echo "=== libobs bindgen ==="
-
-          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
-            -path "*/7e76c91/libobs/build.rs" \
-            -print -quit)
-
-          if [ -z "$BUILD_RS" ]; then
-            echo "libobs build.rs not found"
-            exit 1
-          fi
-
-          echo "Using: $BUILD_RS"
-          grep -n -C 5 "layout_tests" "$BUILD_RS"
-
-          echo
-          echo "=== libobs-wrapper ==="
-
-          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
-            -path "*/7e76c91/libobs-wrapper/src" \
-            -type d \
-            -print -quit)
-
-          if [ -z "$WRAPPER_SRC" ]; then
-            echo "libobs-wrapper source not found"
-            exit 1
-          fi
-
-          echo "Using: $WRAPPER_SRC"
-
-          echo
-          echo "--- other.rs ---"
-          head -n 5 "$WRAPPER_SRC/utils/initialization/other.rs"
-
-          echo
-          echo "--- runtime.rs ---"
-          grep -n -C 4 "platform_specific_setup" \
-            "$WRAPPER_SRC/runtime.rs" || true
 
       - name: Prepare revo-root
         run: |
@@ -470,6 +499,7 @@ jobs:
         with:
           name: macos-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
 
   release:
     name: Create GitHub Release
