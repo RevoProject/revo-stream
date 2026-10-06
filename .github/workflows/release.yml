@@ -55,6 +55,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ----------------------------------------------------------
+      # CEF
+      # ----------------------------------------------------------
+
       - name: Disable CEF for CI build
         shell: pwsh
         run: |
@@ -75,14 +79,26 @@ jobs:
 
           Write-Host "CEF disabled for CI"
 
+      # ----------------------------------------------------------
+      # Runtime resources
+      # ----------------------------------------------------------
+
       - name: Prepare revo-root
         shell: pwsh
         run: |
           Remove-Item "src-tauri/resources/revo-root" -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
 
+      # ----------------------------------------------------------
+      # Rust dependencies
+      # ----------------------------------------------------------
+
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
+
+      # ----------------------------------------------------------
+      # libobs-bootstrapper
+      # ----------------------------------------------------------
 
       - name: Verify libobs-bootstrapper
         shell: pwsh
@@ -120,6 +136,10 @@ jobs:
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
 
+      # ----------------------------------------------------------
+      # OBS bootstrap
+      # ----------------------------------------------------------
+
       - name: Bootstrap OBS
         working-directory: src-tauri
         shell: pwsh
@@ -144,6 +164,10 @@ jobs:
           }
 
           Write-Host "Windows OBS runtime looks valid"
+
+      # ----------------------------------------------------------
+      # Tauri
+      # ----------------------------------------------------------
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -392,21 +416,22 @@ jobs:
           print(f"Using libobs-wrapper source: {src}")
 
           # ------------------------------------------------------
-          # Rc must also exist on macOS because the non-Linux
-          # PlatformSpecificGuard uses the same module.
+          # Rc is required by the non-Linux implementation too.
           # ------------------------------------------------------
 
           lines = other.read_text().splitlines()
 
           for i, line in enumerate(lines):
               if line.strip() == "use std::rc::Rc;":
-                  if i > 0 and lines[i - 1].strip() == '#[cfg(target_os = "linux")]':
+                  if (
+                      i > 0
+                      and lines[i - 1].strip() == '#[cfg(target_os = "linux")]'
+                  ):
                       del lines[i - 1]
                   break
 
           # ------------------------------------------------------
-          # Make PlatformSpecificGuard Linux-only and provide
-          # an empty guard for non-Linux targets.
+          # Linux-specific PlatformSpecificGuard
           # ------------------------------------------------------
 
           lines = other.read_text().splitlines()
@@ -423,12 +448,17 @@ jobs:
                   "PlatformSpecificGuard struct not found"
               )
 
-          if struct_index == 0 or lines[struct_index - 1].strip() != '#[cfg(target_os = "linux")]':
+          if (
+              struct_index == 0
+              or lines[struct_index - 1].strip()
+              != '#[cfg(target_os = "linux")]'
+          ):
               derive_index = struct_index
 
               if (
                   derive_index > 0
-                  and lines[derive_index - 1].strip() == "#[derive(Debug)]"
+                  and lines[derive_index - 1].strip()
+                  == "#[derive(Debug)]"
               ):
                   derive_index -= 1
 
@@ -437,7 +467,7 @@ jobs:
                   '#[cfg(target_os = "linux")]'
               )
 
-          # Recalculate struct index after possible insertion.
+          # Recalculate struct index.
           struct_index = None
 
           for i, line in enumerate(lines):
@@ -474,27 +504,30 @@ jobs:
               )
 
           stub_exists = any(
-              line.strip() == "pub(crate) struct PlatformSpecificGuard;"
+              line.strip()
+              == "pub(crate) struct PlatformSpecificGuard;"
               for line in lines
           )
 
           if not stub_exists:
-              stub = [
+              lines[end_index + 1:end_index + 1] = [
                   "",
                   '#[cfg(not(target_os = "linux"))]',
                   "#[derive(Debug)]",
                   "pub(crate) struct PlatformSpecificGuard;",
               ]
 
-              lines[end_index + 1:end_index + 1] = stub
-
           # ------------------------------------------------------
-          # Drop implementation is Linux-only.
+          # Drop is Linux-specific.
           # ------------------------------------------------------
 
           for i, line in enumerate(lines):
               if line.strip() == "impl Drop for PlatformSpecificGuard {":
-                  if i == 0 or lines[i - 1].strip() != '#[cfg(target_os = "linux")]':
+                  if (
+                      i == 0
+                      or lines[i - 1].strip()
+                      != '#[cfg(target_os = "linux")]'
+                  ):
                       lines.insert(
                           i,
                           '#[cfg(target_os = "linux")]'
@@ -504,7 +537,7 @@ jobs:
           other.write_text("\n".join(lines) + "\n")
 
           # ------------------------------------------------------
-          # macOS does not have the Linux nix_display argument.
+          # macOS has no Linux nix_display argument.
           # ------------------------------------------------------
 
           runtime_text = runtime.read_text()
@@ -571,6 +604,10 @@ jobs:
 
       # ----------------------------------------------------------
       # OBS Studio
+      #
+      # Do NOT use cargo-obs-build on macOS.
+      # It currently resolves a Windows OBS package for this target.
+      # Build OBS Studio from source instead.
       # ----------------------------------------------------------
 
       - name: Checkout OBS Studio
@@ -587,22 +624,17 @@ jobs:
 
           git -C "$RUNNER_TEMP/obs-studio" log -1 --oneline
 
+      # ----------------------------------------------------------
+      # OBS 32.1.2 + modern Xcode:
+      # libobs-metal needs Swift explicitly enabled.
+      # ----------------------------------------------------------
+
       - name: Patch OBS libobs-metal Swift
         shell: bash
         run: |
           python3 - <<'PY'
-          from pathlib import Path
-
-          path = (
-              Path.home()
-              / "dummy"
-          )
-
-          obs = Path("${RUNNER_TEMP}/obs-studio")
-
-          # GitHub Actions does not expand shell variables inside
-          # a quoted Python heredoc, so use the environment instead.
           import os
+          from pathlib import Path
 
           obs = Path(os.environ["RUNNER_TEMP"]) / "obs-studio"
           path = obs / "libobs-metal/CMakeLists.txt"
@@ -625,30 +657,95 @@ jobs:
           print()
           print("=== libobs-metal/CMakeLists.txt ===")
 
-          for i, line in enumerate(path.read_text().splitlines()[:12], 1):
+          for i, line in enumerate(
+              path.read_text().splitlines()[:12],
+              1
+          ):
               print(f"{i}: {line}")
           PY
 
-      - name: Verify OBS source
+      # ----------------------------------------------------------
+      # OBS 32.1.2 + Xcode 26.4:
+      # demote the warnings that became errors in
+      # mac-virtualcam/OBSDALStream.mm.
+      #
+      # The regular macos preset does not enable
+      # CMAKE_COMPILE_WARNING_AS_ERROR, but compiler flags in the
+      # OBS source/toolchain can still promote these warnings.
+      # Explicit -Wno-error flags make this target buildable.
+      # ----------------------------------------------------------
+
+      - name: Patch OBS macOS virtual camera warnings
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          obs = Path(os.environ["RUNNER_TEMP"]) / "obs-studio"
+          path = obs / "plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
+
+          if not path.exists():
+              raise SystemExit(
+                  f"Missing OBSDALStream.mm: {path}"
+              )
+
+          text = path.read_text()
+
+          flags = [
+              "-Wno-error=implicit-int-float-conversion",
+              "-Wno-error=enum-enum-conversion",
+          ]
+
+          # Add a local pragma so this workaround affects only the
+          # problematic OBS DAL implementation.
+          pragma = (
+              "#pragma clang diagnostic push\n"
+              "#pragma clang diagnostic ignored "
+              "\"-Wimplicit-int-float-conversion\"\n"
+              "#pragma clang diagnostic ignored "
+              "\"-Wenum-enum-conversion\"\n"
+          )
+
+          if "#pragma clang diagnostic push" not in text:
+              text = pragma + "\n" + text
+
+          if "#pragma clang diagnostic pop" not in text:
+              text = text.rstrip() + "\n\n#pragma clang diagnostic pop\n"
+
+          path.write_text(text)
+
+          print(f"Patched: {path}")
+          print("Added diagnostic suppression for:")
+          for flag in flags:
+              print(f"  {flag}")
+          PY
+
+      - name: Verify OBS source patches
         shell: bash
         run: |
           OBS_SRC="$RUNNER_TEMP/obs-studio"
 
           test -f "$OBS_SRC/CMakePresets.json"
           test -f "$OBS_SRC/libobs-metal/CMakeLists.txt"
+          test -f "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
 
-          echo "OBS source:"
+          echo "=== OBS source ==="
           git -C "$OBS_SRC" log -1 --oneline
 
           echo
-          echo "OBS Metal:"
-          head -n 8 "$OBS_SRC/libobs-metal/CMakeLists.txt"
+          echo "=== libobs-metal ==="
+          head -n 8 \
+            "$OBS_SRC/libobs-metal/CMakeLists.txt"
+
+          echo
+          echo "=== OBSDALStream diagnostics ==="
+          grep -n -C 2 \
+            "clang diagnostic" \
+            "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
 
       # ----------------------------------------------------------
       # OBS configure
-      #
-      # Use OBS' own macOS preset. The preset supplies the official
-      # macOS dependency configuration and Xcode generator.
       # ----------------------------------------------------------
 
       - name: Configure OBS Studio
@@ -665,6 +762,7 @@ jobs:
             --preset macos \
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
             -DENABLE_BROWSER=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_FRONTEND=OFF
