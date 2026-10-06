@@ -78,71 +78,39 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
 
-      - name: Enable libobs-wrapper install_dummy_dll
+      - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
           $root = "$env:USERPROFILE\.cargo\git\checkouts"
 
-          $cargo = Get-ChildItem $root -Recurse -Filter Cargo.toml |
+          $bootstrapper = Get-ChildItem $root -Recurse -Filter Cargo.toml |
             Where-Object {
-              $_.FullName -like "*\7e76c91\libobs-wrapper\Cargo.toml"
+              $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
             Select-Object -First 1
 
-          if (-not $cargo) {
-            throw "libobs-wrapper Cargo.toml not found"
+          if (-not $bootstrapper) {
+            throw "libobs-bootstrapper Cargo.toml not found"
           }
 
-          Write-Host "Using libobs-wrapper: $($cargo.FullName)"
+          $dir = Split-Path $bootstrapper.FullName
 
-          $content = Get-Content $cargo.FullName -Raw
+          Write-Host "Using: $dir"
 
-          if ($content -notmatch 'install_dummy_dll') {
-            throw "install_dummy_dll feature does not exist in this libobs-wrapper version"
+          $cargo = Get-Content $bootstrapper.FullName -Raw
+
+          if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
+            throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
 
-          Write-Host "install_dummy_dll feature exists"
+          $dummy = Join-Path $dir "assets\obs-dummy.dll"
 
-          $revo = Get-ChildItem $root -Recurse -Filter Cargo.toml |
-            Where-Object {
-              $_.FullName -like "*\66325a65\Cargo.toml" -and
-              (Get-Content $_.FullName -Raw) -match 'libobs-wrapper'
-            } |
-            Select-Object -First 1
-
-          if (-not $revo) {
-            throw "revo-lib Cargo.toml not found"
+          if (-not (Test-Path $dummy)) {
+            throw "Dummy DLL not found: $dummy"
           }
 
-          Write-Host "Using revo-lib: $($revo.FullName)"
-
-          $revoContent = Get-Content $revo.FullName -Raw
-
-          if ($revoContent -match 'libobs-wrapper\s*=\s*\{[^}]*features\s*=\s*\[([^\]]*)\]') {
-            if ($revoContent -notmatch 'install_dummy_dll') {
-              $revoContent = [regex]::Replace(
-                $revoContent,
-                '(libobs-wrapper\s*=\s*\{[^}]*features\s*=\s*\[)([^\]]*)(\])',
-                '$1$2, "install_dummy_dll"$3',
-                1
-              )
-            }
-          }
-          elseif ($revoContent -match 'libobs-wrapper\s*=\s*\{') {
-            $revoContent = [regex]::Replace(
-              $revoContent,
-              '(libobs-wrapper\s*=\s*\{)',
-              '$1 features = ["install_dummy_dll"],',
-              1
-            )
-          }
-          else {
-            throw "Could not find libobs-wrapper dependency in revo-lib"
-          }
-
-          Set-Content -Path $revo.FullName -Value $revoContent -NoNewline
-
-          Write-Host "install_dummy_dll enabled for Windows CI"
+          Write-Host "install_dummy_dll: enabled"
+          Write-Host "dummy DLL: $dummy"
 
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
@@ -151,6 +119,23 @@ jobs:
         working-directory: src-tauri
         shell: pwsh
         run: cargo obs-build build --out-dir target/release
+
+      - name: Verify OBS bootstrap output
+        shell: pwsh
+        run: |
+          $exeDir = "src-tauri/target/release"
+
+          if (-not (Test-Path "$exeDir/obs.dll")) {
+            throw "obs.dll was not installed into $exeDir"
+          }
+
+          $size = (Get-Item "$exeDir/obs.dll").Length
+
+          Write-Host "obs.dll size: $size bytes"
+
+          if ($size -gt 256000) {
+            throw "obs.dll does not look like the dummy DLL"
+          }
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -230,6 +215,7 @@ jobs:
       - name: Install SIMDe
         run: |
           brew install simde
+
           echo "CPATH=$(brew --prefix simde)/include:${CPATH:-}" >> "$GITHUB_ENV"
           echo "C_INCLUDE_PATH=$(brew --prefix simde)/include:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
           echo "CPLUS_INCLUDE_PATH=$(brew --prefix simde)/include:${CPLUS_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
@@ -237,7 +223,9 @@ jobs:
       - name: Verify SIMDe
         run: |
           SIMDE="$(brew --prefix simde)"
+
           test -f "$SIMDE/include/simde/x86/sse2.h"
+
           echo "SIMDe headers found:"
           ls "$SIMDE/include/simde/x86/sse2.h"
 
@@ -270,88 +258,6 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
 
-      - name: Enable libobs-wrapper install_dummy_dll
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path.home() / ".cargo/git/checkouts"
-
-          wrappers = list(
-              root.glob("*/7e76c91/libobs-wrapper/Cargo.toml")
-          )
-
-          if not wrappers:
-              raise SystemExit("libobs-wrapper Cargo.toml not found")
-
-          wrapper = wrappers[0]
-
-          print(f"Using libobs-wrapper: {wrapper}")
-
-          wrapper_content = wrapper.read_text()
-
-          if "install_dummy_dll" not in wrapper_content:
-              raise SystemExit(
-                  "install_dummy_dll feature does not exist in this "
-                  "libobs-wrapper version"
-              )
-
-          revo_matches = list(
-              root.glob("*/66325a65/Cargo.toml")
-          )
-
-          revo = None
-
-          for candidate in revo_matches:
-              text = candidate.read_text()
-              if "libobs-wrapper" in text:
-                  revo = candidate
-                  break
-
-          if revo is None:
-              raise SystemExit("revo-lib Cargo.toml not found")
-
-          print(f"Using revo-lib: {revo}")
-
-          content = revo.read_text()
-
-          if "install_dummy_dll" in content:
-              print("install_dummy_dll already enabled")
-          else:
-              old = 'libobs-wrapper = {'
-              pos = content.find(old)
-
-              if pos == -1:
-                  raise SystemExit(
-                      "Could not find libobs-wrapper dependency"
-                  )
-
-              end = content.find("}", pos)
-
-              if end == -1:
-                  raise SystemExit(
-                      "Could not parse libobs-wrapper dependency"
-                  )
-
-              dependency = content[pos:end + 1]
-
-              if "features =" in dependency:
-                  dependency = dependency.replace(
-                      "features = [",
-                      'features = ["install_dummy_dll", ',
-                      1,
-                  )
-              else:
-                  dependency = dependency[:-1]
-                  dependency += ', features = ["install_dummy_dll"] }'
-
-              content = content[:pos] + dependency + content[end + 1:]
-              revo.write_text(content)
-
-              print("install_dummy_dll enabled for macOS CI")
-          PY
-
       - name: Patch libobs bindgen for macOS
         shell: bash
         run: |
@@ -359,6 +265,7 @@ jobs:
           from pathlib import Path
 
           root = Path.home() / ".cargo/git/checkouts"
+
           matches = list(
               root.glob("libobs-rs-*/7e76c91/libobs/build.rs")
           )
@@ -407,6 +314,7 @@ jobs:
           from pathlib import Path
 
           root = Path.home() / ".cargo/git/checkouts"
+
           matches = list(
               root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src")
           )
@@ -415,11 +323,13 @@ jobs:
               raise SystemExit("libobs-wrapper source not found")
 
           src = matches[0]
+
           other = src / "utils/initialization/other.rs"
           runtime = src / "runtime.rs"
 
           print(f"Using libobs-wrapper source: {src}")
 
+          # Rc is also required by the non-Linux stub.
           s = other.read_text()
 
           old = '#[cfg(target_os = "linux")]\nuse std::rc::Rc;'
@@ -428,6 +338,7 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
+          # Linux implementation.
           old = '''#[derive(Debug)]
           pub(crate) struct PlatformSpecificGuard {
               display: Sendable<*mut std::os::raw::c_void>,
@@ -452,7 +363,9 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
 
+          # X11/Wayland Drop is Linux-only.
           old = 'impl Drop for PlatformSpecificGuard {'
+
           new = '''#[cfg(target_os = "linux")]
           impl Drop for PlatformSpecificGuard {'''
 
@@ -461,6 +374,7 @@ jobs:
 
           other.write_text(s)
 
+          # macOS does not pass the Linux display handle.
           s = runtime.read_text()
 
           old = 'platform_specific_setup(info.nix_display.clone())?'
@@ -472,6 +386,46 @@ jobs:
 
           print("libobs-wrapper macOS patch applied")
           PY
+
+      - name: Verify libobs patches
+        shell: bash
+        run: |
+          echo "=== libobs bindgen ==="
+
+          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs/build.rs" \
+            -print -quit)
+
+          if [ -z "$BUILD_RS" ]; then
+            echo "libobs build.rs not found"
+            exit 1
+          fi
+
+          echo "Using: $BUILD_RS"
+          grep -n -C 5 "layout_tests" "$BUILD_RS"
+
+          echo
+          echo "=== libobs-wrapper ==="
+
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs-wrapper/src" \
+            -type d \
+            -print -quit)
+
+          if [ -z "$WRAPPER_SRC" ]; then
+            echo "libobs-wrapper source not found"
+            exit 1
+          fi
+
+          echo "Using: $WRAPPER_SRC"
+
+          echo "--- other.rs ---"
+          head -n 8 "$WRAPPER_SRC/utils/initialization/other.rs"
+
+          echo
+          echo "--- runtime.rs ---"
+          grep -n -C 4 "platform_specific_setup" \
+            "$WRAPPER_SRC/runtime.rs" || true
 
       - name: Prepare revo-root
         run: |
