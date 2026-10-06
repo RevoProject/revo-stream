@@ -16,6 +16,10 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  # ============================================================
+  # WINDOWS
+  # ============================================================
+
   windows:
     name: Windows x64
     runs-on: windows-latest
@@ -74,6 +78,7 @@ jobs:
       - name: Prepare revo-root
         shell: pwsh
         run: |
+          Remove-Item "src-tauri/resources/revo-root" -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
 
       - name: Fetch Rust dependencies
@@ -95,10 +100,9 @@ jobs:
           }
 
           $dir = Split-Path $bootstrapper.FullName
-
-          Write-Host "Using: $dir"
-
           $cargo = Get-Content $bootstrapper.FullName -Raw
+
+          Write-Host "Using bootstrapper: $dir"
 
           if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
@@ -121,13 +125,14 @@ jobs:
         shell: pwsh
         run: cargo obs-build build --out-dir target/release
 
-      - name: Verify OBS bootstrap
+      - name: Verify Windows OBS runtime
         shell: pwsh
         run: |
-          $obs = "src-tauri/target/release/obs.dll"
+          $out = "src-tauri/target/release"
+          $obs = "$out/obs.dll"
 
           if (-not (Test-Path $obs)) {
-            throw "OBS DLL not found: $obs"
+            throw "OBS runtime missing: $obs"
           }
 
           $size = (Get-Item $obs).Length
@@ -138,8 +143,27 @@ jobs:
             throw "obs.dll is unexpectedly small"
           }
 
+          Write-Host "Windows OBS runtime looks valid"
+
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
+
+      - name: Verify Windows MSI
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem `
+            "src-tauri/target/release/bundle/msi" `
+            -Filter "*.msi" `
+            -File `
+            -ErrorAction SilentlyContinue
+
+          if (-not $msi) {
+            throw "MSI was not produced"
+          }
+
+          $msi | ForEach-Object {
+            Write-Host "MSI: $($_.FullName)"
+          }
 
       - name: Create Windows ZIP
         shell: pwsh
@@ -159,6 +183,8 @@ jobs:
             -Path $exe `
             -DestinationPath $zip
 
+          Write-Host "Created: $zip"
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -167,6 +193,10 @@ jobs:
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/revo-ui-windows-x64.zip
 
+
+  # ============================================================
+  # macOS
+  # ============================================================
 
   macos:
     name: macOS ${{ matrix.arch }}
@@ -212,11 +242,15 @@ jobs:
           pnpm --version
           cargo --version
           rustc --version
-          xcodebuild -version
           cmake --version
+          xcodebuild -version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # ----------------------------------------------------------
+      # SIMDe
+      # ----------------------------------------------------------
 
       - name: Install SIMDe
         run: |
@@ -229,11 +263,19 @@ jobs:
       - name: Verify SIMDe
         run: |
           SIMDE="$(brew --prefix simde)"
+          HEADER="$SIMDE/include/simde/x86/sse2.h"
 
-          test -f "$SIMDE/include/simde/x86/sse2.h"
+          if [ ! -f "$HEADER" ]; then
+            echo "SIMDe header not found: $HEADER"
+            exit 1
+          fi
 
-          echo "SIMDe headers found:"
-          ls -l "$SIMDE/include/simde/x86/sse2.h"
+          echo "SIMDe header found:"
+          ls -l "$HEADER"
+
+      # ----------------------------------------------------------
+      # CEF
+      # ----------------------------------------------------------
 
       - name: Disable CEF for CI build
         shell: bash
@@ -242,27 +284,33 @@ jobs:
           from pathlib import Path
 
           path = Path("src-tauri/Cargo.toml")
-          content = path.read_text()
+          text = path.read_text()
 
-          content = content.replace(
+          text = text.replace(
               'cef = ["dep:revo-cef"]',
               'cef = []'
           )
 
-          content = content.replace(
+          text = text.replace(
               'revo-cef = { path = "../../modules/revo-cef", optional = true }',
               ''
           )
 
-          path.write_text(content)
+          path.write_text(text)
 
           print("CEF disabled for CI")
           PY
 
-          grep -nE 'cef|revo-cef' src-tauri/Cargo.toml || true
+      # ----------------------------------------------------------
+      # Rust dependencies
+      # ----------------------------------------------------------
 
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
+
+      # ----------------------------------------------------------
+      # libobs bindgen
+      # ----------------------------------------------------------
 
       - name: Patch libobs bindgen for macOS
         shell: bash
@@ -277,7 +325,7 @@ jobs:
           )
 
           if not matches:
-              raise SystemExit("libobs-rs build.rs not found")
+              raise SystemExit("libobs build.rs not found")
 
           path = matches[0]
           text = path.read_text()
@@ -285,32 +333,36 @@ jobs:
           print(f"Using libobs build.rs: {path}")
 
           if "builder = builder.layout_tests(false);" in text:
-              print("libobs bindgen patch already applied")
+              print("libobs bindgen patch already present")
               raise SystemExit(0)
 
           needle = '        .clang_arg(format!("-I{}", "headers/obs"));'
 
           if needle not in text:
               raise SystemExit(
-                  "Could not find expected clang_arg line in libobs/build.rs"
+                  "Expected clang_arg line not found in libobs/build.rs"
               )
 
           replacement = (
               needle
               + "\n\n"
-              + '#[cfg(target_os = "macos")]'
+              + '    #[cfg(target_os = "macos")]'
               + "\n"
-              + "{"
+              + "    {"
               + "\n"
-              + "    builder = builder.layout_tests(false);"
+              + "        builder = builder.layout_tests(false);"
               + "\n"
-              + "}"
+              + "    }"
           )
 
           path.write_text(text.replace(needle, replacement, 1))
 
-          print("libobs bindgen patch applied")
+          print("libobs bindgen macOS patch applied")
           PY
+
+      # ----------------------------------------------------------
+      # libobs-wrapper
+      # ----------------------------------------------------------
 
       - name: Patch libobs-wrapper for macOS
         shell: bash
@@ -328,68 +380,148 @@ jobs:
               raise SystemExit("libobs-wrapper source not found")
 
           src = matches[0]
-
           other = src / "utils/initialization/other.rs"
           runtime = src / "runtime.rs"
 
+          if not other.exists():
+              raise SystemExit(f"Missing file: {other}")
+
+          if not runtime.exists():
+              raise SystemExit(f"Missing file: {runtime}")
+
           print(f"Using libobs-wrapper source: {src}")
 
-          # Rc is also required by the non-Linux stub.
-          text = other.read_text()
+          # ------------------------------------------------------
+          # Rc must also exist on macOS because the non-Linux
+          # PlatformSpecificGuard uses the same module.
+          # ------------------------------------------------------
 
-          old = '#[cfg(target_os = "linux")]\nuse std::rc::Rc;'
-          new = 'use std::rc::Rc;'
+          lines = other.read_text().splitlines()
 
-          if old in text:
-              text = text.replace(old, new, 1)
+          for i, line in enumerate(lines):
+              if line.strip() == "use std::rc::Rc;":
+                  if i > 0 and lines[i - 1].strip() == '#[cfg(target_os = "linux")]':
+                      del lines[i - 1]
+                  break
 
-          # Linux implementation.
-          old = '''#[derive(Debug)]
-pub(crate) struct PlatformSpecificGuard {
-    display: Sendable<*mut std::os::raw::c_void>,
-    platform: PlatformType,
-    /// Whether the guard owns the display connection and should close it on drop
-    owned: bool,
-}'''
+          # ------------------------------------------------------
+          # Make PlatformSpecificGuard Linux-only and provide
+          # an empty guard for non-Linux targets.
+          # ------------------------------------------------------
 
-          new = '''#[cfg(target_os = "linux")]
-#[derive(Debug)]
-pub(crate) struct PlatformSpecificGuard {
-    display: Sendable<*mut std::os::raw::c_void>,
-    platform: PlatformType,
-    /// Whether the guard owns the display connection and should close it on drop
-    owned: bool,
-}
+          lines = other.read_text().splitlines()
 
-#[cfg(not(target_os = "linux"))]
-#[derive(Debug)]
-pub(crate) struct PlatformSpecificGuard;'''
+          struct_index = None
 
-          if old in text:
-              text = text.replace(old, new, 1)
+          for i, line in enumerate(lines):
+              if line.strip() == "pub(crate) struct PlatformSpecificGuard {":
+                  struct_index = i
+                  break
 
-          # X11/Wayland Drop is Linux-only.
-          old = 'impl Drop for PlatformSpecificGuard {'
+          if struct_index is None:
+              raise SystemExit(
+                  "PlatformSpecificGuard struct not found"
+              )
 
-          new = '''#[cfg(target_os = "linux")]
-impl Drop for PlatformSpecificGuard {'''
+          if struct_index == 0 or lines[struct_index - 1].strip() != '#[cfg(target_os = "linux")]':
+              derive_index = struct_index
 
-          if old in text and new not in text:
-              text = text.replace(old, new, 1)
+              if (
+                  derive_index > 0
+                  and lines[derive_index - 1].strip() == "#[derive(Debug)]"
+              ):
+                  derive_index -= 1
 
-          other.write_text(text)
+              lines.insert(
+                  derive_index,
+                  '#[cfg(target_os = "linux")]'
+              )
 
-          # macOS does not pass the Linux display handle.
-          text = runtime.read_text()
+          # Recalculate struct index after possible insertion.
+          struct_index = None
 
-          old = 'platform_specific_setup(info.nix_display.clone())?'
-          new = 'platform_specific_setup()?'
+          for i, line in enumerate(lines):
+              if line.strip() == "pub(crate) struct PlatformSpecificGuard {":
+                  struct_index = i
+                  break
 
-          if old in text:
-              runtime.write_text(text.replace(old, new, 1))
+          if struct_index is None:
+              raise SystemExit(
+                  "PlatformSpecificGuard struct disappeared"
+              )
+
+          depth = 0
+          end_index = None
+          started = False
+
+          for i in range(struct_index, len(lines)):
+              line = lines[i]
+
+              if "{" in line:
+                  depth += line.count("{")
+                  started = True
+
+              if "}" in line and started:
+                  depth -= line.count("}")
+
+                  if depth == 0:
+                      end_index = i
+                      break
+
+          if end_index is None:
+              raise SystemExit(
+                  "Could not find end of PlatformSpecificGuard"
+              )
+
+          stub_exists = any(
+              line.strip() == "pub(crate) struct PlatformSpecificGuard;"
+              for line in lines
+          )
+
+          if not stub_exists:
+              stub = [
+                  "",
+                  '#[cfg(not(target_os = "linux"))]',
+                  "#[derive(Debug)]",
+                  "pub(crate) struct PlatformSpecificGuard;",
+              ]
+
+              lines[end_index + 1:end_index + 1] = stub
+
+          # ------------------------------------------------------
+          # Drop implementation is Linux-only.
+          # ------------------------------------------------------
+
+          for i, line in enumerate(lines):
+              if line.strip() == "impl Drop for PlatformSpecificGuard {":
+                  if i == 0 or lines[i - 1].strip() != '#[cfg(target_os = "linux")]':
+                      lines.insert(
+                          i,
+                          '#[cfg(target_os = "linux")]'
+                      )
+                  break
+
+          other.write_text("\n".join(lines) + "\n")
+
+          # ------------------------------------------------------
+          # macOS does not have the Linux nix_display argument.
+          # ------------------------------------------------------
+
+          runtime_text = runtime.read_text()
+
+          old = "platform_specific_setup(info.nix_display.clone())?"
+          new = "platform_specific_setup()?"
+
+          if old in runtime_text:
+              runtime_text = runtime_text.replace(old, new, 1)
+              runtime.write_text(runtime_text)
 
           print("libobs-wrapper macOS patch applied")
           PY
+
+      # ----------------------------------------------------------
+      # Verify Rust patches
+      # ----------------------------------------------------------
 
       - name: Verify libobs patches
         shell: bash
@@ -405,8 +537,7 @@ impl Drop for PlatformSpecificGuard {'''
             exit 1
           fi
 
-          echo "Using: $BUILD_RS"
-          grep -n -C 5 "layout_tests" "$BUILD_RS"
+          grep -n -C 4 "layout_tests" "$BUILD_RS"
 
           echo
           echo "=== libobs-wrapper ==="
@@ -421,27 +552,32 @@ impl Drop for PlatformSpecificGuard {'''
             exit 1
           fi
 
-          echo "Using: $WRAPPER_SRC"
+          grep -n -C 3 "PlatformSpecificGuard" \
+            "$WRAPPER_SRC/utils/initialization/other.rs"
 
           echo
-          echo "--- other.rs ---"
-          head -n 30 "$WRAPPER_SRC/utils/initialization/other.rs"
-
-          echo
-          echo "--- runtime.rs ---"
           grep -n -C 4 "platform_specific_setup" \
             "$WRAPPER_SRC/runtime.rs" || true
 
+      # ----------------------------------------------------------
+      # Runtime resources
+      # ----------------------------------------------------------
+
       - name: Prepare revo-root
+        shell: bash
         run: |
           rm -rf src-tauri/resources/revo-root
           mkdir -p src-tauri/resources/revo-root
 
-      # OBS 32.1.2 has a macOS libobs-metal CMake bug:
-      # libobs-metal contains Swift sources but does not enable Swift.
-      - name: Clone OBS Studio
+      # ----------------------------------------------------------
+      # OBS Studio
+      # ----------------------------------------------------------
+
+      - name: Checkout OBS Studio
         shell: bash
         run: |
+          rm -rf "$RUNNER_TEMP/obs-studio"
+
           git clone \
             --depth 1 \
             --branch "${OBS_VERSION}" \
@@ -449,50 +585,79 @@ impl Drop for PlatformSpecificGuard {'''
             https://github.com/obsproject/obs-studio.git \
             "$RUNNER_TEMP/obs-studio"
 
+          git -C "$RUNNER_TEMP/obs-studio" log -1 --oneline
+
+      - name: Patch OBS libobs-metal Swift
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = (
+              Path.home()
+              / "dummy"
+          )
+
+          obs = Path("${RUNNER_TEMP}/obs-studio")
+
+          # GitHub Actions does not expand shell variables inside
+          # a quoted Python heredoc, so use the environment instead.
+          import os
+
+          obs = Path(os.environ["RUNNER_TEMP"]) / "obs-studio"
+          path = obs / "libobs-metal/CMakeLists.txt"
+
+          if not path.exists():
+              raise SystemExit(
+                  f"Missing OBS Metal CMakeLists: {path}"
+              )
+
+          text = path.read_text()
+
+          if "enable_language(Swift)" in text:
+              print("OBS already enables Swift")
+          else:
+              path.write_text(
+                  "enable_language(Swift)\n\n" + text
+              )
+              print("Added enable_language(Swift)")
+
+          print()
+          print("=== libobs-metal/CMakeLists.txt ===")
+
+          for i, line in enumerate(path.read_text().splitlines()[:12], 1):
+              print(f"{i}: {line}")
+          PY
+
       - name: Verify OBS source
         shell: bash
         run: |
           OBS_SRC="$RUNNER_TEMP/obs-studio"
 
-          test -f "$OBS_SRC/CMakeLists.txt"
+          test -f "$OBS_SRC/CMakePresets.json"
           test -f "$OBS_SRC/libobs-metal/CMakeLists.txt"
 
           echo "OBS source:"
           git -C "$OBS_SRC" log -1 --oneline
 
           echo
-          echo "OBS version:"
-          grep -n "OBS_VERSION_CANONICAL" \
-            "$OBS_SRC/cmake/common/version.cmake" || true
+          echo "OBS Metal:"
+          head -n 8 "$OBS_SRC/libobs-metal/CMakeLists.txt"
 
-      - name: Patch OBS libobs-metal Swift
-        shell: bash
-        run: |
-          python3 - "$RUNNER_TEMP/obs-studio/libobs-metal/CMakeLists.txt" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          text = path.read_text()
-
-          if "enable_language(Swift)" in text:
-              print("Swift language already enabled")
-              raise SystemExit(0)
-
-          text = "enable_language(Swift)\n\n" + text
-
-          path.write_text(text)
-
-          print(f"Patched: {path}")
-          PY
-
-          head -n 10 "$RUNNER_TEMP/obs-studio/libobs-metal/CMakeLists.txt"
+      # ----------------------------------------------------------
+      # OBS configure
+      #
+      # Use OBS' own macOS preset. The preset supplies the official
+      # macOS dependency configuration and Xcode generator.
+      # ----------------------------------------------------------
 
       - name: Configure OBS Studio
         shell: bash
         run: |
           OBS_SRC="$RUNNER_TEMP/obs-studio"
           OBS_BUILD="$RUNNER_TEMP/obs-build"
+
+          rm -rf "$OBS_BUILD"
 
           cmake \
             -S "$OBS_SRC" \
@@ -504,6 +669,10 @@ impl Drop for PlatformSpecificGuard {'''
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_FRONTEND=OFF
 
+      # ----------------------------------------------------------
+      # OBS build
+      # ----------------------------------------------------------
+
       - name: Build OBS Studio
         shell: bash
         run: |
@@ -511,6 +680,10 @@ impl Drop for PlatformSpecificGuard {'''
             --build "$RUNNER_TEMP/obs-build" \
             --config RelWithDebInfo \
             --parallel "$(sysctl -n hw.ncpu)"
+
+      # ----------------------------------------------------------
+      # OBS install
+      # ----------------------------------------------------------
 
       - name: Install OBS Studio
         shell: bash
@@ -525,75 +698,148 @@ impl Drop for PlatformSpecificGuard {'''
             --config RelWithDebInfo \
             --prefix "$OBS_INSTALL"
 
-      - name: Inspect OBS install
+      # ----------------------------------------------------------
+      # Inspect OBS
+      # ----------------------------------------------------------
+
+      - name: Inspect macOS OBS build
         shell: bash
         run: |
-          OBS_INSTALL="$RUNNER_TEMP/obs-install"
+          echo "=== OBS dynamic libraries ==="
 
-          echo "=== OBS install ==="
-          find "$OBS_INSTALL" -maxdepth 5 -type f -print | sort | head -500
+          find "$RUNNER_TEMP/obs-install" \
+            -type f \
+            \( \
+              -name "*.dylib" \
+              -o -name "*.so" \
+            \) \
+            -print | sort | head -300
 
           echo
-          echo "=== Dynamic libraries ==="
-          find "$OBS_INSTALL" -type f \
-            \( -name "*.dylib" -o -name "*.framework" \) \
-            -print
+          echo "=== OBS frameworks ==="
+
+          find "$RUNNER_TEMP/obs-install" \
+            -type d \
+            -name "*.framework" \
+            -print | sort | head -100
 
           echo
-          echo "=== Windows binaries - MUST be empty ==="
-          WINDOWS_BINARIES=$(find "$OBS_INSTALL" -type f \
-            \( -name "*.dll" -o -name "*.exe" -o -name "*.pdb" \) \
+          echo "=== OBS files ==="
+
+          find "$RUNNER_TEMP/obs-install" \
+            -type f \
+            -print | sort | head -400
+
+      - name: Reject Windows OBS binaries
+        shell: bash
+        run: |
+          WINDOWS_BINARIES=$(find "$RUNNER_TEMP/obs-install" \
+            -type f \
+            \( \
+              -name "*.dll" \
+              -o -name "*.exe" \
+              -o -name "*.pdb" \
+            \) \
             -print)
 
           if [ -n "$WINDOWS_BINARIES" ]; then
+            echo "ERROR: Windows binaries found in macOS OBS installation:"
             echo "$WINDOWS_BINARIES"
-            echo "ERROR: Windows binaries found in macOS OBS installation"
             exit 1
           fi
+
+          echo "No Windows binaries found"
+
+      # ----------------------------------------------------------
+      # Prepare RevoStream runtime layout
+      # ----------------------------------------------------------
 
       - name: Populate revo-root
         shell: bash
         run: |
-          OBS_INSTALL="$RUNNER_TEMP/obs-install"
-          REVO_ROOT="$GITHUB_WORKSPACE/src-tauri/resources/revo-root"
+          ROOT="src-tauri/resources/revo-root"
 
-          mkdir -p "$REVO_ROOT"
+          mkdir -p "$ROOT"
 
-          for dir in data lib share bin; do
-            if [ -d "$OBS_INSTALL/$dir" ]; then
-              echo "Copying $dir"
-              rsync -a "$OBS_INSTALL/$dir/" "$REVO_ROOT/$dir/"
-            fi
-          done
+          # RevoStream application data.
+          if [ -d "data" ]; then
+            rsync -a \
+              "data/" \
+              "$ROOT/data/"
+          fi
+
+          # OBS runtime.
+          mkdir -p "$ROOT/core"
+
+          if [ -d "$RUNNER_TEMP/obs-install/lib" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/lib/" \
+              "$ROOT/core/lib/"
+          fi
+
+          if [ -d "$RUNNER_TEMP/obs-install/share" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/share/" \
+              "$ROOT/core/share/"
+          fi
+
+          if [ -d "$RUNNER_TEMP/obs-install/bin" ]; then
+            rsync -a \
+              "$RUNNER_TEMP/obs-install/bin/" \
+              "$ROOT/core/bin/"
+          fi
 
           echo
           echo "=== revo-root ==="
-          find "$REVO_ROOT" -maxdepth 5 -type f -print | sort | head -500
 
-      - name: Verify revo-root
+          find "$ROOT" \
+            -maxdepth 5 \
+            -type f \
+            -print | sort | head -500
+
+      - name: Verify macOS runtime
         shell: bash
         run: |
-          REVO_ROOT="src-tauri/resources/revo-root"
+          ROOT="src-tauri/resources/revo-root"
 
-          test -d "$REVO_ROOT"
+          if [ ! -d "$ROOT/core/lib" ]; then
+            echo "ERROR: core/lib does not exist"
+            exit 1
+          fi
 
-          echo "=== OBS plugins ==="
-          find "$REVO_ROOT" -type f \
-            \( -name "*.so" -o -name "*.dylib" \) \
-            -print | sort || true
+          DYLIB_COUNT=$(find "$ROOT/core/lib" \
+            -type f \
+            -name "*.dylib" \
+            | wc -l \
+            | tr -d ' ')
 
-          echo
-          echo "=== Check for Windows binaries ==="
+          if [ "$DYLIB_COUNT" -eq 0 ]; then
+            echo "ERROR: no macOS dylibs found"
+            exit 1
+          fi
 
-          WINDOWS_BINARIES=$(find "$REVO_ROOT" -type f \
-            \( -name "*.dll" -o -name "*.exe" -o -name "*.pdb" \) \
+          echo "macOS dylibs: $DYLIB_COUNT"
+
+          WINDOWS_BINARIES=$(find "$ROOT" \
+            -type f \
+            \( \
+              -name "*.dll" \
+              -o -name "*.exe" \
+              -o -name "*.pdb" \
+            \) \
             -print)
 
           if [ -n "$WINDOWS_BINARIES" ]; then
+            echo "ERROR: Windows binaries leaked into macOS runtime:"
             echo "$WINDOWS_BINARIES"
-            echo "ERROR: Windows binaries found in revo-root"
             exit 1
           fi
+
+          echo "macOS runtime layout looks valid"
+
+      # ----------------------------------------------------------
+      # Tauri
+      # ----------------------------------------------------------
 
       - name: Build macOS DMG
         run: |
@@ -608,15 +854,14 @@ impl Drop for PlatformSpecificGuard {'''
         run: |
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
 
-          echo "=== DMG output ==="
-          find "$DMG_DIR" -maxdepth 1 -type f -print
-
-          COUNT=$(find "$DMG_DIR" -maxdepth 1 -type f -name "*.dmg" | wc -l)
-
-          if [ "$COUNT" -lt 1 ]; then
-            echo "No DMG produced"
+          if ! compgen -G "$DMG_DIR/*.dmg" > /dev/null; then
+            echo "ERROR: DMG was not produced"
+            echo "Expected directory: $DMG_DIR"
             exit 1
           fi
+
+          echo "macOS DMG:"
+          ls -lh "$DMG_DIR"/*.dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -624,6 +869,10 @@ impl Drop for PlatformSpecificGuard {'''
           name: macos-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
 
+
+  # ============================================================
+  # RELEASE
+  # ============================================================
 
   release:
     name: Create GitHub Release
@@ -654,7 +903,9 @@ impl Drop for PlatformSpecificGuard {'''
 
       - name: Show release files
         run: |
-          find release -maxdepth 5 -type f -print
+          find release \
+            -type f \
+            -print | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
