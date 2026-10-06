@@ -27,6 +27,7 @@
   import QuickTextEditModal from "../lib/components/QuickModal/QuickTextEditModal.svelte";
   import QuickColorModal from "../lib/components/QuickModal/QuickColorModal.svelte";
   import QuickDeviceModal from "../lib/components/QuickModal/QuickDeviceModal.svelte";
+  import { applyRevoTheme, revoThemeFromLookProfile } from "../lib/theme/revoTheme";
   import type { DemoSource, SceneInfo } from "../lib/types";
 
   type PersistedSettings = {
@@ -466,6 +467,76 @@
     let transformWindow: Window | null = null;
     let previewFrameEl: HTMLDivElement | null = null;
     let panelScenesEl: HTMLDivElement | null = null;
+    let renderBandEl: HTMLElement | null = null;
+    let panelBandEl: HTMLElement | null = null;
+    let panelHeightPx: number | null = null;
+    let panelResizing = false;
+    let panelResizeOrigin: { y: number; height: number } | null = null;
+
+    const PANEL_MIN_HEIGHT = 180;
+    const PREVIEW_MIN_HEIGHT = 200;
+
+    const clampPanelHeight = (value: number) => {
+      const bandH = panelBandEl?.getBoundingClientRect().height ?? 0;
+      const renderH = renderBandEl?.getBoundingClientRect().height ?? 0;
+      const available = bandH + renderH;
+      const maxH =
+        available > 0
+          ? Math.max(PANEL_MIN_HEIGHT, available - PREVIEW_MIN_HEIGHT)
+          : Math.max(PANEL_MIN_HEIGHT, Math.round(window.innerHeight * 0.5));
+      return Math.round(Math.min(Math.max(value, PANEL_MIN_HEIGHT), maxH));
+    };
+
+    const beginPanelResize = (event: PointerEvent) => {
+      const band = panelBandEl;
+      if (!band) return;
+      event.preventDefault();
+      panelResizeOrigin = {
+        y: event.clientY,
+        height: panelHeightPx ?? band.getBoundingClientRect().height
+      };
+      panelResizing = true;
+      try {
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      } catch {
+        // pointer capture is optional
+      }
+    };
+
+    const movePanelResize = (event: PointerEvent) => {
+      if (!panelResizeOrigin) return;
+      event.preventDefault();
+      const delta = panelResizeOrigin.y - event.clientY;
+      panelHeightPx = clampPanelHeight(panelResizeOrigin.height + delta);
+    };
+
+    const endPanelResize = (event: PointerEvent) => {
+      if (!panelResizeOrigin) return;
+      panelResizeOrigin = null;
+      panelResizing = false;
+      try {
+        (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      } catch {
+        // pointer capture is optional
+      }
+    };
+
+    const handlePanelResizeKeydown = (event: KeyboardEvent) => {
+      const band = panelBandEl;
+      if (!band) return;
+      const step = event.shiftKey ? 32 : 16;
+      const current = panelHeightPx ?? band.getBoundingClientRect().height;
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        panelHeightPx = clampPanelHeight(current + step);
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        panelHeightPx = clampPanelHeight(current - step);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        panelHeightPx = null;
+      }
+    };
     let panelSourcesEl: HTMLDivElement | null = null;
     let panelToolsEl: HTMLDivElement | null = null;
     let saveTransformsUnlisten: (() => void) | null = null;
@@ -771,6 +842,8 @@
     const applyLookProfile = async (profile?: Record<string, unknown> | null) => {
       if (typeof document === "undefined") return;
       const look = asRecord(asRecord(profile).look);
+      // RevoClassic | RevoFuture — independent from any custom .revotheme CSS.
+      applyRevoTheme(revoThemeFromLookProfile(look));
       const selectedThemeId = String(look.selectedThemeId ?? "").trim();
       const rootArg = rootDir.trim().length ? rootDir.trim() : null;
       void logThemeDebug("apply:start", { selectedThemeId, rootArg });
@@ -1105,6 +1178,8 @@
     ];
 
     let scenes: SceneInfo[] = [];
+    // Last known preview per scene — display-only thumbnail cache (no loop refresh).
+    let sceneThumbnails: Record<string, string> = {};
     let renamingScene: string | null = null;
     let renameSceneValue = "";
     let showAddScene = false;
@@ -2340,6 +2415,10 @@
         previewLastTime = Date.now();
         previewLastFrameAt = previewLastTime;
         previewDirty = false;
+        const thumbSceneName = scenes.find((s) => s.active)?.name?.trim() || "";
+        if (thumbSceneName && !sceneThumbnails[thumbSceneName]) {
+          sceneThumbnails = { ...sceneThumbnails, [thumbSceneName]: previewUrl };
+        }
       } catch (err) {
         showGlobalDialog(String(err), "error");
       } finally {
@@ -4125,6 +4204,10 @@
   };
 
   const setCurrentScene = async (name: string) => {
+    const outgoingSceneName = scenes.find((s) => s.active)?.name?.trim() || "";
+    if (outgoingSceneName && outgoingSceneName !== name && previewUrl) {
+      sceneThumbnails = { ...sceneThumbnails, [outgoingSceneName]: previewUrl };
+    }
     const sceneSwitchDelayMs = getTransitionSceneSwitchDelayMs();
     triggerRenderTransition();
     if (sceneSwitchDelayMs > 0) {
@@ -6720,7 +6803,7 @@
 
 <canvas class="dock-canvas-offscreen" bind:this={dockCanvasEl} aria-hidden="true"></canvas>
 
-<main class:aux-window={Boolean(auxWindowMode)}>
+<main class:aux-window={Boolean(auxWindowMode)} style={panelHeightPx ? `--revo-panel-height:${panelHeightPx}px` : undefined}>
   <div class="aux-only-host">
     {#if auxWindowMode === "plugins" && showPlugins}
       <PluginsModal
@@ -6786,8 +6869,8 @@
       margin-top: 65px;
     }
     .global-dialog-inner {
-      background: linear-gradient(90deg, #232838 60%, #151820 100%);
-      color: #fff;
+      background: linear-gradient(90deg, var(--surface-3) 60%, var(--surface) 100%);
+      color: var(--text-strong);
       border: 2px solid var(--border-strong);
       border-radius: 16px;
       box-shadow: 0 4px 24px #0008;
@@ -6844,7 +6927,7 @@
 
     .stream-confirm-btn.primary {
       background: var(--accent);
-      color: #fff;
+      color: var(--text-on-primary);
       border-color: color-mix(in srgb, var(--accent) 70%, #000 30%);
     }
 
@@ -7355,7 +7438,7 @@
     {handleDockZoneDrop}
   >
 
-      <section class="render">
+      <section class="render" bind:this={renderBandEl}>
         {#if demoMode}
           <DemoMode />
         {:else}
@@ -7416,17 +7499,40 @@
               {:else if previewUrl}
                 <img src={previewUrl} alt="Scene preview" decoding="async" />
               {:else}
-                <div class="preview-placeholder">No preview captured</div>
+                <div class="preview-placeholder">
+                  <svg class="placeholder-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v10h16V7H4Zm2 2h5v6H6V9Z"
+                    />
+                  </svg>
+                  <span class="placeholder-title">No preview captured</span>
+                  <span class="placeholder-desc">Add a source to get started</span>
+                </div>
               {/if}
             </div>
           </div>
         {/if}
       </section>
 
-      <section class="panel">
+      <div
+        class="panel-resize-handle"
+        class:dragging={panelResizing}
+        role="button"
+        aria-label="Resize panels"
+        tabindex="0"
+        onpointerdown={beginPanelResize}
+        onpointermove={movePanelResize}
+        onpointerup={endPanelResize}
+        onpointercancel={endPanelResize}
+        onkeydown={handlePanelResizeKeydown}
+      ></div>
+
+      <section class="panel" bind:this={panelBandEl}>
         <div class="panel-cell panel-scenes" bind:this={panelScenesEl} tabindex="-1" aria-label="Scenes panel">
           <ScenesPanel
             {scenes}
+            thumbnails={sceneThumbnails}
             {backendEnabled}
             {renamingScene}
             {renameSceneValue}
@@ -7461,23 +7567,47 @@
         </div>
 
         <div class="tools panel-cell panel-tools" bind:this={panelToolsEl} tabindex="-1" aria-label="Tools panel">
-          <h2>Tools</h2>
+          <h2>
+            <svg class="panel-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M3 6h6v2H3V6Zm8-1h2v4h-2V5Zm3 1h7v2h-7V6ZM3 11h2v2H3v-2Zm4-1h2v4H7v-4Zm3 1h11v2H10v-2ZM3 17h10v2H3v-2Zm12-1h2v4h-2v-4Zm3 1h3v2h-3v-2Z"
+              />
+            </svg>
+            Tools
+          </h2>
           <div class="tool-list">
             <button onclick={openAudioMixer}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3v10H4V7Zm6-3h3v16h-3V4Zm6 6h3v7h-3v-7Z"/></svg>
-              Audio Mixer
+              <span class="tool-label">
+                Audio Mixer
+                <span class="tool-desc">Volume, mute and devices</span>
+              </span>
+              <svg class="tool-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
             <button onclick={openTransitions}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h7v7H5V6Zm7 7h7v7h-7v-7Zm0-7 7 7-7 7V6Z"/></svg>
-              Transitions
+              <span class="tool-label">
+                Transitions
+                <span class="tool-desc">Scene change effects</span>
+              </span>
+              <svg class="tool-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
             <button onclick={openPlugins}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4a2 2 0 0 1 2 2v2h2a2 2 0 1 1 0 4h-2v2a2 2 0 0 1-2 2h-2v-2a2 2 0 1 0-4 0v2H6a2 2 0 0 1-2-2v-2H2a2 2 0 1 1 0-4h2V6a2 2 0 0 1 2-2h2v2a2 2 0 1 0 4 0V4h2Z"/></svg>
-              Plugins
+              <span class="tool-label">
+                Plugins
+                <span class="tool-desc">Extend your control room</span>
+              </span>
+              <svg class="tool-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
             <button onclick={openTemplatesDialog}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v7H4V5Zm9 0h7v7h-7V5ZM4 14h7v5H4v-5Zm9 0h7v5h-7v-5Z"/></svg>
-              Templates
+              <span class="tool-label">
+                Templates
+                <span class="tool-desc">Ready-made scene layouts</span>
+              </span>
+              <svg class="tool-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </button>
           </div>
         </div>
@@ -7488,6 +7618,12 @@
 <style>
   @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap");
 
+  /*
+   * RevoClassic — the existing RevoStream palette (UNCHANGED).
+   * These values are the RevoClassic source of truth for this window.
+   * RevoFuture overrides them from static/revo-themes.css through
+   * `:root[data-theme="RevoFuture"]` — do not edit these values per theme.
+   */
   :global(:root) {
     color-scheme: dark;
     --bg: #0f1115;
@@ -7540,7 +7676,9 @@
     font-size: 1em;
   }
 
-  :global(html.a11y-high-contrast) {
+  /* A11y palettes must win over both theme scopes (RevoClassic / RevoFuture). */
+  :global(html.a11y-high-contrast),
+  :global(:root[data-theme].a11y-high-contrast) {
     --bg: #000000;
     --surface: #000000;
     --surface-2: #050505;
@@ -7556,7 +7694,8 @@
     --danger: #ff7070;
   }
 
-  :global(html.a11y-color-protanopia) {
+  :global(html.a11y-color-protanopia),
+  :global(:root[data-theme].a11y-color-protanopia) {
     --accent: #6ec5ff;
     --accent-strong: #3b8dd0;
     --warning: #ffd166;
@@ -7564,7 +7703,8 @@
     --danger: #ff8a80;
   }
 
-  :global(html.a11y-color-deuteranopia) {
+  :global(html.a11y-color-deuteranopia),
+  :global(:root[data-theme].a11y-color-deuteranopia) {
     --accent: #7cb6ff;
     --accent-strong: #4b7fd1;
     --warning: #ffd166;
@@ -7572,7 +7712,8 @@
     --danger: #ff8a65;
   }
 
-  :global(html.a11y-color-tritanopia) {
+  :global(html.a11y-color-tritanopia),
+  :global(:root[data-theme].a11y-color-tritanopia) {
     --accent: #9c7dff;
     --accent-strong: #7857df;
     --warning: #ffe082;
@@ -7959,8 +8100,14 @@
     color: var(--text-muted);
   }
 
+  /* RevoFuture-only preview empty state (hidden in RevoClassic) */
+  .preview-placeholder .placeholder-icon,
+  .preview-placeholder .placeholder-desc {
+    display: none;
+  }
+
   .panel {
-    flex: 0 0 240px;
+    flex: 0 0 var(--revo-panel-height, 240px);
     overflow: hidden;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8013,6 +8160,13 @@
     height: 18px;
     fill: var(--icon-color, currentColor);
     flex-shrink: 0;
+  }
+
+  /* RevoFuture-only tool descriptions / chevrons (hidden in RevoClassic) */
+  .tool-list .tool-desc,
+  .tool-list .tool-chevron,
+  .panel-icon {
+    display: none;
   }
 
   :global(.context-menu) {
@@ -8147,7 +8301,7 @@
 
   .quick-text-actions button.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 55%, #000 45%);
   }
 

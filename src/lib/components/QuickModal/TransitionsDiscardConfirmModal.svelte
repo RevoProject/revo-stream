@@ -148,7 +148,7 @@
 
   .stream-confirm-btn.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 70%, #000 30%);
   }
 

@@ -39,8 +39,8 @@
     }
 
     html, body {
-      background: #181c22;
-      color: #e5e7eb;
+      background: var(--window-bg);
+      color: var(--text);
       font-family: var(--a11y-font-family);
       font-size: 1rem;
       margin: 0;
@@ -62,6 +62,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import GraphicPlanner from "$lib/components/Modules/GraphicPlanner.svelte";
+  import { applyRevoTheme, revoThemeFromLookProfile } from "$lib/theme/revoTheme";
   import type { DemoSource } from "$lib/types";
 
   let sources: DemoSource[] = [];
@@ -223,6 +224,7 @@
       const uiProfile = asRecord(settings?.ui_profile);
       const general = asRecord(uiProfile.general);
       const look = asRecord(uiProfile.look);
+      applyRevoTheme(revoThemeFromLookProfile(look));
       applyAccessibilityFromSettings(uiProfile);
       plannerUndoRedoLimit = Math.max(1, Math.min(50, Number(general.plannerUndoRedoLimit) || 5));
       const selectedThemeId = String(look.selectedThemeId ?? "").trim();
@@ -444,7 +446,7 @@
 
 {#if ready}
   {#if initTimedOut}
-    <div style="position: fixed; top: 12px; right: 12px; background: #f59e0b; color: #111; padding: 6px 10px; border-radius: 8px; font-size: 0.85rem; z-index: 9999;">
+    <div style="position: fixed; top: 12px; right: 12px; background: var(--warning); color: #111; padding: 6px 10px; border-radius: 8px; font-size: 0.85rem; z-index: 9999;">
       Init data missing – showing empty planner.
     </div>
   {/if}

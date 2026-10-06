@@ -394,7 +394,7 @@
   .source-box {
     position: absolute;
     border: 2px solid var(--accent);
-    background: #5b7cfa22;
+    background: var(--accent-soft);
     border-radius: 8px;
     cursor: move;
     box-sizing: border-box;
@@ -403,7 +403,7 @@
   .source-box.active {
     border-color: var(--warning);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 45%, transparent);
-    background: color-mix(in srgb, var(--warning) 15%, #5b7cfa22);
+    background: color-mix(in srgb, var(--warning) 15%, var(--accent-soft));
   }
   .source-label {
     position: absolute;

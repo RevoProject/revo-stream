@@ -1111,14 +1111,14 @@
     .meter {
       height: 12px;
       border-radius: 999px;
-      background: #1b1f2a;
+      background: var(--surface-2);
       border: 1px solid var(--border);
       overflow: hidden;
     }
 
     .meter-fill {
       height: 100%;
-      background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444);
+      background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
       transition: width 0.2s ease;
     }
   .modal {
@@ -1309,7 +1309,7 @@
 
   button.primary {
     background: var(--accent);
-    color: #ffffff;
+    color: var(--text-on-primary);
   }
 
   button.ghost {
@@ -1385,6 +1385,6 @@
   }
   .font-option:hover, .font-option.selected {
     background: var(--accent, #3b82f6);
-    color: #fff;
+    color: var(--text-on-primary);
   }
 </style>

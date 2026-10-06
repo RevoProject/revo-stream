@@ -28,7 +28,10 @@
 </script>
 
 <header>
-  <div class="logo" title={version ? `Version ${version}` : "RevoStream"}>RevoStream</div>
+  <div class="logo" title={version ? `Version ${version}` : "RevoStream"}>
+    RevoStream
+    <span class="tagline">Stream. Create. Control.</span>
+  </div>
   <div class="actions">
     <div class="nav">
         
@@ -64,14 +67,14 @@
         </button>
       {/if}
       <button class="rec" onclick={isRecording ? stopRecording : startRecording} disabled={busy}>
-        {isRecording ? "Recording" : "Record"}
+        <span class="btn-dot" aria-hidden="true"></span>{isRecording ? "Recording" : "Record"}
       </button>
       <button
         class={isStreaming ? "streaming" : "primary"}
         onclick={isStreaming ? stopStreaming : startStreaming}
         disabled={busy}
       >
-        {isStreaming ? "Streaming" : "Go live"}
+        {#if isStreaming}<span class="btn-dot" aria-hidden="true"></span>{/if}{isStreaming ? "Streaming" : "Go live"}
       </button>
     </div>
   </div>
@@ -83,7 +86,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 1rem 1.3rem;
-    background: var(--surface);
+    background: var(--header-bg);
     border-bottom: 1px solid var(--border);
     z-index: 1000;
   }
@@ -91,6 +94,12 @@
   header .logo {
     font-weight: 700;
     font-size: 1.4rem;
+  }
+
+  /* RevoFuture-only brand/status extras (hidden in RevoClassic) */
+  header .logo .tagline,
+  header .btn-dot {
+    display: none;
   }
 
   header .nav {
@@ -118,7 +127,7 @@
 
   button.primary {
     background: var(--accent);
-    color: #ffffff;
+    color: var(--text-on-primary);
   }
 
   button.secondary {
@@ -128,7 +137,7 @@
 
   button.rec {
     background: var(--danger);
-    color: #ffffff;
+    color: var(--text-on-danger);
   }
 
   button.settings {
@@ -150,7 +159,7 @@
 
   button.streaming {
     background: var(--success);
-    color: #ffffff;
+    color: var(--text-on-success);
   }
 
   button.ghost {

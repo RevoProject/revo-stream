@@ -6,6 +6,7 @@
   export let backendEnabled = false;
   export let renamingScene: string | null = null;
   export let renameSceneValue = "";
+  export let thumbnails: Record<string, string> = {};
 
   const dispatch = createEventDispatcher();
   let dragSceneName: string | null = null;
@@ -44,7 +45,15 @@
 
 <div class="scenes">
   <div class="section-title">
-    <h2>Scenes</h2>
+    <h2>
+      <svg class="panel-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M3 5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-7v2h2.5a1 1 0 1 1 0 2h-7a1 1 0 1 1 0-2H10v-2H4a1 1 0 0 1-1-1V5Zm2 1v8h14V6H5Z"
+        />
+      </svg>
+      Scenes
+    </h2>
     <button class="icon" aria-label="Add scene" onclick={openAddScene}>+</button>
   </div>
   <div class="scene-list">
@@ -61,6 +70,7 @@
       {#each scenes as scene}
         <div
           class="scene-item"
+          class:active={scene.active}
           oncontextmenu={(e) => openMenu(e, scene)}
           role="button"
           tabindex="0"
@@ -69,6 +79,19 @@
           ondragover={handleDragOver}
           ondrop={(e) => handleDrop(e, scene)}
         >
+          <span class="scene-thumb" aria-hidden="true">
+            {#if thumbnails[scene.name]}
+              <img src={thumbnails[scene.name]} alt="" loading="lazy" />
+            {:else}
+              <svg class="scene-thumb-icon" viewBox="0 0 72 40">
+                <rect x="0.5" y="0.5" width="71" height="39" rx="3" fill="currentColor" opacity="0.05" />
+                <rect x="5" y="6" width="62" height="24" rx="2" fill="currentColor" opacity="0.12" />
+                <path d="M31 12.5 41 18l-10 5.5v-11Z" fill="currentColor" opacity="0.5" />
+                <rect x="5" y="33" width="26" height="2.5" rx="1.25" fill="currentColor" opacity="0.32" />
+                <rect x="35" y="33" width="14" height="2.5" rx="1.25" fill="currentColor" opacity="0.18" />
+              </svg>
+            {/if}
+          </span>
           {#if renamingScene === scene.name}
             <input
               class="scene-rename"
@@ -92,6 +115,16 @@
                 <span class="lock">🔒</span>
               {/if}
             </button>
+            <button
+              type="button"
+              class="scene-menu"
+              aria-label={`Scene menu for ${scene.name}`}
+              onclick={(e) => openMenu(e, scene)}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path fill="currentColor" d="M6 10.2a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Zm6 0a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Zm6 0a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Z" />
+              </svg>
+            </button>
           {/if}
         </div>
       {/each}
@@ -113,6 +146,17 @@
       align-items: center;
       justify-content: space-between;
       gap: 0.5rem;
+    }
+
+    /* RevoFuture-only panel icon (hidden in RevoClassic) */
+    .panel-icon {
+      display: none;
+    }
+
+    /* RevoFuture-only scene thumbnail / menu (hidden in RevoClassic) */
+    .scene-thumb,
+    .scene-menu {
+      display: none;
     }
 
     .section-title .icon {

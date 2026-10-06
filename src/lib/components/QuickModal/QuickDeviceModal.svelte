@@ -115,7 +115,7 @@
 
   .quick-text-actions button.primary {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-primary);
     border-color: color-mix(in srgb, var(--accent) 55%, #000 45%);
   }
 </style>
