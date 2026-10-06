@@ -12,6 +12,7 @@ permissions:
 env:
   PNPM_VERSION: 10
   NODE_VERSION: 24
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   windows:
@@ -72,7 +73,20 @@ jobs:
 
       - name: Prepare revo-root
         shell: pwsh
-        run: New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
+        run: |
+          New-Item -ItemType Directory -Force "src-tauri/resources/revo-root" | Out-Null
+
+      - name: Fetch Rust dependencies
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml
+
+      - name: Install cargo-obs-build
+        run: cargo install cargo-obs-build --locked
+
+      - name: Bootstrap OBS
+        working-directory: src-tauri
+        run: |
+          cargo obs-build build \
+            --out-dir target/release
 
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
@@ -154,14 +168,13 @@ jobs:
           echo "CPATH=$(brew --prefix simde)/include:${CPATH:-}" >> "$GITHUB_ENV"
           echo "C_INCLUDE_PATH=$(brew --prefix simde)/include:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
           echo "CPLUS_INCLUDE_PATH=$(brew --prefix simde)/include:${CPLUS_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
-         
+
       - name: Verify SIMDe
         run: |
           SIMDE="$(brew --prefix simde)"
           test -f "$SIMDE/include/simde/x86/sse2.h"
           echo "SIMDe headers found:"
           ls "$SIMDE/include/simde/x86/sse2.h"
-
 
       - name: Disable CEF for CI build
         shell: bash
@@ -193,47 +206,182 @@ jobs:
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
 
       - name: Patch libobs bindgen for macOS
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           root = Path.home() / ".cargo/git/checkouts"
           matches = list(root.glob("libobs-rs-*/7e76c91/libobs/build.rs"))
+
           if not matches:
               raise SystemExit("libobs-rs build.rs not found")
 
           p = matches[0]
           s = p.read_text()
 
+          print(f"Using libobs build.rs: {p}")
+
           if "builder = builder.layout_tests(false);" in s:
-              print(f"Patch already applied: {p}")
+              print("libobs bindgen patch already applied")
               raise SystemExit(0)
 
-          marker = '''    let mut builder = bindgen::builder()
-              .header("headers/wrapper.h")
-              .blocklist_function("^_.*")
-              .clang_arg(format!("-I{}", "headers/obs"));'''
+          needle = '        .clang_arg(format!("-I{}", "headers/obs"));'
 
-          replacement = marker + '''
+          if needle not in s:
+              print("Could not find expected clang_arg line.")
+              print("Relevant bindgen section:")
 
-          #[cfg(target_os = "macos")]
-          {
-              builder = builder.layout_tests(false);
-          }'''
+              start = s.find("let mut builder = bindgen::builder()")
 
-          if marker not in s:
-              raise SystemExit(f"Expected bindgen builder block not found in {p}")
+              if start != -1:
+                  end = s.find("let bindings =", start)
 
-          p.write_text(s.replace(marker, replacement, 1))
-          print(f"Patched: {p}")
+                  if end == -1:
+                      end = min(start + 2500, len(s))
+
+                  print(s[start:end])
+
+              raise SystemExit(1)
+
+          replacement = (
+              needle
+              + "\n\n"
+              + '    #[cfg(target_os = "macos")]'
+              + "\n"
+              + "    {"
+              + "\n"
+              + "        builder = builder.layout_tests(false);"
+              + "\n"
+              + "    }"
+          )
+
+          s = s.replace(needle, replacement, 1)
+          p.write_text(s)
+
+          print("libobs bindgen patch applied successfully")
           PY
 
-      - name: Verify libobs bindgen patch
+      - name: Patch libobs-wrapper for macOS
+        shell: bash
         run: |
-          grep -n -C 5 'layout_tests' "$HOME"/.cargo/git/checkouts/libobs-rs-*/7e76c91/libobs/build.rs
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.home() / ".cargo/git/checkouts"
+          matches = list(root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src"))
+
+          if not matches:
+              raise SystemExit("libobs-wrapper source not found")
+
+          src = matches[0]
+          other = src / "utils/initialization/other.rs"
+          runtime = src / "runtime.rs"
+
+          print(f"libobs-wrapper source: {src}")
+
+          if not other.exists():
+              raise SystemExit(f"Missing: {other}")
+
+          if not runtime.exists():
+              raise SystemExit(f"Missing: {runtime}")
+
+          # ------------------------------------------------------------
+          # Disable Linux/X11/Wayland initialization module on macOS.
+          # ------------------------------------------------------------
+
+          s = other.read_text()
+
+          marker = '#![cfg(target_os = "linux")]'
+
+          if marker not in s:
+              s = marker + "\n" + s
+              other.write_text(s)
+              print(f"Patched: {other}")
+          else:
+              print(f"other.rs already patched: {other}")
+
+          # ------------------------------------------------------------
+          # Only call platform_specific_setup on Linux.
+          # ------------------------------------------------------------
+
+          s = runtime.read_text()
+
+          old = "            platform_specific_setup(info.nix_display.clone())?"
+
+          if old in s:
+              new = """            #[cfg(target_os = "linux")]
+            platform_specific_setup(info.nix_display.clone())?"""
+
+              s = s.replace(old, new, 1)
+              runtime.write_text(s)
+              print(f"Patched: {runtime}")
+          else:
+              print("platform_specific_setup call already patched or not found")
+
+          PY
+
+      - name: Verify libobs patches
+        shell: bash
+        run: |
+          echo "=== libobs bindgen ==="
+
+          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs/build.rs" \
+            -print -quit)
+
+          if [ -z "$BUILD_RS" ]; then
+            echo "libobs build.rs not found"
+            exit 1
+          fi
+
+          echo "Using: $BUILD_RS"
+          grep -n -C 5 "layout_tests" "$BUILD_RS"
+
+          echo
+          echo "=== libobs-wrapper ==="
+
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs-wrapper/src" \
+            -type d \
+            -print -quit)
+
+          if [ -z "$WRAPPER_SRC" ]; then
+            echo "libobs-wrapper source not found"
+            exit 1
+          fi
+
+          echo "Using: $WRAPPER_SRC"
+
+          echo
+          echo "--- other.rs ---"
+          head -n 5 "$WRAPPER_SRC/utils/initialization/other.rs"
+
+          echo
+          echo "--- runtime.rs ---"
+          grep -n -C 4 "platform_specific_setup" \
+            "$WRAPPER_SRC/runtime.rs" || true
+
+      - name: Prepare revo-root
+        run: |
+          mkdir -p src-tauri/resources/revo-root
+
+      - name: Install cargo-obs-build
+        run: cargo install cargo-obs-build --locked
+
+      - name: Bootstrap OBS
+        working-directory: src-tauri
+        run: |
+          cargo obs-build build \
+            --out-dir "target/${{ matrix.target }}/release"
 
       - name: Build macOS DMG
-        run: pnpm tauri build --bundles dmg --target aarch64-apple-darwin -- --no-default-features
+        run: |
+          pnpm tauri build \
+            --bundles dmg \
+            --target "${{ matrix.target }}" \
+            -- \
+            --no-default-features
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -244,6 +392,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+
     needs:
       - windows
       - macos
@@ -268,7 +417,8 @@ jobs:
           path: release/macos-x64
 
       - name: Show release files
-        run: find release -type f -maxdepth 4 -print
+        run: |
+          find release -maxdepth 4 -type f -print
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
