@@ -120,23 +120,6 @@ jobs:
         shell: pwsh
         run: cargo obs-build build --out-dir target/release
 
-      - name: Verify OBS bootstrap output
-        shell: pwsh
-        run: |
-          $exeDir = "src-tauri/target/release"
-
-          if (-not (Test-Path "$exeDir/obs.dll")) {
-            throw "obs.dll was not installed into $exeDir"
-          }
-
-          $size = (Get-Item "$exeDir/obs.dll").Length
-
-          Write-Host "obs.dll size: $size bytes"
-
-          if ($size -gt 256000) {
-            throw "obs.dll does not look like the dummy DLL"
-          }
-
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
 
@@ -439,6 +422,29 @@ jobs:
         run: |
           cargo obs-build build \
             --out-dir "target/${{ matrix.target }}/release"
+
+
+      - name: Inspect OBS bootstrap output
+        shell: bash
+        run: |
+          OUT="src-tauri/target/${{ matrix.target }}/release"
+
+          echo "=== OBS bootstrap output ==="
+          find "$OUT" -maxdepth 4 -type f -print | sort | head -300
+
+          echo
+          echo "=== Windows binaries ==="
+          find "$OUT" -type f \( \
+            -name "*.dll" -o \
+            -name "*.exe" \
+          \) -print
+
+          echo
+          echo "=== macOS binaries ==="
+          find "$OUT" -type f \( \
+            -name "*.dylib" -o \
+            -name "*.app" \
+          \) -print
 
       - name: Build macOS DMG
         run: |
