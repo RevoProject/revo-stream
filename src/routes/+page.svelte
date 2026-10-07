@@ -308,7 +308,7 @@
     }
 
     let rootDir = "";
-    let version = "0.2.0";
+    let version = "0.3.1";
     // let message = ""; // removed, now using globalDialogs
     // Global dialog queue system
     type DialogType = "info" | "warning" | "error";
