@@ -17,6 +17,22 @@ pub(crate) fn app_data_dir() -> Option<&'static PathBuf> {
     APP_DATA_DIR.get()
 }
 
+fn runtime_app_data_dir_for(
+    development: bool,
+    data_dir: Option<&PathBuf>,
+) -> Result<Option<&PathBuf>, String> {
+    if development {
+        return Ok(None);
+    }
+    data_dir
+        .map(Some)
+        .ok_or_else(|| "Tauri app data directory is not initialized".to_string())
+}
+
+pub(crate) fn runtime_app_data_dir() -> Result<Option<&'static PathBuf>, String> {
+    runtime_app_data_dir_for(cfg!(debug_assertions), app_data_dir())
+}
+
 pub(crate) fn set_startup_cwd(path: PathBuf) {
     let _ = APP_START_CWD.set(path);
 }
@@ -29,11 +45,8 @@ pub(crate) fn startup_cwd() -> Result<PathBuf, String> {
 }
 
 pub(crate) fn runtime_logs_root_dir() -> Result<PathBuf, String> {
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    if !cfg!(debug_assertions) {
-        if let Some(data_dir) = app_data_dir() {
-            return Ok(data_dir.join("logs"));
-        }
+    if let Some(data_dir) = runtime_app_data_dir()? {
+        return Ok(data_dir.join("logs"));
     }
     let cwd = startup_cwd()?;
     if cwd.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
@@ -58,4 +71,23 @@ pub(crate) fn runtime_logs_root_dir() -> Result<PathBuf, String> {
         return Ok(parent.join("logs"));
     }
     Ok(data_dir.join("..").join("logs"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_requires_initialized_app_data_without_cwd_fallback() {
+        let data = PathBuf::from("/user/app-data");
+        assert_eq!(runtime_app_data_dir_for(false, Some(&data)).unwrap(), Some(&data));
+        assert!(runtime_app_data_dir_for(false, None).is_err());
+    }
+
+    #[test]
+    fn development_keeps_existing_paths() {
+        let data = PathBuf::from("/user/app-data");
+        assert_eq!(runtime_app_data_dir_for(true, Some(&data)).unwrap(), None);
+        assert_eq!(runtime_app_data_dir_for(true, None).unwrap(), None);
+    }
 }

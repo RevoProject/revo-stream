@@ -90,7 +90,7 @@ pub(crate) fn start(
 	} else {
 		core_ffmpeg_bin.clone()
 	};
-	let conf_dir = if cfg!(any(target_os = "windows", target_os = "macos")) {
+	let conf_dir = if !cfg!(debug_assertions) || cfg!(any(target_os = "windows", target_os = "macos")) {
 		crate::settings::core::runtime_data_dir()?.join("conf")
 	} else {
 		data_dir.join("conf")
@@ -531,31 +531,38 @@ fn ensure_libobs_effects(
 	if dst.join("default.effect").exists() {
 		return Ok(());
 	}
-	let src = core_dir.join("share/obs/libobs");
-	if !src.exists() || !src.join("default.effect").exists() {
-		return Err(
-			"Missing libobs shader effects: core/share/obs/libobs/default.effect not found"
-				.to_string(),
-		);
+	// OBS already searches core_data_dir; never copy into installed resources.
+	if core_dir.join("share/obs/libobs/default.effect").is_file() {
+		return Ok(());
 	}
-	std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
-	copy_dir_recursive(&src, &dst)
+	Err("Missing libobs shader effects: stage share/obs/libobs/default.effect in data or core resources".to_string())
 }
 
-fn copy_dir_recursive(src: &std::path::PathBuf, dst: &std::path::PathBuf) -> Result<(), String> {
-	for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
-		let entry = entry.map_err(|e| e.to_string())?;
-		let path = entry.path();
-		let target = dst.join(entry.file_name());
-		let meta = entry.metadata().map_err(|e| e.to_string())?;
-		if meta.is_dir() {
-			std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-			copy_dir_recursive(&path, &target)?;
-		} else if meta.is_file() {
-			std::fs::copy(&path, &target).map_err(|e| e.to_string())?;
-		}
+#[cfg(test)]
+mod effects_tests {
+	use super::ensure_libobs_effects;
+
+	#[test]
+	fn effects_lookup_never_creates_or_copies_resource_directories() {
+		let temp = std::env::temp_dir().join(format!("revo-effects-{}", uuid::Uuid::new_v4()));
+		let data = temp.join("data");
+		let core = temp.join("core");
+		assert!(ensure_libobs_effects(&data, &core).is_err());
+		assert!(!temp.exists());
+		let core_effects = core.join("share/obs/libobs");
+		std::fs::create_dir_all(&core_effects).unwrap();
+		std::fs::write(core_effects.join("default.effect"), "core").unwrap();
+		ensure_libobs_effects(&data, &core).unwrap();
+		assert!(!data.exists());
+		let data_effects = data.join("share/obs/libobs");
+		std::fs::create_dir_all(&data_effects).unwrap();
+		std::fs::write(data_effects.join("default.effect"), "data").unwrap();
+		std::fs::remove_dir_all(&core).unwrap();
+		ensure_libobs_effects(&data, &core).unwrap();
+		assert_eq!(std::fs::read_to_string(data_effects.join("default.effect")).unwrap(), "data");
+		assert!(!core.exists());
+		std::fs::remove_dir_all(temp).unwrap();
 	}
-	Ok(())
 }
 
 fn create_color_source(

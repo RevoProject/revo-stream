@@ -6,8 +6,12 @@ pub(crate) fn data_dir_from_root(root: &std::path::PathBuf) -> std::path::PathBu
 	}
 }
 
-pub(crate) fn settings_path(root: &std::path::PathBuf) -> std::path::PathBuf {
-	data_dir_from_root(root).join("conf").join("profile.json")
+pub(crate) fn settings_path(root: &std::path::PathBuf) -> Result<std::path::PathBuf, String> {
+	let data_dir = match crate::utils::fs::runtime_app_data_dir()? {
+		Some(dir) => dir.join("data"),
+		None => data_dir_from_root(root),
+	};
+	Ok(data_dir.join("conf").join("profile.json"))
 }
 
 pub(crate) fn legacy_settings_path(root: &std::path::PathBuf) -> std::path::PathBuf {
@@ -323,46 +327,36 @@ pub(crate) fn load_rtmp_services_json() -> Result<String, String> {
 
 pub(crate) fn settings_get() -> Result<crate::AppSettings, String> {
 	let root = resolve_root_dir(None)?;
-	let path = settings_path(&root);
+	let path = settings_path(&root)?;
+	let resource_profile = data_dir_from_root(&root).join("conf/profile.json");
 	let legacy_path = legacy_settings_path(&root);
+	let settings = load_settings_from_paths(&path, &resource_profile, &legacy_path)?;
+	let _ = sync_active_profile_file(&settings);
+	Ok(settings)
+}
 
-	if path.exists() {
-		let raw = std::fs::read_to_string(&path).map_err(|e| format!("failed to read profile: {e}"))?;
-		let parsed = parse_settings_raw(&raw);
-		if let Some(parent) = path.parent() {
-			let _ = std::fs::create_dir_all(parent);
+fn load_settings_from_paths(
+	path: &std::path::PathBuf,
+	resource_profile: &std::path::PathBuf,
+	legacy_path: &std::path::PathBuf,
+) -> Result<crate::AppSettings, String> {
+	// Installed resource profiles are seeds only; normalization always writes user state.
+	let source = [path, resource_profile, legacy_path].into_iter().find(|p| p.exists());
+	let settings = match source {
+		Some(source) => {
+			let raw = std::fs::read_to_string(source)
+				.map_err(|e| format!("failed to read profile {}: {e}", source.display()))?;
+			parse_settings_raw(&raw)
 		}
-		let normalized = serde_json::to_string_pretty(&parsed)
-			.map_err(|e| format!("failed to serialize normalized profile: {e}"))?;
-		std::fs::write(&path, normalized)
-			.map_err(|e| format!("failed to write normalized profile: {e}"))?;
-		let _ = sync_active_profile_file(&parsed);
-		return Ok(parsed);
-	}
-
-	if legacy_path.exists() {
-		let raw = std::fs::read_to_string(&legacy_path)
-			.map_err(|e| format!("failed to read settings: {e}"))?;
-		let parsed = parse_settings_raw(&raw);
-		if let Some(parent) = path.parent() {
-			let _ = std::fs::create_dir_all(parent);
-		}
-		let migrated = serde_json::to_string_pretty(&parsed)
-			.map_err(|e| format!("failed to serialize migrated profile: {e}"))?;
-		std::fs::write(&path, migrated)
-			.map_err(|e| format!("failed to write migrated profile: {e}"))?;
-		let _ = sync_active_profile_file(&parsed);
-		return Ok(parsed);
-	}
-
-	let settings = default_settings();
+		None => default_settings(),
+	};
 	if let Some(parent) = path.parent() {
-		let _ = std::fs::create_dir_all(parent);
+		std::fs::create_dir_all(parent)
+			.map_err(|e| format!("failed to create profile dir: {e}"))?;
 	}
 	let raw = serde_json::to_string_pretty(&settings)
 		.map_err(|e| format!("failed to serialize profile: {e}"))?;
 	std::fs::write(&path, raw).map_err(|e| format!("failed to write profile: {e}"))?;
-	let _ = sync_active_profile_file(&settings);
 	Ok(settings)
 }
 
@@ -371,7 +365,7 @@ pub(crate) fn settings_save(settings: crate::AppSettings) -> Result<String, Stri
 	normalize_settings(&mut normalized_settings);
 
 	let root = resolve_root_dir(normalized_settings.root_dir.clone())?;
-	let path = settings_path(&root);
+	let path = settings_path(&root)?;
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent)
 			.map_err(|e| format!("failed to create profile dir: {e}"))?;
@@ -384,11 +378,8 @@ pub(crate) fn settings_save(settings: crate::AppSettings) -> Result<String, Stri
 }
 
 pub(crate) fn runtime_data_dir() -> Result<std::path::PathBuf, String> {
-	#[cfg(any(target_os = "windows", target_os = "macos"))]
-	if !cfg!(debug_assertions) {
-		if let Some(data_dir) = crate::utils::fs::app_data_dir() {
-			return Ok(data_dir.join("data"));
-		}
+	if let Some(data_dir) = crate::utils::fs::runtime_app_data_dir()? {
+		return Ok(data_dir.join("data"));
 	}
 	let cwd = crate::utils::fs::startup_cwd()?;
 	if cwd.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
@@ -400,8 +391,8 @@ pub(crate) fn runtime_data_dir() -> Result<std::path::PathBuf, String> {
 }
 
 pub(crate) fn runtime_plugins_dir() -> Result<std::path::PathBuf, String> {
-	let cwd = crate::utils::fs::startup_cwd()?;
 	if cfg!(debug_assertions) {
+		let cwd = crate::utils::fs::startup_cwd()?;
 		if cwd.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
 			if let Some(parent) = cwd.parent() {
 				return Ok(parent.join("data").join("plugins"));
@@ -413,7 +404,6 @@ pub(crate) fn runtime_plugins_dir() -> Result<std::path::PathBuf, String> {
 }
 
 pub(crate) fn legacy_runtime_plugins_dir() -> Result<std::path::PathBuf, String> {
-	#[cfg(any(target_os = "windows", target_os = "macos"))]
 	if !cfg!(debug_assertions) {
 		return runtime_plugins_dir();
 	}
@@ -596,4 +586,49 @@ pub(crate) fn resolve_root_dir(root_dir: Option<String>) -> Result<std::path::Pa
         }
 
         Err("Unable to resolve RevoStream root directory containing libobs effects".to_string())
+}
+
+#[cfg(test)]
+mod writable_state_tests {
+	use super::*;
+
+	#[test]
+	fn shipped_settings_seed_user_config_without_modifying_resources() {
+		let temp = std::env::temp_dir().join(format!("revo-settings-{}", uuid::Uuid::new_v4()));
+		let resources = temp.join("resources/conf");
+		std::fs::create_dir_all(&resources).unwrap();
+		let user_profile = temp.join("user/data/conf/profile.json");
+		let resource_profile = resources.join("profile.json");
+		let legacy = resources.join("settings.json");
+		let legacy_raw = r#"{"stream_url":" legacy "}"#;
+		std::fs::write(&legacy, legacy_raw).unwrap();
+		let migrated = load_settings_from_paths(&user_profile, &resource_profile, &legacy).unwrap();
+		assert_eq!(migrated.stream_url, "legacy");
+		assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_raw);
+
+		std::fs::remove_file(&user_profile).unwrap();
+		let shipped_raw = r#"{"stream_url":" shipped "}"#;
+		std::fs::write(&resource_profile, shipped_raw).unwrap();
+		let seeded = load_settings_from_paths(&user_profile, &resource_profile, &legacy).unwrap();
+		assert_eq!(seeded.stream_url, "shipped");
+		assert!(user_profile.is_file());
+		std::fs::write(&user_profile, r#"{"stream_url":" user "}"#).unwrap();
+		let loaded = load_settings_from_paths(&user_profile, &resource_profile, &legacy).unwrap();
+		assert_eq!(loaded.stream_url, "user");
+		assert_eq!(std::fs::read_to_string(&resource_profile).unwrap(), shipped_raw);
+		assert_eq!(std::fs::read_to_string(&legacy).unwrap(), legacy_raw);
+		std::fs::remove_dir_all(temp).unwrap();
+	}
+
+	#[test]
+	#[cfg(debug_assertions)]
+	fn development_config_preserves_resource_root_layout() {
+		let root = std::env::temp_dir().join(format!("revo-paths-{}", uuid::Uuid::new_v4()));
+		assert_eq!(settings_path(&root).unwrap(), root.join("conf/profile.json"));
+		let effects = root.join("data/share/obs/libobs");
+		std::fs::create_dir_all(&effects).unwrap();
+		std::fs::write(effects.join("default.effect"), "").unwrap();
+		assert_eq!(settings_path(&root).unwrap(), root.join("data/conf/profile.json"));
+		std::fs::remove_dir_all(root).unwrap();
+	}
 }
