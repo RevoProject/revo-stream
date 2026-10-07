@@ -16,6 +16,7 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+
   # ============================================================
   # WINDOWS
   # ============================================================
@@ -25,6 +26,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
+
+      # ----------------------------------------------------------
+      # Checkout / toolchain
+      # ----------------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -75,7 +81,10 @@ jobs:
             ''
           )
 
-          Set-Content -Path $path -Value $content -NoNewline
+          Set-Content `
+            -Path $path `
+            -Value $content `
+            -NoNewline
 
           Write-Host "CEF disabled for CI"
 
@@ -525,6 +534,7 @@ jobs:
 
     strategy:
       fail-fast: false
+
       matrix:
         include:
           - arch: arm64
@@ -536,6 +546,11 @@ jobs:
             cmake_arch: x86_64
 
     steps:
+
+      # ----------------------------------------------------------
+      # Checkout / toolchain
+      # ----------------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -574,6 +589,7 @@ jobs:
       # ----------------------------------------------------------
 
       - name: Install SIMDe
+        shell: bash
         run: |
           brew install simde
 
@@ -582,6 +598,7 @@ jobs:
           echo "CPLUS_INCLUDE_PATH=$(brew --prefix simde)/include:${CPLUS_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Verify SIMDe
+        shell: bash
         run: |
           SIMDE="$(brew --prefix simde)"
           HEADER="$SIMDE/include/simde/x86/sse2.h"
@@ -631,64 +648,160 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           # --------------------------------------------------------
-          # RevoStream logger module
+          # logging/mod.rs
           # --------------------------------------------------------
 
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
 
-          old = '#[cfg(unix)]\npub mod obs_logger;'
-          new = '#[cfg(target_os = "linux")]\npub mod obs_logger;'
+          text = text.replace(
+              '#[cfg(unix)]\npub mod obs_logger;',
+              '#[cfg(target_os = "linux")]\npub mod obs_logger;'
+          )
 
-          if old in text:
-              text = text.replace(old, new, 1)
-              mod.write_text(text)
-              print("RevoStream obs_logger module restricted to Linux")
-          elif new in text:
-              print("RevoStream obs_logger module already restricted to Linux")
-          else:
+          if '#[cfg(target_os = "linux")]\npub mod obs_logger;' not in text:
               raise SystemExit(
-                  "Expected obs_logger module declaration not found"
+                  "ERROR: could not make obs_logger module Linux-only"
               )
 
+          mod.write_text(text)
+
+          print("logging/mod.rs: obs_logger is Linux-only")
+
           # --------------------------------------------------------
-          # Restrict obs_logger.rs itself
+          # logging/obs_logger.rs
           # --------------------------------------------------------
 
           logger = Path("src-tauri/src/logging/obs_logger.rs")
 
           if logger.exists():
-              text = logger.read_text()
+              logger_text = logger.read_text()
 
-              if '#![cfg(unix)]' in text:
-                  text = text.replace(
-                      '#![cfg(unix)]',
-                      '#![cfg(target_os = "linux")]',
-                      1
-                  )
-              elif '#![cfg(target_os = "linux")]' not in text:
-                  text = '#![cfg(target_os = "linux")]\n\n' + text
-
-              logger.write_text(text)
-
-              print("RevoStream obs_logger.rs restricted to Linux")
-          else:
-              print(
-                  "obs_logger.rs not present; "
-                  "module declaration is sufficient"
+              logger_text = logger_text.replace(
+                  '#![cfg(unix)]',
+                  '#![cfg(target_os = "linux")]',
+                  1
               )
 
+              if '#![cfg(target_os = "linux")]' not in logger_text:
+                  logger_text = (
+                      '#![cfg(target_os = "linux")]\n\n'
+                      + logger_text
+                  )
+
+              logger.write_text(logger_text)
+
+              print("logging/obs_logger.rs: Linux-only")
+
           # --------------------------------------------------------
-          # Verify
+          # runtime/init.rs
+          #
+          # The OBS logger call must also be Linux-only.
           # --------------------------------------------------------
 
-          module_text = mod.read_text()
+          init = Path("src-tauri/src/runtime/init.rs")
+          init_text = init.read_text()
 
-          if '#[cfg(target_os = "linux")]\npub mod obs_logger;' not in module_text:
+          marker = "crate::logging::obs_logger::obs_log_handler"
+
+          if marker not in init_text:
               raise SystemExit(
-                  "ERROR: obs_logger module is not Linux-only"
+                  "ERROR: obs_log_handler reference not found in runtime/init.rs"
+              )
+
+          # Find the base_set_log_handler statement containing
+          # obs_log_handler.
+          handler_pos = init_text.find(marker)
+
+          statement_start = init_text.rfind(
+              "revo_lib::obs::base_set_log_handler(",
+              0,
+              handler_pos
+          )
+
+          if statement_start == -1:
+              raise SystemExit(
+                  "ERROR: base_set_log_handler call not found"
+              )
+
+          line_start = init_text.rfind("\n", 0, statement_start) + 1
+
+          # Determine indentation of the statement.
+          line = init_text[line_start:statement_start]
+
+          if not line.strip() == "":
+              raise SystemExit(
+                  "ERROR: unexpected content before base_set_log_handler"
+              )
+
+          indent = line
+
+          # Remove any existing cfg attribute immediately before
+          # the statement.
+          prefix = init_text[:line_start]
+
+          cfg_match = re.search(
+              r'(?m)^([ \t]*)#\[cfg\((?:unix|target_family\s*=\s*"unix"|target_os\s*=\s*"[^"]+")\)\]\s*\n$',
+              prefix
+          )
+
+          if cfg_match:
+              cfg_start = cfg_match.start()
+              init_text = (
+                  init_text[:cfg_start]
+                  + init_text[cfg_match.end():]
+              )
+
+              statement_start = init_text.find(
+                  "revo_lib::obs::base_set_log_handler("
+              )
+
+              line_start = init_text.rfind(
+                  "\n",
+                  0,
+                  statement_start
+              ) + 1
+
+              indent = init_text[line_start:statement_start]
+
+          # Insert Linux-only cfg immediately before the call.
+          statement_start = init_text.find(
+              "revo_lib::obs::base_set_log_handler("
+          )
+
+          line_start = init_text.rfind(
+              "\n",
+              0,
+              statement_start
+          ) + 1
+
+          init_text = (
+              init_text[:line_start]
+              + f'{indent}#[cfg(target_os = "linux")]\n'
+              + init_text[line_start:]
+          )
+
+          init.write_text(init_text)
+
+          print(
+              "runtime/init.rs: base_set_log_handler is Linux-only"
+          )
+
+          # --------------------------------------------------------
+          # Final verification
+          # --------------------------------------------------------
+
+          mod_text = mod.read_text()
+
+          if (
+              '#[cfg(target_os = "linux")]\n'
+              'pub mod obs_logger;'
+          ) not in mod_text:
+              raise SystemExit(
+                  "ERROR: obs_logger module verification failed"
               )
 
           if logger.exists():
@@ -696,10 +809,35 @@ jobs:
 
               if '#![cfg(target_os = "linux")]' not in logger_text:
                   raise SystemExit(
-                      "ERROR: obs_logger.rs is not Linux-only"
+                      "ERROR: obs_logger.rs verification failed"
                   )
 
-          print("OBS logger successfully restricted to Linux")
+          init_text = init.read_text()
+
+          handler_pos = init_text.find(
+              "revo_lib::obs::base_set_log_handler("
+          )
+
+          if handler_pos == -1:
+              raise SystemExit(
+                  "ERROR: base_set_log_handler call disappeared"
+              )
+
+          before_handler = init_text[:handler_pos]
+
+          cfg_pos = before_handler.rfind(
+              '#[cfg(target_os = "linux")]'
+          )
+
+          if cfg_pos == -1:
+              raise SystemExit(
+                  "ERROR: base_set_log_handler is not Linux-only"
+              )
+
+          print("")
+          print("============================================================")
+          print("OBS LOGGER PATCH VERIFIED")
+          print("============================================================")
           PY
 
       # ----------------------------------------------------------
@@ -726,7 +864,9 @@ jobs:
           )
 
           if not matches:
-              raise SystemExit("libobs build.rs not found")
+              raise SystemExit(
+                  "libobs build.rs not found"
+              )
 
           path = matches[0]
           text = path.read_text()
@@ -737,7 +877,9 @@ jobs:
               print("libobs bindgen patch already present")
               raise SystemExit(0)
 
-          needle = '        .clang_arg(format!("-I{}", "headers/obs"));'
+          needle = (
+              '        .clang_arg(format!("-I{}", "headers/obs"));'
+          )
 
           if needle not in text:
               raise SystemExit(
@@ -756,7 +898,13 @@ jobs:
               + "    }"
           )
 
-          path.write_text(text.replace(needle, replacement, 1))
+          path.write_text(
+              text.replace(
+                  needle,
+                  replacement,
+                  1
+              )
+          )
 
           print("libobs bindgen macOS patch applied")
           PY
@@ -778,19 +926,29 @@ jobs:
           )
 
           if not matches:
-              raise SystemExit("libobs-wrapper source not found")
+              raise SystemExit(
+                  "libobs-wrapper source not found"
+              )
 
           src = matches[0]
           other = src / "utils/initialization/other.rs"
           runtime = src / "runtime.rs"
 
           if not other.exists():
-              raise SystemExit(f"Missing file: {other}")
+              raise SystemExit(
+                  f"Missing file: {other}"
+              )
 
           if not runtime.exists():
-              raise SystemExit(f"Missing file: {runtime}")
+              raise SystemExit(
+                  f"Missing file: {runtime}"
+              )
 
           print(f"Using libobs-wrapper source: {src}")
+
+          # --------------------------------------------------------
+          # Rc must exist on macOS.
+          # --------------------------------------------------------
 
           text = other.read_text()
 
@@ -805,9 +963,16 @@ jobs:
                   'use std::rc::Rc;',
                   1
               )
-              print("Removed Linux-only cfg from Rc import")
+
+              print(
+                  "Removed Linux-only cfg from Rc import"
+              )
+
           elif 'use std::rc::Rc;' in text:
-              print("Rc import is already unconditional")
+              print(
+                  "Rc import is already unconditional"
+              )
+
           else:
               raise SystemExit(
                   "use std::rc::Rc; not found in libobs-wrapper"
@@ -815,10 +980,17 @@ jobs:
 
           lines = text.splitlines()
 
+          # --------------------------------------------------------
+          # PlatformSpecificGuard
+          # --------------------------------------------------------
+
           struct_index = None
 
           for i, line in enumerate(lines):
-              if line.strip() == "pub(crate) struct PlatformSpecificGuard {":
+              if (
+                  line.strip()
+                  == "pub(crate) struct PlatformSpecificGuard {"
+              ):
                   struct_index = i
                   break
 
@@ -846,10 +1018,14 @@ jobs:
                   '#[cfg(target_os = "linux")]'
               )
 
+          # Re-find struct.
           struct_index = None
 
           for i, line in enumerate(lines):
-              if line.strip() == "pub(crate) struct PlatformSpecificGuard {":
+              if (
+                  line.strip()
+                  == "pub(crate) struct PlatformSpecificGuard {"
+              ):
                   struct_index = i
                   break
 
@@ -895,8 +1071,15 @@ jobs:
                   "pub(crate) struct PlatformSpecificGuard;",
               ]
 
+          # --------------------------------------------------------
+          # Drop is Linux-only.
+          # --------------------------------------------------------
+
           for i, line in enumerate(lines):
-              if line.strip() == "impl Drop for PlatformSpecificGuard {":
+              if (
+                  line.strip()
+                  == "impl Drop for PlatformSpecificGuard {"
+              ):
                   if (
                       i == 0
                       or lines[i - 1].strip()
@@ -906,15 +1089,23 @@ jobs:
                           i,
                           '#[cfg(target_os = "linux")]'
                       )
+
                   break
 
           other.write_text(
               "\n".join(lines) + "\n"
           )
 
+          # --------------------------------------------------------
+          # runtime.rs
+          # --------------------------------------------------------
+
           runtime_text = runtime.read_text()
 
-          old = "platform_specific_setup(info.nix_display.clone())?"
+          old = (
+              "platform_specific_setup(info.nix_display.clone())?"
+          )
+
           new = "platform_specific_setup()?"
 
           if old in runtime_text:
@@ -923,16 +1114,26 @@ jobs:
                   new,
                   1
               )
+
               runtime.write_text(runtime_text)
-              print("Removed nix_display argument for macOS")
-          elif "platform_specific_setup()?" in runtime_text:
-              print("macOS platform_specific_setup call already patched")
+
+              print(
+                  "Removed nix_display argument for macOS"
+              )
+
+          elif new in runtime_text:
+              print(
+                  "macOS platform_specific_setup call already patched"
+              )
+
           else:
               raise SystemExit(
                   "Expected platform_specific_setup call not found"
               )
 
-          print("libobs-wrapper macOS patch applied")
+          print(
+              "libobs-wrapper macOS patch applied"
+          )
           PY
 
       # ----------------------------------------------------------
@@ -942,7 +1143,9 @@ jobs:
       - name: Verify libobs patches
         shell: bash
         run: |
-          echo "=== libobs bindgen ==="
+          echo "============================================================"
+          echo "VERIFY libobs bindgen"
+          echo "============================================================"
 
           BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
             -path "*/7e76c91/libobs/build.rs" \
@@ -953,10 +1156,14 @@ jobs:
             exit 1
           fi
 
-          grep -n -C 4 "layout_tests" "$BUILD_RS"
+          grep -n -C 4 \
+            "layout_tests" \
+            "$BUILD_RS"
 
           echo
-          echo "=== libobs-wrapper ==="
+          echo "============================================================"
+          echo "VERIFY libobs-wrapper"
+          echo "============================================================"
 
           WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
             -path "*/7e76c91/libobs-wrapper/src" \
@@ -1034,10 +1241,11 @@ jobs:
             https://github.com/obsproject/obs-studio.git \
             "$RUNNER_TEMP/obs-studio"
 
-          git -C "$RUNNER_TEMP/obs-studio" log -1 --oneline
+          git -C "$RUNNER_TEMP/obs-studio" \
+            log -1 --oneline
 
       # ----------------------------------------------------------
-      # OBS 32.1.2 + modern Xcode
+      # OBS libobs-metal / Swift
       # ----------------------------------------------------------
 
       - name: Patch OBS libobs-metal Swift
@@ -1047,8 +1255,15 @@ jobs:
           import os
           from pathlib import Path
 
-          obs = Path(os.environ["RUNNER_TEMP"]) / "obs-studio"
-          path = obs / "libobs-metal/CMakeLists.txt"
+          obs = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "obs-studio"
+          )
+
+          path = (
+              obs
+              / "libobs-metal/CMakeLists.txt"
+          )
 
           if not path.exists():
               raise SystemExit(
@@ -1058,16 +1273,22 @@ jobs:
           text = path.read_text()
 
           if "enable_language(Swift)" in text:
-              print("OBS already enables Swift")
+              print(
+                  "OBS already enables Swift"
+              )
           else:
               path.write_text(
-                  "enable_language(Swift)\n\n" + text
+                  "enable_language(Swift)\n\n"
+                  + text
               )
-              print("Added enable_language(Swift)")
+
+              print(
+                  "Added enable_language(Swift)"
+              )
           PY
 
       # ----------------------------------------------------------
-      # OBS 32.1.2 + Xcode 26.x
+      # OBS virtual camera / Xcode 26
       # ----------------------------------------------------------
 
       - name: Patch OBS macOS virtual camera warnings
@@ -1077,8 +1298,15 @@ jobs:
           import os
           from pathlib import Path
 
-          obs = Path(os.environ["RUNNER_TEMP"]) / "obs-studio"
-          path = obs / "plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
+          obs = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "obs-studio"
+          )
+
+          path = (
+              obs
+              / "plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
+          )
 
           if not path.exists():
               raise SystemExit(
@@ -1095,11 +1323,20 @@ jobs:
               "\"-Wenum-enum-conversion\"\n"
           )
 
-          if "#pragma clang diagnostic push" not in text:
+          if (
+              "#pragma clang diagnostic push"
+              not in text
+          ):
               text = pragma + "\n" + text
 
-          if "#pragma clang diagnostic pop" not in text:
-              text = text.rstrip() + "\n\n#pragma clang diagnostic pop\n"
+          if (
+              "#pragma clang diagnostic pop"
+              not in text
+          ):
+              text = (
+                  text.rstrip()
+                  + "\n\n#pragma clang diagnostic pop\n"
+              )
 
           path.write_text(text)
 
@@ -1116,15 +1353,19 @@ jobs:
           test -f "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
 
           echo "=== OBS source ==="
-          git -C "$OBS_SRC" log -1 --oneline
+
+          git -C "$OBS_SRC" \
+            log -1 --oneline
 
           echo
           echo "=== libobs-metal ==="
+
           head -n 8 \
             "$OBS_SRC/libobs-metal/CMakeLists.txt"
 
           echo
           echo "=== OBSDALStream diagnostics ==="
+
           grep -n -C 2 \
             "clang diagnostic" \
             "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
@@ -1148,6 +1389,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DENABLE_BROWSER=OFF \
             -DENABLE_SCRIPTING=OFF \
             -DENABLE_FRONTEND=OFF
@@ -1182,7 +1424,7 @@ jobs:
             --prefix "$OBS_INSTALL"
 
       # ----------------------------------------------------------
-      # libobs linker path
+      # Locate real macOS libobs binary
       # ----------------------------------------------------------
 
       - name: Configure libobs linker path
@@ -1193,84 +1435,144 @@ jobs:
           OBS_BUILD="$RUNNER_TEMP/obs-build"
 
           echo "============================================================"
-          echo "Locate OBS libobs framework"
+          echo "Locate REAL OBS libobs Mach-O binary"
           echo "============================================================"
 
-          LIBOBS_FRAMEWORK=$(
+          LIBOBS_BINARY=""
+
+          while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+
+            case "$candidate" in
+              *.tbd)
+                continue
+                ;;
+            esac
+
+            if file "$candidate" | grep -q "Mach-O"; then
+              LIBOBS_BINARY="$candidate"
+              break
+            fi
+          done < <(
             find "$OBS_BUILD" \
-              -type d \
-              -path "*/libobs.framework" \
+              -type f \
+              -name "libobs" \
               ! -path "*/EagerLinkingTBDs/*" \
               -print |
-            sort |
-            head -n 1
+            sort
           )
 
-          if [ -z "$LIBOBS_FRAMEWORK" ]; then
-            echo "ERROR: real libobs.framework not found"
+          # Also check symlinked framework binaries.
+          if [ -z "$LIBOBS_BINARY" ]; then
+            while IFS= read -r candidate; do
+              [ -n "$candidate" ] || continue
 
+              case "$candidate" in
+                *.tbd)
+                  continue
+                  ;;
+              esac
+
+              if file "$candidate" | grep -q "Mach-O"; then
+                LIBOBS_BINARY="$candidate"
+                break
+              fi
+            done < <(
+              find "$OBS_BUILD" \
+                -name "libobs" \
+                ! -path "*/EagerLinkingTBDs/*" \
+                -print |
+              sort
+            )
+          fi
+
+          if [ -z "$LIBOBS_BINARY" ]; then
+            echo
+            echo "ERROR: REAL libobs Mach-O binary not found"
+            echo
+            echo "All libobs paths found:"
+            find "$OBS_BUILD" \
+              -name "libobs" \
+              -print |
+            sort || true
+
+            echo
+            echo "All libobs.framework paths:"
             find "$OBS_BUILD" \
               -type d \
-              -name "*.framework" \
+              -name "libobs.framework" \
               -print |
-            sort
+            sort || true
+
+            echo
+            echo "EagerLinkingTBD files:"
+            find "$OBS_BUILD" \
+              -path "*/EagerLinkingTBDs/*" \
+              -print |
+            sort || true
 
             exit 1
           fi
-
-          LIBOBS_BINARY="$LIBOBS_FRAMEWORK/Versions/A/libobs"
-
-          if [ ! -f "$LIBOBS_BINARY" ]; then
-            echo "ERROR: libobs framework binary not found:"
-            echo "$LIBOBS_BINARY"
-
-            find "$LIBOBS_FRAMEWORK" \
-              -maxdepth 4 \
-              -print
-
-            exit 1
-          fi
-
-          echo "libobs framework:"
-          echo "$LIBOBS_FRAMEWORK"
 
           echo
-          echo "libobs binary:"
+          echo "============================================================"
+          echo "REAL libobs binary"
+          echo "============================================================"
+
           echo "$LIBOBS_BINARY"
 
           echo
-          echo "Architecture:"
+          echo "file:"
           file "$LIBOBS_BINARY"
+
+          echo
+          echo "architecture:"
           lipo -info "$LIBOBS_BINARY" || true
 
           LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
           LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
 
-          if [ ! -e "$LIBOBS_LINK" ]; then
-            ln -s \
-              "$(basename "$LIBOBS_BINARY")" \
-              "$LIBOBS_LINK"
-          fi
-
           echo
           echo "Linker directory:"
           echo "$LIBOBS_DIR"
 
-          echo
-          ls -lah "$LIBOBS_DIR"
+          # libobs-rs uses:
+          #
+          #   -L "$LIBOBS_PATH"
+          #   -lobs
+          #
+          # Expose the framework binary under the name expected
+          # by the linker.
+          if [ -e "$LIBOBS_LINK" ] || [ -L "$LIBOBS_LINK" ]; then
+            rm -f "$LIBOBS_LINK"
+          fi
+
+          ln -s \
+            "$(basename "$LIBOBS_BINARY")" \
+            "$LIBOBS_LINK"
 
           echo
-          echo "Checking exported OBS symbols..."
+          echo "Created linker alias:"
+          ls -lah "$LIBOBS_LINK"
+
+          echo
+          echo "Checking OBS symbols:"
 
           nm -gU "$LIBOBS_BINARY" |
             grep -E \
               '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' |
-            head -20 || true
+            head -20 ||
+            true
 
           echo
-          echo "LIBOBS_PATH=$LIBOBS_DIR"
+          echo "============================================================"
+          echo "LIBOBS_PATH"
+          echo "============================================================"
 
-          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+          echo "$LIBOBS_DIR"
+
+          echo "LIBOBS_PATH=$LIBOBS_DIR" \
+            >> "$GITHUB_ENV"
 
       # ----------------------------------------------------------
       # Inspect OBS
@@ -1289,7 +1591,8 @@ jobs:
           find "$OBS_BUILD" \
             -type f \
             -name "*.dylib" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "============================================================"
@@ -1299,7 +1602,8 @@ jobs:
           find "$OBS_BUILD" \
             -type d \
             -name "*.plugin" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "============================================================"
@@ -1309,7 +1613,8 @@ jobs:
           find "$OBS_BUILD" \
             -type d \
             -name "*.framework" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "============================================================"
@@ -1318,7 +1623,9 @@ jobs:
 
           find "$OBS_INSTALL" \
             -type f \
-            -print | sort | head -500
+            -print |
+          sort |
+          head -500
 
       # ----------------------------------------------------------
       # Reject Windows OBS binaries
@@ -1347,7 +1654,8 @@ jobs:
                   -o -name "*.exe" \
                   -o -name "*.pdb" \
                 \)
-            } | sort -u
+            } |
+            sort -u
           )
 
           if [ -n "$WINDOWS_BINARIES" ]; then
@@ -1378,11 +1686,19 @@ jobs:
             "$ROOT/core/lib/obs-plugins" \
             "$ROOT/core/share"
 
+          # --------------------------------------------------------
+          # RevoStream data
+          # --------------------------------------------------------
+
           if [ -d "data" ]; then
             rsync -a \
               "data/" \
               "$ROOT/data/"
           fi
+
+          # --------------------------------------------------------
+          # OBS dylibs
+          # --------------------------------------------------------
 
           DYLIB_COUNT=0
 
@@ -1400,7 +1716,8 @@ jobs:
             find "$OBS_BUILD" \
               -type f \
               -name "*.dylib" \
-              -print | sort
+              -print |
+            sort
           )
 
           if [ "$DYLIB_COUNT" -eq 0 ]; then
@@ -1409,6 +1726,10 @@ jobs:
           fi
 
           echo "Collected dylibs: $DYLIB_COUNT"
+
+          # --------------------------------------------------------
+          # Frameworks
+          # --------------------------------------------------------
 
           FRAMEWORK_COUNT=0
 
@@ -1419,7 +1740,8 @@ jobs:
 
             echo "Copying framework: $name"
 
-            rm -rf "$ROOT/core/lib/$name"
+            rm -rf \
+              "$ROOT/core/lib/$name"
 
             cp -R \
               "$framework" \
@@ -1431,10 +1753,15 @@ jobs:
               -type d \
               -name "*.framework" \
               ! -path "*/EagerLinkingTBDs/*" \
-              -print | sort -u
+              -print |
+            sort -u
           )
 
           echo "Collected frameworks: $FRAMEWORK_COUNT"
+
+          # --------------------------------------------------------
+          # OBS plugins
+          # --------------------------------------------------------
 
           PLUGIN_COUNT=0
 
@@ -1445,7 +1772,8 @@ jobs:
 
             echo "Copying plugin: $name"
 
-            rm -rf "$ROOT/core/lib/obs-plugins/$name"
+            rm -rf \
+              "$ROOT/core/lib/obs-plugins/$name"
 
             cp -R \
               "$plugin" \
@@ -1456,7 +1784,8 @@ jobs:
             find "$OBS_BUILD" \
               -type d \
               -name "*.plugin" \
-              -print | sort -u
+              -print |
+            sort -u
           )
 
           if [ "$PLUGIN_COUNT" -eq 0 ]; then
@@ -1465,6 +1794,10 @@ jobs:
           fi
 
           echo "Collected plugins: $PLUGIN_COUNT"
+
+          # --------------------------------------------------------
+          # Installed resources
+          # --------------------------------------------------------
 
           if [ -d "$OBS_INSTALL/share" ]; then
             rsync -a \
@@ -1478,6 +1811,10 @@ jobs:
               "$ROOT/core/bin/"
           fi
 
+          # --------------------------------------------------------
+          # Final tree
+          # --------------------------------------------------------
+
           echo
           echo "============================================================"
           echo "FINAL macOS revo-root"
@@ -1485,7 +1822,9 @@ jobs:
 
           find "$ROOT" \
             -maxdepth 8 \
-            -print | sort | head -2000
+            -print |
+          sort |
+          head -2000
 
       # ----------------------------------------------------------
       # Verify macOS runtime
@@ -1506,11 +1845,13 @@ jobs:
             exit 1
           fi
 
-          DYLIB_COUNT=$(find "$ROOT/core/lib" \
-            -type f \
-            -name "*.dylib" |
+          DYLIB_COUNT=$(
+            find "$ROOT/core/lib" \
+              -type f \
+              -name "*.dylib" |
             wc -l |
-            tr -d ' ')
+            tr -d ' '
+          )
 
           echo "macOS dylibs: $DYLIB_COUNT"
 
@@ -1519,11 +1860,13 @@ jobs:
             exit 1
           fi
 
-          PLUGIN_COUNT=$(find "$ROOT/core/lib/obs-plugins" \
-            -type d \
-            -name "*.plugin" |
+          PLUGIN_COUNT=$(
+            find "$ROOT/core/lib/obs-plugins" \
+              -type d \
+              -name "*.plugin" |
             wc -l |
-            tr -d ' ')
+            tr -d ' '
+          )
 
           echo "macOS OBS plugins: $PLUGIN_COUNT"
 
@@ -1532,14 +1875,16 @@ jobs:
             exit 1
           fi
 
-          WINDOWS_BINARIES=$(find "$ROOT" \
-            -type f \
-            \( \
-              -name "*.dll" \
-              -o -name "*.exe" \
-              -o -name "*.pdb" \
-            \) \
-            -print)
+          WINDOWS_BINARIES=$(
+            find "$ROOT" \
+              -type f \
+              \( \
+                -name "*.dll" \
+                -o -name "*.exe" \
+                -o -name "*.pdb" \
+              \) \
+              -print
+          )
 
           if [ -n "$WINDOWS_BINARIES" ]; then
             echo "ERROR: Windows binaries leaked into macOS runtime:"
@@ -1555,7 +1900,8 @@ jobs:
           find "$ROOT/core/lib" \
             -type f \
             -name "*.dylib" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "============================================================"
@@ -1565,7 +1911,8 @@ jobs:
           find "$ROOT/core/lib/obs-plugins" \
             -type d \
             -name "*.plugin" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "============================================================"
@@ -1575,7 +1922,8 @@ jobs:
           find "$ROOT/core/lib" \
             -type d \
             -name "*.framework" \
-            -print | sort
+            -print |
+          sort
 
           echo
           echo "macOS runtime layout looks valid"
@@ -1585,6 +1933,7 @@ jobs:
       # ----------------------------------------------------------
 
       - name: Build macOS DMG
+        shell: bash
         run: |
           pnpm tauri build \
             --bundles dmg \
@@ -1601,11 +1950,13 @@ jobs:
         run: |
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
 
-          DMG=$(find "$DMG_DIR" \
-            -maxdepth 1 \
-            -type f \
-            -name "*.dmg" \
-            -print -quit)
+          DMG=$(
+            find "$DMG_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.dmg" \
+              -print -quit
+          )
 
           if [ -z "$DMG" ]; then
             echo "ERROR: DMG was not produced"
@@ -1640,6 +1991,7 @@ jobs:
       - macos
 
     steps:
+
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
@@ -1659,10 +2011,12 @@ jobs:
           path: release/macos-x64
 
       - name: Show release files
+        shell: bash
         run: |
           find release \
             -type f \
-            -print | sort
+            -print |
+          sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
