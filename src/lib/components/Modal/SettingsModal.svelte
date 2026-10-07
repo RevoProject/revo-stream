@@ -1488,7 +1488,6 @@
             <h2>{active}</h2>
           </div>
           <span class="page-description">{pageDescriptions[active] ?? ""}</span>
-          <button class="icon" aria-label="Close settings" onclick={close}>✕</button>
         </header>
 
         <div class="content-body">
@@ -3414,4 +3413,3 @@
     outline-offset: 2px !important;
   }
 </style>
-
