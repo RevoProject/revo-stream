@@ -80,7 +80,7 @@
 <div class="root">
   <img bind:this={imgEl} alt="Preview" class="preview-img" />
   {#if error}
-    <div class="error">{error}</div>
+    <div class="error" data-selectable="true">{error}</div>
   {/if}
 </div>
 

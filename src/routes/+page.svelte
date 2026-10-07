@@ -6729,7 +6729,7 @@
       <div class="global-dialog global-dialog-{dialog.type}">
         <div class="global-dialog-inner">
           <span class="icon">{dialog.icon}</span>
-          <span>{dialog.text}</span>
+          <span data-selectable="true">{dialog.text}</span>
         </div>
       </div>
     {/each}

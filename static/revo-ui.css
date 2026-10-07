@@ -6,13 +6,25 @@
  *   revo-themes.css -> palette + semantic color tokens  (NEW_COLORS.md)
  *   revo-ui.css     -> layout, components, radius, spacing, motion (NEW_UI.md)
  *
- * Every rule below is scoped to :root[data-theme="RevoFuture"], so
- * RevoClassic (the existing application look) cannot be affected.
+ * Visual rules below are scoped to :root[data-theme="RevoFuture"].
+ * Text selection behavior is shared by both themes and all application windows.
  *
  * Components never receive raw hexes here — only semantic tokens
  * (--color-*) and the foundation scale (--radius-*, --space-*, --transition-*).
  * ---------------------------------------------------------------------------
  */
+
+/* UI chrome is not selectable; editors and explicitly copyable content are. */
+:where(body, body *) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:where(input, textarea, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], pre, code, .selectable, [data-selectable="true"]),
+:where([contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], pre, code, .selectable, [data-selectable="true"]) * {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
 /* =========================================================
    1. App shell (NEW_UI §48)

@@ -24,7 +24,7 @@
       onkeydown={(e) => e.stopPropagation()}
     >
       <h3>Source details</h3>
-      <p>
+      <p data-selectable="true">
         Name: {source.name}
         <br />
         Type: {source.source_type}

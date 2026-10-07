@@ -183,7 +183,7 @@
     </div>
   </header>
 
-  <div class="log-list" bind:this={listEl}>
+  <div class="log-list" data-selectable="true" bind:this={listEl}>
     {#if !filteredLogs.length}
       <div class="empty">No actions yet. Press F10 in main window and use app actions.</div>
     {:else}
