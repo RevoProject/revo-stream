@@ -771,6 +771,8 @@
 :root[data-theme="RevoFuture"] .settings-titlebar__close {
   width: 40px;
   height: 40px;
+  padding: 0;
+  line-height: 1;
   display: grid;
   place-items: center;
   background: var(--color-surface-elevated);
