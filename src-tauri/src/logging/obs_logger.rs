@@ -1,4 +1,4 @@
-#![cfg(unix)]
+#![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 
 pub(crate) unsafe extern "C" fn obs_log_handler(
 	lvl: ::std::os::raw::c_int,

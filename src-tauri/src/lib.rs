@@ -668,6 +668,7 @@ pub fn run() {
             if let Ok(cwd) = env::current_dir() {
                 crate::utils::fs::set_startup_cwd(cwd);
             }
+            crate::utils::fs::set_app_paths(app.path().resource_dir()?, app.path().app_data_dir()?);
 
             if let Err(err) = init_debug_log_file() {
                 eprintln!("debug log file init warning: {err}");

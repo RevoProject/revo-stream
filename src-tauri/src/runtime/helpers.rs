@@ -46,9 +46,20 @@ pub(crate) fn stop_streaming_internal(runtime: &mut crate::ObsRuntime) {
 	runtime.stream_audio_encoder = std::ptr::null_mut();
 }
 
+pub(crate) fn graphics_module() -> std::ffi::CString {
+	std::ffi::CString::new(if cfg!(windows) { "libobs-d3d11" } else { "libobs-opengl" }).unwrap()
+}
+
+#[cfg(test)]
+#[test]
+fn graphics_backend_matches_platform() {
+	let expected = if cfg!(windows) { "libobs-d3d11" } else { "libobs-opengl" };
+	assert_eq!(graphics_module().to_str().unwrap(), expected);
+}
+
 pub(crate) fn reset_video_with_resolution(width: u32, height: u32) -> bool {
 	unsafe {
-		let graphics_module = std::ffi::CString::new("libobs-opengl").unwrap();
+		let graphics_module = graphics_module();
 		let mut ovi: revo_lib::obs::obs_video_info = std::mem::zeroed();
 		ovi.graphics_module = graphics_module.as_ptr();
 		ovi.fps_num = 30;

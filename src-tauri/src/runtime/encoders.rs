@@ -36,6 +36,10 @@ pub(crate) fn create_video_encoder(
 
 pub(crate) fn create_hardware_encoder() -> *mut revo_lib::obs::obs_encoder {
 	let candidates = [
+		"com.apple.videotoolbox.videoencoder.ave.avc",
+		"com.apple.videotoolbox.videoencoder.h264",
+		"obs_nvenc_h264_tex",
+		"obs_nvenc_h264",
 		"h264_nvenc",
 		"ffmpeg_nvenc",
 		"h264_qsv",
