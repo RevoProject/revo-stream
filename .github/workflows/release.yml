@@ -12,6 +12,158 @@ env:
   OBS_VERSION: 32.1.2
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
+  # Ubuntu 24.04 / glibc 2.39 is the Linux runtime baseline. RPM packages
+  # require a compatible RPM distribution, not an arbitrary older Linux host.
+  linux:
+    name: Linux x64 (AppImage, DEB, RPM, portable)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake extra-cmake-modules ninja-build pkg-config clang libclang-dev \
+            curl wget file patchelf xdg-utils rpm makeself \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev \
+            libsimde-dev uthash-dev libjansson-dev nlohmann-json3-dev \
+            libcurl4-openssl-dev libmbedtls-dev uuid-dev \
+            libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \
+            libavutil-dev libswresample-dev libswscale-dev libx264-dev \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxcb-shm0-dev \
+            libxcb-xinerama0-dev libxcb-composite0-dev libxcb-xfixes0-dev \
+            libxinerama-dev libxcomposite-dev libxss-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libwayland-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev \
+            libjack-jackd2-dev libsndio-dev libspeexdsp-dev \
+            libfontconfig-dev libfreetype6-dev libudev-dev libv4l-dev \
+            libva-dev libpci-dev libdrm-dev librist-dev libsrt-openssl-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-tools gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly gstreamer1.0-libav
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Disable unavailable sibling CEF dependency
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("src-tauri/Cargo.toml")
+          text = path.read_text()
+          text = text.replace('cef = ["dep:revo-cef"]', 'cef = []')
+          text = text.replace('revo-cef = { path = "../../modules/revo-cef", optional = true }', '')
+          path.write_text(text)
+          PY
+      - name: Build matching OBS runtime
+        run: |
+          set -euo pipefail
+          OBS_SRC="$RUNNER_TEMP/obs-studio"
+          OBS_BUILD="$RUNNER_TEMP/obs-build"
+          OBS_INSTALL="$RUNNER_TEMP/obs-install"
+          git clone --depth 1 --branch "$OBS_VERSION" --recursive \
+            https://github.com/obsproject/obs-studio.git "$OBS_SRC"
+          cmake -S "$OBS_SRC" -B "$OBS_BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$OBS_INSTALL" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+            -DENABLE_RELOCATABLE=ON \
+            -DENABLE_FRONTEND=OFF -DENABLE_BROWSER=OFF -DENABLE_SCRIPTING=OFF \
+            -DENABLE_AJA=OFF -DENABLE_DECKLINK=OFF -DENABLE_VLC=OFF \
+            -DENABLE_VST=OFF -DENABLE_WEBRTC=OFF -DENABLE_WEBSOCKET=OFF \
+            -DENABLE_NVENC=OFF -DENABLE_QSV11=OFF
+          cmake --build "$OBS_BUILD" --parallel 2
+          cmake --install "$OBS_BUILD"
+          test -f "$OBS_INSTALL/lib/libobs.so"
+          echo "LIBOBS_PATH=$OBS_INSTALL/lib" >> "$GITHUB_ENV"
+          echo "REVO_OBS_LIB_DIR=$OBS_INSTALL/lib" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$OBS_INSTALL/lib" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$OBS_INSTALL/lib/pkgconfig" >> "$GITHUB_ENV"
+          # The same usr/bin -> usr/lib layout is used by Tauri's AppDir and native packages.
+          echo 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/../lib/revo-ui/resources/revo-root/core/lib' >> "$GITHUB_ENV"
+      - name: Stage OBS libraries, plugins and helper dependencies
+        run: bash scripts/prepare-linux-runtime.sh "$RUNNER_TEMP/obs-install"
+      - name: Build Linux AppImage, DEB and RPM
+        run: |
+          pnpm tauri build \
+            --config src-tauri/tauri.release-linux.conf.json \
+            --bundles appimage,deb,rpm -- --no-default-features
+      - name: Create portable AppDir archive and self-extracting launcher
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          BUNDLE="src-tauri/target/release/bundle"
+          appdirs=("$BUNDLE"/appimage/*.AppDir)
+          test "${#appdirs[@]}" -eq 1
+          APPDIR="${appdirs[0]}"
+          test -x "$APPDIR/AppRun"
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          tar -C "$(dirname "$APPDIR")" -czf \
+            "$BUNDLE/revo-ui-${VERSION}-linux-x64-portable.tar.gz" "$(basename "$APPDIR")"
+          makeself --nox11 "$APPDIR" "$BUNDLE/revo-ui-${VERSION}-linux-x64.run" \
+            "RevoStream ${VERSION}" ./AppRun
+      - name: Verify Linux release files and generate checksums
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          BUNDLE="src-tauri/target/release/bundle"
+          for pattern in "$BUNDLE"/appimage/*.AppImage "$BUNDLE"/deb/*.deb \
+            "$BUNDLE"/rpm/*.rpm "$BUNDLE"/*-linux-x64-portable.tar.gz "$BUNDLE"/*-linux-x64.run; do
+            test -s "$pattern"
+          done
+          appimages=("$BUNDLE"/appimage/*.AppImage)
+          debs=("$BUNDLE"/deb/*.deb)
+          rpms=("$BUNDLE"/rpm/*.rpm)
+          archives=("$BUNDLE"/*-linux-x64-portable.tar.gz)
+          launchers=("$BUNDLE"/*-linux-x64.run)
+          for files in appimages debs rpms archives launchers; do
+            declare -n entries="$files"
+            test "${#entries[@]}" -gt 0
+          done
+          for deb in "${debs[@]}"; do
+            dpkg-deb --info "$deb"
+            dpkg-deb --contents "$deb"
+          done
+          for rpm in "${rpms[@]}"; do
+            rpm -qp --requires "$rpm"
+            rpm -qplp "$rpm"
+          done
+          for archive in "${archives[@]}"; do tar -tzf "$archive"; done
+          for launcher in "${launchers[@]}"; do bash "$launcher" --check; done
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          (cd "$BUNDLE" && sha256sum appimage/*.AppImage deb/*.deb rpm/*.rpm \
+            *-linux-x64-portable.tar.gz *-linux-x64.run > "revo-ui-${VERSION}-linux-x64-SHA256SUMS.txt")
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/*-linux-x64-portable.tar.gz
+            src-tauri/target/release/bundle/*-linux-x64.run
+            src-tauri/target/release/bundle/*-linux-x64-SHA256SUMS.txt
   # ============================================================
   # WINDOWS
   # ============================================================
@@ -1893,6 +2045,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs:
+      - linux
       - windows
       - macos
     steps:
@@ -1901,6 +2054,11 @@ jobs:
         with:
           name: windows-x64
           path: release/windows
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64
+          path: release/linux
       - name: Download macOS ARM64 artifacts
         uses: actions/download-artifact@v4
         with:
@@ -1922,6 +2080,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            release/linux/**/*.AppImage
+            release/linux/**/*.deb
+            release/linux/**/*.rpm
+            release/linux/**/*-linux-x64-portable.tar.gz
+            release/linux/**/*-linux-x64.run
+            release/linux/**/*-linux-x64-SHA256SUMS.txt
             release/windows/**/*.msi
             release/windows/**/*.zip
             release/macos-arm64/**/*.dmg
