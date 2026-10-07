@@ -384,6 +384,12 @@ pub(crate) fn settings_save(settings: crate::AppSettings) -> Result<String, Stri
 }
 
 pub(crate) fn runtime_data_dir() -> Result<std::path::PathBuf, String> {
+	#[cfg(any(target_os = "windows", target_os = "macos"))]
+	if !cfg!(debug_assertions) {
+		if let Some(data_dir) = crate::utils::fs::app_data_dir() {
+			return Ok(data_dir.join("data"));
+		}
+	}
 	let cwd = crate::utils::fs::startup_cwd()?;
 	if cwd.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
 		if let Some(parent) = cwd.parent() {
@@ -407,6 +413,10 @@ pub(crate) fn runtime_plugins_dir() -> Result<std::path::PathBuf, String> {
 }
 
 pub(crate) fn legacy_runtime_plugins_dir() -> Result<std::path::PathBuf, String> {
+	#[cfg(any(target_os = "windows", target_os = "macos"))]
+	if !cfg!(debug_assertions) {
+		return runtime_plugins_dir();
+	}
 	let cwd = crate::utils::fs::startup_cwd()?;
 	if cfg!(debug_assertions) {
 		if cwd.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
@@ -553,6 +563,15 @@ pub(crate) fn resolve_root_dir(root_dir: Option<String>) -> Result<std::path::Pa
                 let path = std::path::PathBuf::from(root);
                 if path.exists() && is_valid_root(&path) {
                         return Ok(path);
+                }
+        }
+
+        if let Some(resources) = crate::utils::fs::resource_dir() {
+                for relative in ["resources/revo-root", "revo-root", ""] {
+                        let candidate = resources.join(relative);
+                        if is_valid_root(&candidate) {
+                                return Ok(candidate);
+                        }
                 }
         }
 

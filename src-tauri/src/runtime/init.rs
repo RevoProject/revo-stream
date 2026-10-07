@@ -48,12 +48,15 @@ pub(crate) fn start(
 		return Ok("OBS already initialized".to_string());
 	}
 
+	#[cfg(target_os = "linux")]
 	let has_display = std::env::var_os("DISPLAY").is_some()
 		|| std::env::var_os("WAYLAND_DISPLAY").is_some();
+	#[cfg(target_os = "linux")]
 	if !has_display {
 		return Err("No display found (DISPLAY/WAYLAND_DISPLAY). Run under a desktop session or set DISPLAY.".to_string());
 	}
 
+	#[cfg(target_os = "linux")]
 	if std::env::var_os("REVO_FORCE_SOFTWARE_GL").is_some() {
 		std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
 		std::env::set_var("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe");
@@ -87,7 +90,12 @@ pub(crate) fn start(
 	} else {
 		core_ffmpeg_bin.clone()
 	};
-	let conf_dir = data_dir.join("conf");
+	let conf_dir = if cfg!(any(target_os = "windows", target_os = "macos")) {
+		crate::settings::core::runtime_data_dir()?.join("conf")
+	} else {
+		data_dir.join("conf")
+	};
+	std::fs::create_dir_all(&conf_dir).map_err(|e| format!("failed to create OBS config directory: {e}"))?;
 	let data_plugins_dir = data_dir.join("lib/obs-plugins");
 	let data_plugin_data_dir = data_dir.join("share/obs/obs-plugins/%module%");
 	let core_plugins_dir = core_dir.join("lib/obs-plugins");
@@ -134,7 +142,6 @@ pub(crate) fn start(
 		crate::settings::plugins_profiles::plugin_profile_get_internal(&active_plugin_profile)
 			.ok()
 			.map(|p| p.enabled_modules.into_iter().collect::<std::collections::HashSet<_>>())
-			.filter(|set| !set.is_empty())
 			.unwrap_or_else(|| runtime_plugins.iter().map(|p| p.module_name.clone()).collect());
 	eprintln!(
 		"[plugins] obs_start active_profile={} enabled_count={}",
@@ -183,14 +190,14 @@ pub(crate) fn start(
 			std::env::set_var("PATH", new_path);
 		}
 		std::env::set_var("OBS_FFMPEG_PATH", &ffmpeg_bin);
-		let mux = ffmpeg_bin.join("obs-ffmpeg-mux");
+		let mux = ffmpeg_bin.join(if cfg!(windows) { "obs-ffmpeg-mux.exe" } else { "obs-ffmpeg-mux" });
 		if mux.is_file() {
 			std::env::set_var("OBS_FFMPEG_MUX_PATH", mux);
 		}
 	}
 
 	unsafe {
-		#[cfg(unix)]
+		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         revo_lib::obs::base_set_log_handler(
             Some(crate::logging::obs_logger::obs_log_handler),
             std::ptr::null_mut(),
@@ -269,8 +276,6 @@ pub(crate) fn start(
 			"obs-browser",
 			"linux-capture",
 			"frontend-tools",
-			"obs-qsv11",
-			"obs-nvenc",
 			"obs-vst",
 		];
 
@@ -279,7 +284,9 @@ pub(crate) fn start(
 
 			let blocked = blocked_modules
 				.iter()
-				.any(|entry| normalized_name == *entry || normalized_name.contains(entry));
+				.any(|entry| normalized_name == *entry || normalized_name.contains(entry))
+				|| (cfg!(target_os = "linux")
+					&& ["obs-qsv11", "obs-nvenc"].iter().any(|entry| normalized_name.contains(entry)));
 			if blocked {
 				continue;
 			}
@@ -310,11 +317,18 @@ pub(crate) fn start(
 				data.as_ptr(),
 			);
 			if open_result == revo_lib::obs::MODULE_SUCCESS as i32 && !mod_ptr.is_null() {
-				let _ = revo_lib::obs::obs_init_module(mod_ptr);
+				if !revo_lib::obs::obs_init_module(mod_ptr) {
+					eprintln!("[plugins] failed to initialize {}", module.name);
+				}
+			} else {
+				eprintln!("[plugins] failed to open {} (code {})", module.name, open_result);
 			}
 		}
 
 		revo_lib::obs::obs_post_load_modules();
+		if let Err(err) = crate::sources::browser::register() {
+			eprintln!("[browser] source registration unavailable: {err}");
+		}
 
 		// Stworz transition source PO zaladowaniu modulow (cut_transition z obs-transitions)
 		if runtime.transition_source.is_null() {
@@ -481,7 +495,7 @@ pub(crate) fn cleanup_scene(runtime: &mut crate::ObsRuntime) {
 
 pub(crate) fn reset_video_audio() -> bool {
 	unsafe {
-		let graphics_module = std::ffi::CString::new("libobs-opengl").unwrap();
+		let graphics_module = super::helpers::graphics_module();
 		let mut ovi: revo_lib::obs::obs_video_info = std::mem::zeroed();
 		ovi.graphics_module = graphics_module.as_ptr();
 		ovi.fps_num = 30;
