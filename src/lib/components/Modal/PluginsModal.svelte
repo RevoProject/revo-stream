@@ -3,7 +3,18 @@
 
   export let pluginProfiles: string[] = ["default"];
   export let activePluginProfile = "default";
-  export let plugins: { name: string; file_name: string; module_name: string }[] = [];
+  type PluginInfo = {
+    name: string;
+    file_name: string;
+    module_name: string;
+    window_capabilities: {
+      can_list: boolean;
+      can_open: boolean;
+      reason: string;
+    };
+  };
+
+  export let plugins: PluginInfo[] = [];
   export let enabledModules: string[] = [];
   export let baselineEnabledModules: string[] = [];
   export let busy = false;
@@ -106,7 +117,7 @@
   const isEnabled = (moduleName: string) => localEnabledModules.has(moduleName);
 
   type PluginViewRow = {
-    plugin: { name: string; file_name: string; module_name: string };
+    plugin: PluginInfo;
     enabled: boolean;
     pendingEnable: boolean;
     pendingDisable: boolean;
@@ -202,7 +213,7 @@
         {:else}
           <div class="plugins-grid">
             {#each pluginViewRows as row (row.plugin.module_name)}
-              <label class="plugin-card">
+              <div class="plugin-card">
                 <div class="plugin-card-head">
                   <div class="plugin-name">{row.plugin.name}</div>
                   <span
@@ -224,16 +235,29 @@
                   >
                     {row.statusText}
                   </span>
-                  <span class="plugin-toggle">
+                  <label class="plugin-toggle">
                     <input
                       type="checkbox"
+                      aria-label={`Enable ${row.plugin.name} in profile`}
                       checked={row.enabled}
                       onchange={(e) => toggleModule(row.plugin.module_name, (e.currentTarget as HTMLInputElement).checked)}
                     />
                     <span class="plugin-toggle-slider"></span>
-                  </span>
+                  </label>
                 </div>
-              </label>
+                <details class="plugin-windows">
+                  <summary>
+                    Windows
+                    <span class="plugin-window-status">
+                      {row.plugin.window_capabilities.can_list || row.plugin.window_capabilities.can_open
+                        ? "Unavailable"
+                        : "Unsupported"}
+                    </span>
+                  </summary>
+                  <p>{row.plugin.window_capabilities.reason}</p>
+                  <p class="plugin-window-note">Window availability is separate from the profile enable toggle.</p>
+                </details>
+              </div>
             {/each}
           </div>
         {/if}
@@ -355,7 +379,6 @@
     padding: 0.75rem;
     display: grid;
     gap: 0.5rem;
-    cursor: pointer;
   }
 
   .plugin-card:hover {
@@ -447,6 +470,38 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    cursor: pointer;
+  }
+
+  .plugin-windows {
+    border-top: 1px solid var(--border);
+    padding-top: 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+  }
+
+  .plugin-windows summary {
+    cursor: pointer;
+    color: var(--text);
+  }
+
+  .plugin-window-status {
+    margin-left: 0.4rem;
+    color: var(--text-muted);
+  }
+
+  .plugin-windows p {
+    margin: 0.6rem 0 0;
+    line-height: 1.5;
+  }
+
+  .plugin-window-note {
+    font-size: 0.76rem;
+  }
+
+  .plugin-toggle:focus-within .plugin-toggle-slider {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
   }
 
   .plugin-toggle input {

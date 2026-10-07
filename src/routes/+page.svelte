@@ -60,6 +60,11 @@
     name: string;
     file_name: string;
     module_name: string;
+    window_capabilities: {
+      can_list: boolean;
+      can_open: boolean;
+      reason: string;
+    };
   };
 
   type CefBridgeInfo = {

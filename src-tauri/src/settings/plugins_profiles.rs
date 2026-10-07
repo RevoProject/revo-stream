@@ -4,6 +4,15 @@ pub(crate) fn plugin_display_name_from_module(module_name: &str) -> String {
 	crate::settings::core::title_case_words(words.trim())
 }
 
+fn plugin_window_capabilities() -> crate::PluginWindowCapabilities {
+	// libobs module discovery is not an OBS Qt frontend/window registration bridge.
+	crate::PluginWindowCapabilities {
+		can_list: false,
+		can_open: false,
+		reason: "Plugin windows are unsupported in this build. RevoStream uses libobs without an OBS Qt frontend bridge or a plugin window registry, so native plugin windows cannot be listed or opened. Enabling a plugin or restarting does not add this support.".to_string(),
+	}
+}
+
 pub(crate) fn list_runtime_plugins_internal() -> Result<Vec<crate::PluginInfo>, String> {
 	crate::settings::core::ensure_runtime_data_dirs()?;
 	let primary = crate::settings::core::runtime_plugins_dir()?;
@@ -58,6 +67,7 @@ pub(crate) fn list_runtime_plugins_internal() -> Result<Vec<crate::PluginInfo>, 
 					name: plugin_display_name_from_module(&module_name),
 					file_name,
 					module_name,
+					window_capabilities: plugin_window_capabilities(),
 				});
 		}
 	}
@@ -418,4 +428,18 @@ pub(crate) fn profiles_activate(name: String) -> Result<crate::AppSettings, Stri
 	settings.active_profile = Some(safe);
 	crate::settings::core::settings_save(settings.clone())?;
 	Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn plugin_windows_do_not_claim_a_frontend_bridge() {
+		let capabilities = super::plugin_window_capabilities();
+		assert!(!capabilities.can_list);
+		assert!(!capabilities.can_open);
+		assert!(capabilities.reason.contains("without an OBS Qt frontend bridge"));
+		let value = serde_json::to_value(capabilities).unwrap();
+		assert_eq!(value["can_list"], false);
+		assert_eq!(value["can_open"], false);
+	}
 }

@@ -135,6 +135,14 @@ pub(crate) struct PluginInfo {
 	pub(crate) name: String,
 	pub(crate) file_name: String,
 	pub(crate) module_name: String,
+	pub(crate) window_capabilities: PluginWindowCapabilities,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct PluginWindowCapabilities {
+	pub(crate) can_list: bool,
+	pub(crate) can_open: bool,
+	pub(crate) reason: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
