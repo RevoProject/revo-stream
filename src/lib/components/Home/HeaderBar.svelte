@@ -28,9 +28,17 @@
 </script>
 
 <header>
-  <div class="logo" title={version ? `Version ${version}` : "RevoStream"}>
-    RevoStream
-    <span class="tagline">Stream. Create. Control.</span>
+  <div class="brand" title={version ? `Version ${version}` : "RevoStream"}>
+    <span class="brandmark" aria-hidden="true">
+      <svg viewBox="0 0 40 40" focusable="false">
+        <path fill="currentColor" d="M7 7h15.5C30.5 7 35 11.2 35 17.3c0 5-3.1 8.5-8.1 9.5L35 33H25.8l-7.3-8.1H14V33H7V7Zm7 6v5.9h7.7c2.5 0 4-1.1 4-3s-1.5-2.9-4-2.9H14Z"></path>
+        <path fill="currentColor" opacity=".72" d="M4 5h5v30H4z"></path>
+      </svg>
+    </span>
+    <div class="logo">
+      RevoStream
+      <span class="tagline">Stream. Create. Control.</span>
+    </div>
   </div>
   <div class="actions">
     <div class="nav">
@@ -94,6 +102,26 @@
   header .logo {
     font-weight: 700;
     font-size: 1.4rem;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--text);
+  }
+
+  .brandmark {
+    display: flex;
+    flex: 0 0 auto;
+    width: 2.1rem;
+    height: 2.1rem;
+  }
+
+  .brandmark svg {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   /* RevoFuture-only brand/status extras (hidden in RevoClassic) */
