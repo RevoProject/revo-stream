@@ -650,6 +650,10 @@ jobs:
           print("CEF disabled for CI")
           PY
 
+      # ----------------------------------------------------------
+      # OBS logger
+      # ----------------------------------------------------------
+
       - name: Disable OBS logger on non-Linux CI
         shell: bash
         run: |
@@ -658,18 +662,36 @@ jobs:
 
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
-          text = text.replace(
-              '#[cfg(unix)]\npub mod obs_logger;',
-              '#[cfg(target_os = "linux")]\npub mod obs_logger;'
-          )
+
+          old = '#[cfg(unix)]\npub mod obs_logger;'
+          new = '#[cfg(target_os = "linux")]\npub mod obs_logger;'
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif '#[cfg(target_os = "linux")]\npub mod obs_logger;' in text:
+              print("OBS logger module already restricted to Linux")
+          else:
+              raise SystemExit(
+                  "Expected obs_logger module declaration not found"
+              )
+
           mod.write_text(text)
 
           init = Path("src-tauri/src/runtime/init.rs")
           text = init.read_text()
-          text = text.replace(
-              '#[cfg(unix)]\nrevo_lib::obs::base_set_log_handler(',
-              '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler('
-          )
+
+          old = '#[cfg(unix)]\nrevo_lib::obs::base_set_log_handler('
+          new = '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler('
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler(' in text:
+              print("OBS logger initialization already restricted to Linux")
+          else:
+              raise SystemExit(
+                  "Expected base_set_log_handler call not found"
+              )
+
           init.write_text(text)
 
           print("OBS logger restricted to Linux")
@@ -1166,55 +1188,6 @@ jobs:
           OBS_BUILD="$RUNNER_TEMP/obs-build"
 
           echo "============================================================"
-          echo "Locate real OBS libobs framework"
-          echo "============================================================"
-
-          LIBOBS_BINARY=$(
-            find "$OBS_BUILD" \
-              -type f \
-              -path "*/libobs.framework/Versions/*/libobs" \
-              ! -path "*/EagerLinkingTBDs/*" \
-              -print |
-            sort |
-            head -n 1
-          )
-
-          if [ -z "$LIBOBS_BINARY" ]; then
-            echo "ERROR: real libobs framework binary not found"
-            echo
-            echo "Found libobs framework files:"
-            find "$OBS_BUILD" \
-              -path "*/libobs.framework/*" \
-              -print |
-            sort
-            exit 1
-          fi
-
-          echo "libobs binary:"
-          echo "$LIBOBS_BINARY"
-
-          file "$LIBOBS_BINARY"
-          lipo -info "$LIBOBS_BINARY" || true
-
-          LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
-
-          if [ ! -e "$LIBOBS_DIR/libobs.dylib" ]; then
-            ln -s "$(basename "$LIBOBS_BINARY")" "$LIBOBS_DIR/libobs.dylib"
-          fi
-
-          echo "LIBOBS_PATH=$LIBOBS_DIR"
-          echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
-
-          echo
-          echo "libobs directory:"
-          ls -lah "$LIBOBS_DIR"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          OBS_BUILD="$RUNNER_TEMP/obs-build"
-
-          echo "============================================================"
           echo "Locate OBS libobs framework"
           echo "============================================================"
 
@@ -1222,18 +1195,20 @@ jobs:
             find "$OBS_BUILD" \
               -type d \
               -path "*/libobs.framework" \
+              ! -path "*/EagerLinkingTBDs/*" \
               -print |
             sort |
             head -n 1
           )
 
           if [ -z "$LIBOBS_FRAMEWORK" ]; then
-            echo "ERROR: libobs.framework not found"
+            echo "ERROR: real libobs.framework not found"
 
             find "$OBS_BUILD" \
               -type d \
               -name "*.framework" \
-              -print | sort
+              -print |
+            sort
 
             exit 1
           fi
@@ -1243,7 +1218,11 @@ jobs:
           if [ ! -f "$LIBOBS_BINARY" ]; then
             echo "ERROR: libobs framework binary not found:"
             echo "$LIBOBS_BINARY"
-            find "$LIBOBS_FRAMEWORK" -maxdepth 4 -print
+
+            find "$LIBOBS_FRAMEWORK" \
+              -maxdepth 4 \
+              -print
+
             exit 1
           fi
 
@@ -1260,12 +1239,12 @@ jobs:
           lipo -info "$LIBOBS_BINARY" || true
 
           # --------------------------------------------------------
-          # libobs-rs asks the linker for:
+          # libobs-rs expects:
           #
           #     -L <LIBOBS_PATH>
           #     -lobs
           #
-          # Therefore expose the framework binary as libobs.dylib.
+          # Expose the framework binary as libobs.dylib.
           # --------------------------------------------------------
 
           LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
@@ -1289,13 +1268,14 @@ jobs:
 
           nm -gU "$LIBOBS_BINARY" |
             grep -E \
-              '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' \
-            | head -20 || true
+              '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' |
+            head -20 || true
 
           echo
           echo "LIBOBS_PATH=$LIBOBS_DIR"
 
           echo "LIBOBS_PATH=$LIBOBS_DIR" >> "$GITHUB_ENV"
+
       # ----------------------------------------------------------
       # Inspect OBS
       # ----------------------------------------------------------
@@ -1466,6 +1446,7 @@ jobs:
             find "$OBS_BUILD" \
               -type d \
               -name "*.framework" \
+              ! -path "*/EagerLinkingTBDs/*" \
               -print | sort -u
           )
 
