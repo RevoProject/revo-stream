@@ -225,10 +225,6 @@ jobs:
           New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
 
-          # --------------------------------------------------------
-          # RevoStream application data
-          # --------------------------------------------------------
-
           if (Test-Path "data") {
             Copy-Item `
               "data\*" `
@@ -236,10 +232,6 @@ jobs:
               -Recurse `
               -Force
           }
-
-          # --------------------------------------------------------
-          # OBS root DLLs
-          # --------------------------------------------------------
 
           $dlls = Get-ChildItem `
             $OUT `
@@ -260,10 +252,6 @@ jobs:
               -Force
           }
 
-          # --------------------------------------------------------
-          # OBS plugins
-          # --------------------------------------------------------
-
           if (Test-Path "$OUT\obs-plugins") {
             Copy-Item `
               "$OUT\obs-plugins" `
@@ -275,10 +263,6 @@ jobs:
             throw "OBS obs-plugins directory missing"
           }
 
-          # --------------------------------------------------------
-          # OBS bin
-          # --------------------------------------------------------
-
           if (Test-Path "$OUT\bin") {
             Copy-Item `
               "$OUT\bin\*" `
@@ -286,10 +270,6 @@ jobs:
               -Recurse `
               -Force
           }
-
-          # --------------------------------------------------------
-          # OBS share
-          # --------------------------------------------------------
 
           if (Test-Path "$OUT\share") {
             Copy-Item `
@@ -299,10 +279,6 @@ jobs:
               -Force
           }
 
-          # --------------------------------------------------------
-          # OBS data
-          # --------------------------------------------------------
-
           if (Test-Path "$OUT\data") {
             Copy-Item `
               "$OUT\data\*" `
@@ -310,10 +286,6 @@ jobs:
               -Recurse `
               -Force
           }
-
-          # --------------------------------------------------------
-          # Verify
-          # --------------------------------------------------------
 
           $runtimeObs = "$ROOT\core\lib\obs.dll"
 
@@ -660,6 +632,10 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          # --------------------------------------------------------
+          # RevoStream logger module
+          # --------------------------------------------------------
+
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
 
@@ -668,33 +644,62 @@ jobs:
 
           if old in text:
               text = text.replace(old, new, 1)
-          elif '#[cfg(target_os = "linux")]\npub mod obs_logger;' in text:
-              print("OBS logger module already restricted to Linux")
+              mod.write_text(text)
+              print("RevoStream obs_logger module restricted to Linux")
+          elif new in text:
+              print("RevoStream obs_logger module already restricted to Linux")
           else:
               raise SystemExit(
                   "Expected obs_logger module declaration not found"
               )
 
-          mod.write_text(text)
+          # --------------------------------------------------------
+          # Restrict obs_logger.rs itself
+          # --------------------------------------------------------
 
-          init = Path("src-tauri/src/runtime/init.rs")
-          text = init.read_text()
+          logger = Path("src-tauri/src/logging/obs_logger.rs")
 
-          old = '#[cfg(unix)]\nrevo_lib::obs::base_set_log_handler('
-          new = '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler('
+          if logger.exists():
+              text = logger.read_text()
 
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif '#[cfg(target_os = "linux")]\nrevo_lib::obs::base_set_log_handler(' in text:
-              print("OBS logger initialization already restricted to Linux")
+              if '#![cfg(unix)]' in text:
+                  text = text.replace(
+                      '#![cfg(unix)]',
+                      '#![cfg(target_os = "linux")]',
+                      1
+                  )
+              elif '#![cfg(target_os = "linux")]' not in text:
+                  text = '#![cfg(target_os = "linux")]\n\n' + text
+
+              logger.write_text(text)
+
+              print("RevoStream obs_logger.rs restricted to Linux")
           else:
-              raise SystemExit(
-                  "Expected base_set_log_handler call not found"
+              print(
+                  "obs_logger.rs not present; "
+                  "module declaration is sufficient"
               )
 
-          init.write_text(text)
+          # --------------------------------------------------------
+          # Verify
+          # --------------------------------------------------------
 
-          print("OBS logger restricted to Linux")
+          module_text = mod.read_text()
+
+          if '#[cfg(target_os = "linux")]\npub mod obs_logger;' not in module_text:
+              raise SystemExit(
+                  "ERROR: obs_logger module is not Linux-only"
+              )
+
+          if logger.exists():
+              logger_text = logger.read_text()
+
+              if '#![cfg(target_os = "linux")]' not in logger_text:
+                  raise SystemExit(
+                      "ERROR: obs_logger.rs is not Linux-only"
+                  )
+
+          print("OBS logger successfully restricted to Linux")
           PY
 
       # ----------------------------------------------------------
@@ -1238,15 +1243,6 @@ jobs:
           file "$LIBOBS_BINARY"
           lipo -info "$LIBOBS_BINARY" || true
 
-          # --------------------------------------------------------
-          # libobs-rs expects:
-          #
-          #     -L <LIBOBS_PATH>
-          #     -lobs
-          #
-          # Expose the framework binary as libobs.dylib.
-          # --------------------------------------------------------
-
           LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
           LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
 
@@ -1382,19 +1378,11 @@ jobs:
             "$ROOT/core/lib/obs-plugins" \
             "$ROOT/core/share"
 
-          # ------------------------------------------------------
-          # RevoStream data
-          # ------------------------------------------------------
-
           if [ -d "data" ]; then
             rsync -a \
               "data/" \
               "$ROOT/data/"
           fi
-
-          # ------------------------------------------------------
-          # OBS dylibs
-          # ------------------------------------------------------
 
           DYLIB_COUNT=0
 
@@ -1422,10 +1410,6 @@ jobs:
 
           echo "Collected dylibs: $DYLIB_COUNT"
 
-          # ------------------------------------------------------
-          # Frameworks
-          # ------------------------------------------------------
-
           FRAMEWORK_COUNT=0
 
           while IFS= read -r framework; do
@@ -1451,10 +1435,6 @@ jobs:
           )
 
           echo "Collected frameworks: $FRAMEWORK_COUNT"
-
-          # ------------------------------------------------------
-          # OBS plugins
-          # ------------------------------------------------------
 
           PLUGIN_COUNT=0
 
@@ -1486,10 +1466,6 @@ jobs:
 
           echo "Collected plugins: $PLUGIN_COUNT"
 
-          # ------------------------------------------------------
-          # Installed resources
-          # ------------------------------------------------------
-
           if [ -d "$OBS_INSTALL/share" ]; then
             rsync -a \
               "$OBS_INSTALL/share/" \
@@ -1501,10 +1477,6 @@ jobs:
               "$OBS_INSTALL/bin/" \
               "$ROOT/core/bin/"
           fi
-
-          # ------------------------------------------------------
-          # Final tree
-          # ------------------------------------------------------
 
           echo
           echo "============================================================"
