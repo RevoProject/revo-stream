@@ -1,417 +1,328 @@
 name: Release
-
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
-
 permissions:
   contents: write
-
 env:
   PNPM_VERSION: 10
   NODE_VERSION: 24
   OBS_VERSION: 32.1.2
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 jobs:
-
   # ============================================================
   # WINDOWS
   # ============================================================
-
   windows:
     name: Windows x64
     runs-on: windows-latest
-
     steps:
-
       # ----------------------------------------------------------
       # Checkout / toolchain
       # ----------------------------------------------------------
-
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-
       - name: Show tool versions
         run: |
           node --version
           pnpm --version
           cargo --version
           rustc --version
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       # ----------------------------------------------------------
       # CEF
       # ----------------------------------------------------------
-
       - name: Disable CEF for CI build
         shell: pwsh
         run: |
           $path = "src-tauri/Cargo.toml"
           $content = Get-Content $path -Raw
-
           $content = $content.Replace(
             'cef = ["dep:revo-cef"]',
             'cef = []'
           )
-
           $content = $content.Replace(
             'revo-cef = { path = "../../modules/revo-cef", optional = true }',
             ''
           )
-
-          Set-Content `
-            -Path $path `
-            -Value $content `
+          Set-Content \`
+            -Path $path \`
+            -Value $content \`
             -NoNewline
-
           Write-Host "CEF disabled for CI"
-
       # ----------------------------------------------------------
       # Runtime resources
       # ----------------------------------------------------------
-
       - name: Prepare revo-root
         shell: pwsh
         run: |
-          Remove-Item `
-            "src-tauri/resources/revo-root" `
-            -Recurse `
-            -Force `
+          Remove-Item \`
+            "src-tauri/resources/revo-root" \`
+            -Recurse \`
+            -Force \`
             -ErrorAction SilentlyContinue
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
+          New-Item \`
+            -ItemType Directory \`
+            -Force \`
             "src-tauri/resources/revo-root" | Out-Null
-
       # ----------------------------------------------------------
       # Rust dependencies
       # ----------------------------------------------------------
-
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
-
       # ----------------------------------------------------------
       # libobs-bootstrapper
       # ----------------------------------------------------------
-
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = "$env:USERPROFILE\.cargo\git\checkouts"
-
-          $bootstrapper = Get-ChildItem `
-            $root `
-            -Recurse `
+          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
+          $bootstrapper = Get-ChildItem \`
+            $root \`
+            -Recurse \`
             -Filter Cargo.toml |
             Where-Object {
-              $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
+              $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
             Select-Object -First 1
-
           if (-not $bootstrapper) {
             throw "libobs-bootstrapper Cargo.toml not found"
           }
-
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
-
           Write-Host "Using bootstrapper: $dir"
-
-          if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
+          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
-
           $dummy = Join-Path $dir "assets\obs-dummy.dll"
-
           if (-not (Test-Path $dummy)) {
             throw "Dummy DLL not found: $dummy"
           }
-
           Write-Host "install_dummy_dll: enabled"
           Write-Host "dummy DLL: $dummy"
-
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
-
       # ----------------------------------------------------------
       # OBS runtime
       # ----------------------------------------------------------
-
       - name: Bootstrap OBS
         working-directory: src-tauri
         shell: pwsh
         run: cargo obs-build build --out-dir target/release
-
       - name: Verify Windows OBS runtime
         shell: pwsh
         run: |
           $out = "src-tauri/target/release"
           $obs = "$out/obs.dll"
-
           if (-not (Test-Path $obs)) {
             throw "OBS runtime missing: $obs"
           }
-
           $size = (Get-Item $obs).Length
-
           Write-Host "obs.dll size: $size bytes"
-
           if ($size -lt 500000) {
             throw "obs.dll is unexpectedly small"
           }
-
           $plugins = "$out/obs-plugins"
-
           if (-not (Test-Path $plugins)) {
             throw "OBS plugin directory missing: $plugins"
           }
-
           $pluginCount = @(
-            Get-ChildItem `
-              $plugins `
-              -Recurse `
-              -Filter "*.dll" `
+            Get-ChildItem \`
+              $plugins \`
+              -Recurse \`
+              -Filter "*.dll" \`
               -File
           ).Count
-
           Write-Host "OBS plugin DLLs: $pluginCount"
-
           if ($pluginCount -eq 0) {
             throw "No OBS plugin DLLs found"
           }
-
           if (Test-Path "$out/data") {
             Write-Host "OBS data directory found"
           }
           else {
             throw "OBS data directory missing"
           }
-
           Write-Host "Windows OBS runtime looks valid"
-
       # ----------------------------------------------------------
       # Prepare complete Windows runtime
       # ----------------------------------------------------------
-
       - name: Populate Windows revo-root
         shell: pwsh
         run: |
           $OUT = "src-tauri/target/release"
           $ROOT = "src-tauri/resources/revo-root"
-
-          Remove-Item `
-            $ROOT `
-            -Recurse `
-            -Force `
+          Remove-Item \`
+            $ROOT \`
+            -Recurse \`
+            -Force \`
             -ErrorAction SilentlyContinue
-
           New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\lib" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
-
           if (Test-Path "data") {
-            Copy-Item `
-              "data\*" `
-              "$ROOT\data" `
-              -Recurse `
+            Copy-Item \`
+              "data\\*" \`
+              "$ROOT\data" \`
+              -Recurse \`
               -Force
           }
-
-          $dlls = Get-ChildItem `
-            $OUT `
-            -Filter "*.dll" `
-            -File `
+          $dlls = Get-ChildItem \`
+            $OUT \`
+            -Filter "*.dll" \`
+            -File \`
             -ErrorAction SilentlyContinue
-
           if (-not $dlls) {
             throw "No OBS DLLs found in $OUT"
           }
-
           foreach ($dll in $dlls) {
             Write-Host "Copying OBS DLL: $($dll.Name)"
-
-            Copy-Item `
-              $dll.FullName `
-              "$ROOT\core\lib\$($dll.Name)" `
+            Copy-Item \`
+              $dll.FullName \`
+              "$ROOT\core\lib\\$($dll.Name)" \`
               -Force
           }
-
           if (Test-Path "$OUT\obs-plugins") {
-            Copy-Item `
-              "$OUT\obs-plugins" `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
+            Copy-Item \`
+              "$OUT\obs-plugins" \`
+              "$ROOT\core\lib\obs-plugins" \`
+              -Recurse \`
               -Force
           }
           else {
             throw "OBS obs-plugins directory missing"
           }
-
           if (Test-Path "$OUT\bin") {
-            Copy-Item `
-              "$OUT\bin\*" `
-              "$ROOT\core\bin" `
-              -Recurse `
+            Copy-Item \`
+              "$OUT\bin\\*" \`
+              "$ROOT\core\bin" \`
+              -Recurse \`
               -Force
           }
-
           if (Test-Path "$OUT\share") {
-            Copy-Item `
-              "$OUT\share\*" `
-              "$ROOT\core\share" `
-              -Recurse `
+            Copy-Item \`
+              "$OUT\share\\*" \`
+              "$ROOT\core\share" \`
+              -Recurse \`
               -Force
           }
-
           if (Test-Path "$OUT\data") {
-            Copy-Item `
-              "$OUT\data\*" `
-              "$ROOT\data" `
-              -Recurse `
+            Copy-Item \`
+              "$OUT\data\\*" \`
+              "$ROOT\data" \`
+              -Recurse \`
               -Force
           }
-
           $runtimeObs = "$ROOT\core\lib\obs.dll"
-
           if (-not (Test-Path $runtimeObs)) {
             throw "Staged obs.dll missing: $runtimeObs"
           }
-
           $runtimePlugins = @(
-            Get-ChildItem `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
+            Get-ChildItem \`
+              "$ROOT\core\lib\obs-plugins" \`
+              -Recurse \`
+              -Filter "*.dll" \`
               -File
           ).Count
-
           if ($runtimePlugins -eq 0) {
             throw "No staged OBS plugins found"
           }
-
           Write-Host ""
           Write-Host "============================================================"
           Write-Host "WINDOWS revo-root"
           Write-Host "============================================================"
-
-          Get-ChildItem `
-            $ROOT `
-            -Recurse `
+          Get-ChildItem \`
+            $ROOT \`
+            -Recurse \`
             -File |
             Select-Object FullName, Length |
             Format-Table -AutoSize
-
           Write-Host ""
           Write-Host "Staged OBS plugin DLLs: $runtimePlugins"
-
       # ----------------------------------------------------------
       # Verify Windows runtime before Tauri
       # ----------------------------------------------------------
-
       - name: Verify Windows runtime
         shell: pwsh
         run: |
           $ROOT = "src-tauri/resources/revo-root"
-
           $required = @(
             "$ROOT\core\lib\obs.dll",
             "$ROOT\core\lib\obs-plugins",
             "$ROOT\data"
           )
-
           foreach ($path in $required) {
             if (-not (Test-Path $path)) {
               throw "Required runtime path missing: $path"
             }
-
             Write-Host "OK: $path"
           }
-
           $dllCount = @(
-            Get-ChildItem `
-              "$ROOT\core\lib" `
-              -Filter "*.dll" `
+            Get-ChildItem \`
+              "$ROOT\core\lib" \`
+              -Filter "*.dll" \`
               -File
           ).Count
-
           $pluginCount = @(
-            Get-ChildItem `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
+            Get-ChildItem \`
+              "$ROOT\core\lib\obs-plugins" \`
+              -Recurse \`
+              -Filter "*.dll" \`
               -File
           ).Count
-
           Write-Host "Core DLLs: $dllCount"
           Write-Host "Plugin DLLs: $pluginCount"
-
           if ($dllCount -eq 0) {
             throw "No core DLLs staged"
           }
-
           if ($pluginCount -eq 0) {
             throw "No plugin DLLs staged"
           }
-
           Write-Host "Windows runtime is complete"
-
       # ----------------------------------------------------------
       # Tauri
       # ----------------------------------------------------------
-
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
-
       # ----------------------------------------------------------
       # Verify MSI
       # ----------------------------------------------------------
-
       - name: Verify Windows MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem `
-            "src-tauri/target/release/bundle/msi" `
-            -Filter "*.msi" `
-            -File `
+          $msi = Get-ChildItem \`
+            "src-tauri/target/release/bundle/msi" \`
+            -Filter "*.msi" \`
+            -File \`
             -ErrorAction SilentlyContinue
-
           if (-not $msi) {
             throw "MSI was not produced"
           }
-
           $msi | ForEach-Object {
-            Write-Host "MSI: $($_.FullName)"
+            Write-Host "MSI: $($\_.FullName)"
           }
-
       # ----------------------------------------------------------
       # Portable ZIP
       # ----------------------------------------------------------
-
       - name: Create Windows Portable ZIP
         shell: pwsh
         run: |
@@ -419,259 +330,203 @@ jobs:
           $bundleDir = "$target/bundle"
           $portable = "$bundleDir/revo-ui-windows-x64-portable"
           $zip = "$bundleDir/revo-ui-windows-x64.zip"
-
           $exe = "$target/revo-ui.exe"
           $obsDll = "$target/obs.dll"
           $root = "src-tauri/resources/revo-root"
-
-          Remove-Item `
-            $portable `
-            -Recurse `
-            -Force `
+          Remove-Item \`
+            $portable \`
+            -Recurse \`
+            -Force \`
             -ErrorAction SilentlyContinue
-
-          Remove-Item `
-            $zip `
-            -Force `
+          Remove-Item \`
+            $zip \`
+            -Force \`
             -ErrorAction SilentlyContinue
-
           if (-not (Test-Path $exe)) {
             throw "Executable not found: $exe"
           }
-
           if (-not (Test-Path $obsDll)) {
             throw "Real OBS DLL not found: $obsDll"
           }
-
           if (-not (Test-Path $root)) {
             throw "revo-root not found: $root"
           }
-
           $obsSize = (Get-Item $obsDll).Length
-
           Write-Host "Real target/release/obs.dll size: $obsSize bytes"
-
           if ($obsSize -lt 500000) {
             throw "target/release/obs.dll is unexpectedly small; refusing to package dummy DLL"
           }
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
+          New-Item \`
+            -ItemType Directory \`
+            -Force \`
             $portable | Out-Null
-
           # ------------------------------------------------------------
           # IMPORTANT:
           # libobs-bootstrapper looks for obs.dll next to revo-ui.exe.
           # Therefore the portable bundle must contain the REAL OBS DLL
           # in its root, not only inside revo-root.
           # ------------------------------------------------------------
-
-          Copy-Item `
-            $exe `
-            "$portable\revo-ui.exe" `
+          Copy-Item \`
+            $exe \`
+            "$portable\revo-ui.exe" \`
             -Force
-
-          Copy-Item `
-            $obsDll `
-            "$portable\obs.dll" `
+          Copy-Item \`
+            $obsDll \`
+            "$portable\obs.dll" \`
             -Force
-
           # Copy every root-level DLL produced by cargo-obs-build.
           # This keeps FFmpeg / graphics / runtime dependencies beside
           # the executable where Windows DLL lookup can find them.
-          $rootDlls = Get-ChildItem `
-            $target `
-            -Filter "*.dll" `
-            -File `
+          $rootDlls = Get-ChildItem \`
+            $target \`
+            -Filter "*.dll" \`
+            -File \`
             -ErrorAction SilentlyContinue
-
           foreach ($dll in $rootDlls) {
             Write-Host "Copying runtime DLL: $($dll.Name)"
-
-            Copy-Item `
-              $dll.FullName `
-              "$portable\$($dll.Name)" `
+            Copy-Item \`
+              $dll.FullName \`
+              "$portable\\$($dll.Name)" \`
               -Force
           }
-
           # Preserve the OBS runtime directories exactly as produced by
           # cargo-obs-build.
           foreach ($dirName in @("bin", "data", "obs-plugins")) {
-            $sourceDir = "$target\$dirName"
-
+            $sourceDir = "$target\\$dirName"
             if (Test-Path $sourceDir) {
               Write-Host "Copying OBS runtime directory: $dirName"
-
-              Copy-Item `
-                $sourceDir `
-                "$portable\$dirName" `
-                -Recurse `
+              Copy-Item \`
+                $sourceDir \`
+                "$portable\\$dirName" \`
+                -Recurse \`
                 -Force
             }
           }
-
           # Revo's own runtime/resource tree.
-          Copy-Item `
-            $root `
-            "$portable\revo-root" `
-            -Recurse `
+          Copy-Item \`
+            $root \`
+            "$portable\revo-root" \`
+            -Recurse \`
             -Force
-
           # ------------------------------------------------------------
           # Verify final portable layout
           # ------------------------------------------------------------
-
           $portableExe = "$portable\revo-ui.exe"
           $portableObs = "$portable\obs.dll"
           $portableRoot = "$portable\revo-root"
           $portablePlugins = "$portable\obs-plugins"
-
           if (-not (Test-Path $portableExe)) {
             throw "Portable executable missing: $portableExe"
           }
-
           if (-not (Test-Path $portableObs)) {
             throw "Portable root obs.dll missing: $portableObs"
           }
-
           $portableObsSize = (Get-Item $portableObs).Length
-
           Write-Host "Portable root obs.dll size: $portableObsSize bytes"
-
           if ($portableObsSize -lt 500000) {
             throw "Portable obs.dll is unexpectedly small"
           }
-
           if (-not (Test-Path $portableRoot)) {
             throw "Portable revo-root missing"
           }
-
           if (-not (Test-Path "$portableRoot\core\lib\obs.dll")) {
             throw "Portable revo-root/core/lib/obs.dll missing"
           }
-
           if (-not (Test-Path "$portableRoot\core\lib\obs-plugins")) {
             throw "Portable revo-root/core/lib/obs-plugins missing"
           }
-
           $rootPlugins = @(
-            Get-ChildItem `
-              "$portableRoot\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
+            Get-ChildItem \`
+              "$portableRoot\core\lib\obs-plugins" \`
+              -Recurse \`
+              -Filter "*.dll" \`
               -File
           ).Count
-
           if ($rootPlugins -eq 0) {
             throw "No OBS plugins found in portable revo-root"
           }
-
           if (Test-Path $portablePlugins) {
             $portablePluginsCount = @(
-              Get-ChildItem `
-                $portablePlugins `
-                -Recurse `
-                -Filter "*.dll" `
+              Get-ChildItem \`
+                $portablePlugins \`
+                -Recurse \`
+                -Filter "*.dll" \`
                 -File
             ).Count
-
             if ($portablePluginsCount -eq 0) {
               throw "Portable obs-plugins directory is empty"
             }
-
             Write-Host "Portable root OBS plugin DLLs: $portablePluginsCount"
           }
-
           Write-Host ""
           Write-Host "============================================================"
           Write-Host "FINAL WINDOWS PORTABLE LAYOUT"
           Write-Host "============================================================"
-
-          Get-ChildItem `
-            $portable `
-            -Recurse `
+          Get-ChildItem \`
+            $portable \`
+            -Recurse \`
             -File |
             Select-Object FullName, Length |
             Format-Table -AutoSize
-
           # Compress the COMPLETE application directory.
-          Compress-Archive `
-            -Path "$portable\*" `
-            -DestinationPath $zip `
+          Compress-Archive \`
+            -Path "$portable\\*" \`
+            -DestinationPath $zip \`
             -CompressionLevel Optimal
-
           if (-not (Test-Path $zip)) {
             throw "Portable ZIP was not created"
           }
-
           Write-Host ""
           Write-Host "Portable ZIP:"
           Write-Host "$zip"
-
           Get-Item $zip |
             Select-Object FullName, Length |
             Format-Table -AutoSize
-
           # Validate the archive itself, not only the temporary directory.
           $verifyDir = "$bundleDir\portable-verify"
-
-          Remove-Item `
-            $verifyDir `
-            -Recurse `
-            -Force `
+          Remove-Item \`
+            $verifyDir \`
+            -Recurse \`
+            -Force \`
             -ErrorAction SilentlyContinue
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
+          New-Item \`
+            -ItemType Directory \`
+            -Force \`
             $verifyDir | Out-Null
-
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $verifyDir `
+          Expand-Archive \`
+            -Path $zip \`
+            -DestinationPath $verifyDir \`
             -Force
-
           if (-not (Test-Path "$verifyDir\revo-ui.exe")) {
             throw "ZIP verification failed: revo-ui.exe missing"
           }
-
           if (-not (Test-Path "$verifyDir\obs.dll")) {
             throw "ZIP verification failed: root obs.dll missing"
           }
-
           if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs.dll")) {
             throw "ZIP verification failed: revo-root/core/lib/obs.dll missing"
           }
-
           if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs-plugins")) {
             throw "ZIP verification failed: OBS plugins missing"
           }
-
           $verifiedObsSize = (Get-Item "$verifyDir\obs.dll").Length
-
           if ($verifiedObsSize -lt 500000) {
             throw "ZIP verification failed: root obs.dll is dummy/small"
           }
-
           Write-Host ""
           Write-Host "ZIP verification passed"
           Write-Host "Verified root obs.dll: $verifiedObsSize bytes"
-
-          Remove-Item `
-            $verifyDir `
-            -Recurse `
+          Remove-Item \`
+            $verifyDir \`
+            -Recurse \`
             -Force
-
-          Remove-Item `
-            $portable `
-            -Recurse `
+          Remove-Item \`
+            $portable \`
+            -Recurse \`
             -Force
-
       # ----------------------------------------------------------
       # Upload Windows artifacts
       # ----------------------------------------------------------
-
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -679,59 +534,45 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/revo-ui-windows-x64.zip
-
-
   # ============================================================
   # macOS
   # ============================================================
-
   macos:
     name: macOS ${{ matrix.arch }}
     runs-on: macos-latest
-
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
-
     strategy:
       fail-fast: false
-
       matrix:
         include:
           - arch: arm64
             target: aarch64-apple-darwin
             cmake_arch: arm64
-
           - arch: x64
             target: x86_64-apple-darwin
             cmake_arch: x86_64
-
     steps:
-
       # ----------------------------------------------------------
       # Checkout / toolchain
       # ----------------------------------------------------------
-
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-
       - name: Show tool versions
         run: |
           node --version
@@ -740,222 +581,194 @@ jobs:
           rustc --version
           cmake --version
           xcodebuild -version
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       # ----------------------------------------------------------
       # SIMDe
       # ----------------------------------------------------------
-
       - name: Install SIMDe
         shell: bash
         run: |
           brew install simde
-
           echo "CPATH=$(brew --prefix simde)/include:${CPATH:-}" >> "$GITHUB_ENV"
           echo "C_INCLUDE_PATH=$(brew --prefix simde)/include:${C_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
           echo "CPLUS_INCLUDE_PATH=$(brew --prefix simde)/include:${CPLUS_INCLUDE_PATH:-}" >> "$GITHUB_ENV"
-
       - name: Verify SIMDe
         shell: bash
         run: |
           SIMDE="$(brew --prefix simde)"
           HEADER="$SIMDE/include/simde/x86/sse2.h"
-
           if [ ! -f "$HEADER" ]; then
             echo "SIMDe header not found: $HEADER"
             exit 1
           fi
-
           echo "SIMDe header found:"
           ls -l "$HEADER"
-
       # ----------------------------------------------------------
       # CEF
       # ----------------------------------------------------------
-
+      # ----------------------------------------------------------
+      # FFmpeg
+      # ----------------------------------------------------------
+      - name: Install FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install ffmpeg
+          FFMPEG_PREFIX="$(brew --prefix ffmpeg)"
+          BREW_PREFIX="$(brew --prefix)"
+          echo "FFMPEG_PREFIX=$FFMPEG_PREFIX" >> "$GITHUB_ENV"
+          echo "BREW_PREFIX=$BREW_PREFIX" >> "$GITHUB_ENV"
+          test -d "$FFMPEG_PREFIX/lib"
+          for lib in \
+            libavcodec.dylib \
+            libavformat.dylib \
+            libavutil.dylib \
+            libswresample.dylib \
+            libswscale.dylib
+          do
+            test -f "$FFMPEG_PREFIX/lib/$lib" || {
+              echo "Missing FFmpeg library: $FFMPEG_PREFIX/lib/$lib"
+              exit 1
+            }
+          done
+          find "$FFMPEG_PREFIX/lib" -maxdepth 1 -type f -name "*.dylib" -print | sort
       - name: Disable CEF for CI build
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("src-tauri/Cargo.toml")
           text = path.read_text()
-
           text = text.replace(
               'cef = ["dep:revo-cef"]',
               'cef = []'
           )
-
           text = text.replace(
               'revo-cef = { path = "../../modules/revo-cef", optional = true }',
               ''
           )
-
           path.write_text(text)
-
           print("CEF disabled for CI")
           PY
-
       # ----------------------------------------------------------
       # OBS logger
       # ----------------------------------------------------------
-
       - name: Disable OBS logger on non-Linux CI
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           # --------------------------------------------------------
           # logging/mod.rs
           # --------------------------------------------------------
-
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
-
           text = text.replace(
               '#[cfg(unix)]\npub mod obs_logger;',
               '#[cfg(target_os = "linux")]\npub mod obs_logger;'
           )
-
           if '#[cfg(target_os = "linux")]\npub mod obs_logger;' not in text:
               raise SystemExit(
                   "ERROR: could not make obs_logger module Linux-only"
               )
-
           mod.write_text(text)
-
           print("logging/mod.rs: obs_logger is Linux-only")
-
           # --------------------------------------------------------
           # logging/obs_logger.rs
           # --------------------------------------------------------
-
           logger = Path("src-tauri/src/logging/obs_logger.rs")
-
           if logger.exists():
               logger_text = logger.read_text()
-
               logger_text = logger_text.replace(
                   '#![cfg(unix)]',
                   '#![cfg(target_os = "linux")]',
                   1
               )
-
               if '#![cfg(target_os = "linux")]' not in logger_text:
                   logger_text = (
                       '#![cfg(target_os = "linux")]\n\n'
-                      + logger_text
+                      \+ logger_text
                   )
-
               logger.write_text(logger_text)
-
               print("logging/obs_logger.rs: Linux-only")
-
           # --------------------------------------------------------
           # runtime/init.rs
           #
           # The OBS logger call must also be Linux-only.
           # --------------------------------------------------------
-
           init = Path("src-tauri/src/runtime/init.rs")
           init_text = init.read_text()
-
           marker = "crate::logging::obs_logger::obs_log_handler"
-
           if marker not in init_text:
               raise SystemExit(
                   "ERROR: obs_log_handler reference not found in runtime/init.rs"
               )
-
           # Find the base_set_log_handler statement containing
           # obs_log_handler.
           handler_pos = init_text.find(marker)
-
           statement_start = init_text.rfind(
               "revo_lib::obs::base_set_log_handler(",
               0,
               handler_pos
           )
-
           if statement_start == -1:
               raise SystemExit(
                   "ERROR: base_set_log_handler call not found"
               )
-
           line_start = init_text.rfind("\n", 0, statement_start) + 1
-
           # Determine indentation of the statement.
           line = init_text[line_start:statement_start]
-
           if not line.strip() == "":
               raise SystemExit(
                   "ERROR: unexpected content before base_set_log_handler"
               )
-
           indent = line
-
           # Remove any existing cfg attribute immediately before
           # the statement.
           prefix = init_text[:line_start]
-
           cfg_match = re.search(
-              r'(?m)^([ \t]*)#\[cfg\((?:unix|target_family\s*=\s*"unix"|target_os\s*=\s*"[^"]+")\)\]\s*\n$',
+              r'(?m)^([ \t]*)#\\[cfg\\((?:unix|target_family\s*=\s*"unix"|target_os\s*=\s*"[^"]+")\\)\\]\s*\n$',
               prefix
           )
-
           if cfg_match:
               cfg_start = cfg_match.start()
               init_text = (
                   init_text[:cfg_start]
-                  + init_text[cfg_match.end():]
+                  \+ init_text[cfg_match.end():]
               )
-
               statement_start = init_text.find(
                   "revo_lib::obs::base_set_log_handler("
               )
-
               line_start = init_text.rfind(
                   "\n",
                   0,
                   statement_start
               ) + 1
-
               indent = init_text[line_start:statement_start]
-
           # Insert Linux-only cfg immediately before the call.
           statement_start = init_text.find(
               "revo_lib::obs::base_set_log_handler("
           )
-
           line_start = init_text.rfind(
               "\n",
               0,
               statement_start
           ) + 1
-
           init_text = (
               init_text[:line_start]
-              + f'{indent}#[cfg(target_os = "linux")]\n'
-              + init_text[line_start:]
+              \+ f'{indent}#[cfg(target_os = "linux")]\n'
+              \+ init_text[line_start:]
           )
-
           init.write_text(init_text)
-
           print(
               "runtime/init.rs: base_set_log_handler is Linux-only"
           )
-
           # --------------------------------------------------------
           # Final verification
           # --------------------------------------------------------
-
           mod_text = mod.read_text()
-
           if (
               '#[cfg(target_os = "linux")]\n'
               'pub mod obs_logger;'
@@ -963,101 +776,78 @@ jobs:
               raise SystemExit(
                   "ERROR: obs_logger module verification failed"
               )
-
           if logger.exists():
               logger_text = logger.read_text()
-
               if '#![cfg(target_os = "linux")]' not in logger_text:
                   raise SystemExit(
                       "ERROR: obs_logger.rs verification failed"
                   )
-
           init_text = init.read_text()
-
           handler_pos = init_text.find(
               "revo_lib::obs::base_set_log_handler("
           )
-
           if handler_pos == -1:
               raise SystemExit(
                   "ERROR: base_set_log_handler call disappeared"
               )
-
           before_handler = init_text[:handler_pos]
-
           cfg_pos = before_handler.rfind(
               '#[cfg(target_os = "linux")]'
           )
-
           if cfg_pos == -1:
               raise SystemExit(
                   "ERROR: base_set_log_handler is not Linux-only"
               )
-
           print("")
           print("============================================================")
           print("OBS LOGGER PATCH VERIFIED")
           print("============================================================")
           PY
-
       # ----------------------------------------------------------
       # Rust dependencies
       # ----------------------------------------------------------
-
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
-
       # ----------------------------------------------------------
       # libobs bindgen
       # ----------------------------------------------------------
-
       - name: Patch libobs bindgen for macOS
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           root = Path.home() / ".cargo/git/checkouts"
-
           matches = list(
               root.glob("libobs-rs-*/7e76c91/libobs/build.rs")
           )
-
           if not matches:
               raise SystemExit(
                   "libobs build.rs not found"
               )
-
           path = matches[0]
           text = path.read_text()
-
           print(f"Using libobs build.rs: {path}")
-
           if "builder = builder.layout_tests(false);" in text:
               print("libobs bindgen patch already present")
               raise SystemExit(0)
-
           needle = (
               '        .clang_arg(format!("-I{}", "headers/obs"));'
           )
-
           if needle not in text:
               raise SystemExit(
                   "Expected clang_arg line not found in libobs/build.rs"
               )
-
           replacement = (
               needle
-              + "\n\n"
-              + '    #[cfg(target_os = "macos")]'
-              + "\n"
-              + "    {"
-              + "\n"
-              + "        builder = builder.layout_tests(false);"
-              + "\n"
-              + "    }"
+              \+ "\n\n"
+              \+ '    #[cfg(target_os = "macos")]'
+              \+ "\n"
+              \+ "    {"
+              \+ "\n"
+              \+ "        builder = builder.layout_tests(false);"
+              \+ "\n"
+              \+ "    }"
           )
-
           path.write_text(
               text.replace(
                   needle,
@@ -1065,164 +855,128 @@ jobs:
                   1
               )
           )
-
           print("libobs bindgen macOS patch applied")
           PY
-
       # ----------------------------------------------------------
       # libobs-wrapper
       # ----------------------------------------------------------
-
       - name: Patch libobs-wrapper for macOS
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           root = Path.home() / ".cargo/git/checkouts"
-
           matches = list(
               root.glob("libobs-rs-*/7e76c91/libobs-wrapper/src")
           )
-
           if not matches:
               raise SystemExit(
                   "libobs-wrapper source not found"
               )
-
           src = matches[0]
           other = src / "utils/initialization/other.rs"
           runtime = src / "runtime.rs"
-
           if not other.exists():
               raise SystemExit(
                   f"Missing file: {other}"
               )
-
           if not runtime.exists():
               raise SystemExit(
                   f"Missing file: {runtime}"
               )
-
           print(f"Using libobs-wrapper source: {src}")
-
           # --------------------------------------------------------
           # Rc must exist on macOS.
           # --------------------------------------------------------
-
           text = other.read_text()
-
           linux_rc = (
               '#[cfg(target_os = "linux")]\n'
               'use std::rc::Rc;'
           )
-
           if linux_rc in text:
               text = text.replace(
                   linux_rc,
                   'use std::rc::Rc;',
                   1
               )
-
               print(
                   "Removed Linux-only cfg from Rc import"
               )
-
           elif 'use std::rc::Rc;' in text:
               print(
                   "Rc import is already unconditional"
               )
-
           else:
               raise SystemExit(
                   "use std::rc::Rc; not found in libobs-wrapper"
               )
-
           lines = text.splitlines()
-
           # --------------------------------------------------------
           # PlatformSpecificGuard
           # --------------------------------------------------------
-
           struct_index = None
-
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "pub(crate) struct PlatformSpecificGuard {"
+                  \== "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
-
           if struct_index is None:
               raise SystemExit(
                   "PlatformSpecificGuard struct not found"
               )
-
           if (
               struct_index == 0
               or lines[struct_index - 1].strip()
               != '#[cfg(target_os = "linux")]'
           ):
               derive_index = struct_index
-
               if (
                   derive_index > 0
                   and lines[derive_index - 1].strip()
-                  == "#[derive(Debug)]"
+                  \== "#[derive(Debug)]"
               ):
                   derive_index -= 1
-
               lines.insert(
                   derive_index,
                   '#[cfg(target_os = "linux")]'
               )
-
           # Re-find struct.
           struct_index = None
-
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "pub(crate) struct PlatformSpecificGuard {"
+                  \== "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
-
           if struct_index is None:
               raise SystemExit(
                   "PlatformSpecificGuard struct disappeared"
               )
-
           depth = 0
           end_index = None
           started = False
-
           for i in range(struct_index, len(lines)):
               line = lines[i]
-
               if "{" in line:
                   depth += line.count("{")
                   started = True
-
               if "}" in line and started:
                   depth -= line.count("}")
-
                   if depth == 0:
                       end_index = i
                       break
-
           if end_index is None:
               raise SystemExit(
                   "Could not find end of PlatformSpecificGuard"
               )
-
           stub_exists = any(
               line.strip()
-              == "pub(crate) struct PlatformSpecificGuard;"
+              \== "pub(crate) struct PlatformSpecificGuard;"
               for line in lines
           )
-
           if not stub_exists:
               lines[end_index + 1:end_index + 1] = [
                   "",
@@ -1230,15 +984,13 @@ jobs:
                   "#[derive(Debug)]",
                   "pub(crate) struct PlatformSpecificGuard;",
               ]
-
           # --------------------------------------------------------
           # Drop is Linux-only.
           # --------------------------------------------------------
-
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "impl Drop for PlatformSpecificGuard {"
+                  \== "impl Drop for PlatformSpecificGuard {"
               ):
                   if (
                       i == 0
@@ -1249,189 +1001,146 @@ jobs:
                           i,
                           '#[cfg(target_os = "linux")]'
                       )
-
                   break
-
           other.write_text(
               "\n".join(lines) + "\n"
           )
-
           # --------------------------------------------------------
           # runtime.rs
           # --------------------------------------------------------
-
           runtime_text = runtime.read_text()
-
           old = (
               "platform_specific_setup(info.nix_display.clone())?"
           )
-
           new = "platform_specific_setup()?"
-
           if old in runtime_text:
               runtime_text = runtime_text.replace(
                   old,
                   new,
                   1
               )
-
               runtime.write_text(runtime_text)
-
               print(
                   "Removed nix_display argument for macOS"
               )
-
           elif new in runtime_text:
               print(
                   "macOS platform_specific_setup call already patched"
               )
-
           else:
               raise SystemExit(
                   "Expected platform_specific_setup call not found"
               )
-
           print(
               "libobs-wrapper macOS patch applied"
           )
           PY
-
       # ----------------------------------------------------------
       # Verify Rust patches
       # ----------------------------------------------------------
-
       - name: Verify libobs patches
         shell: bash
         run: |
           echo "============================================================"
           echo "VERIFY libobs bindgen"
           echo "============================================================"
-
-          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
-            -path "*/7e76c91/libobs/build.rs" \
+          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \\
+            -path "*/7e76c91/libobs/build.rs" \\
             -print -quit)
-
           if [ -z "$BUILD_RS" ]; then
             echo "libobs build.rs not found"
             exit 1
           fi
-
-          grep -n -C 4 \
-            "layout_tests" \
+          grep -n -C 4 \\
+            "layout_tests" \\
             "$BUILD_RS"
-
           echo
           echo "============================================================"
           echo "VERIFY libobs-wrapper"
           echo "============================================================"
-
-          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
-            -path "*/7e76c91/libobs-wrapper/src" \
-            -type d \
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \\
+            -path "*/7e76c91/libobs-wrapper/src" \\
+            -type d \\
             -print -quit)
-
           if [ -z "$WRAPPER_SRC" ]; then
             echo "libobs-wrapper source not found"
             exit 1
           fi
-
           OTHER_RS="$WRAPPER_SRC/utils/initialization/other.rs"
-
           echo
           echo "--- Rc import ---"
-
-          grep -n -C 3 \
-            "use std::rc::Rc;" \
+          grep -n -C 3 \\
+            "use std::rc::Rc;" \\
             "$OTHER_RS"
-
-          if grep -B1 \
-            'use std::rc::Rc;' \
+          if grep -B1 \\
+            'use std::rc::Rc;' \\
             "$OTHER_RS" |
             grep -q 'cfg(target_os = "linux")'; then
             echo "ERROR: Rc is still Linux-only"
             exit 1
           fi
-
-          if ! grep -q \
-            '^use std::rc::Rc;$' \
+          if ! grep -q \\
+            '^use std::rc::Rc;$' \\
             "$OTHER_RS"; then
             echo "ERROR: Rc import is missing"
             exit 1
           fi
-
           echo "OK: Rc is available on macOS"
-
           echo
           echo "--- PlatformSpecificGuard ---"
-
-          grep -n -C 5 \
-            "PlatformSpecificGuard" \
+          grep -n -C 5 \\
+            "PlatformSpecificGuard" \\
             "$OTHER_RS"
-
           echo
           echo "--- platform_specific_setup ---"
-
-          grep -n -C 5 \
-            "platform_specific_setup" \
+          grep -n -C 5 \\
+            "platform_specific_setup" \\
             "$WRAPPER_SRC/runtime.rs" || true
-
       # ----------------------------------------------------------
       # Runtime resources
       # ----------------------------------------------------------
-
       - name: Prepare revo-root
         shell: bash
         run: |
           rm -rf src-tauri/resources/revo-root
           mkdir -p src-tauri/resources/revo-root
-
       # ----------------------------------------------------------
       # OBS Studio
       # ----------------------------------------------------------
-
       - name: Checkout OBS Studio
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/obs-studio"
-
-          git clone \
-            --depth 1 \
-            --branch "${OBS_VERSION}" \
-            --recursive \
-            https://github.com/obsproject/obs-studio.git \
+          git clone \\
+            --depth 1 \\
+            --branch "${OBS_VERSION}" \\
+            --recursive \\
+            https\://github.com/obsproject/obs-studio.git \\
             "$RUNNER_TEMP/obs-studio"
-
-          git -C "$RUNNER_TEMP/obs-studio" \
+          git -C "$RUNNER_TEMP/obs-studio" \\
             log -1 --oneline
-
       # ----------------------------------------------------------
       # OBS libobs-metal / Swift
       # ----------------------------------------------------------
-
       - name: Patch OBS libobs-metal Swift
         shell: bash
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
-
           obs = (
               Path(os.environ["RUNNER_TEMP"])
               / "obs-studio"
           )
-
           path = (
               obs
               / "libobs-metal/CMakeLists.txt"
           )
-
           if not path.exists():
               raise SystemExit(
                   f"Missing OBS Metal CMakeLists: {path}"
               )
-
           text = path.read_text()
-
           if "enable_language(Swift)" in text:
               print(
                   "OBS already enables Swift"
@@ -1439,263 +1148,211 @@ jobs:
           else:
               path.write_text(
                   "enable_language(Swift)\n\n"
-                  + text
+                  \+ text
               )
-
               print(
                   "Added enable_language(Swift)"
               )
           PY
-
       # ----------------------------------------------------------
       # OBS virtual camera / Xcode 26
       # ----------------------------------------------------------
-
       - name: Patch OBS macOS virtual camera warnings
         shell: bash
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
-
           obs = (
               Path(os.environ["RUNNER_TEMP"])
               / "obs-studio"
           )
-
           path = (
               obs
               / "plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
           )
-
           if not path.exists():
               raise SystemExit(
                   f"Missing OBSDALStream.mm: {path}"
               )
-
           text = path.read_text()
-
           pragma = (
               "#pragma clang diagnostic push\n"
               "#pragma clang diagnostic ignored "
-              "\"-Wimplicit-int-float-conversion\"\n"
+              "\\"-Wimplicit-int-float-conversion\\"\n"
               "#pragma clang diagnostic ignored "
-              "\"-Wenum-enum-conversion\"\n"
+              "\\"-Wenum-enum-conversion\\"\n"
           )
-
           if (
               "#pragma clang diagnostic push"
               not in text
           ):
               text = pragma + "\n" + text
-
           if (
               "#pragma clang diagnostic pop"
               not in text
           ):
               text = (
                   text.rstrip()
-                  + "\n\n#pragma clang diagnostic pop\n"
+                  \+ "\n\n#pragma clang diagnostic pop\n"
               )
-
           path.write_text(text)
-
           print(f"Patched: {path}")
           PY
-
       - name: Verify OBS source patches
         shell: bash
         run: |
           OBS_SRC="$RUNNER_TEMP/obs-studio"
-
           test -f "$OBS_SRC/CMakePresets.json"
           test -f "$OBS_SRC/libobs-metal/CMakeLists.txt"
           test -f "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
-
           echo "=== OBS source ==="
-
-          git -C "$OBS_SRC" \
+          git -C "$OBS_SRC" \\
             log -1 --oneline
-
           echo
           echo "=== libobs-metal ==="
-
-          head -n 8 \
+          head -n 8 \\
             "$OBS_SRC/libobs-metal/CMakeLists.txt"
-
           echo
           echo "=== OBSDALStream diagnostics ==="
-
-          grep -n -C 2 \
-            "clang diagnostic" \
+          grep -n -C 2 \\
+            "clang diagnostic" \\
             "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
-
       # ----------------------------------------------------------
       # OBS configure
       # ----------------------------------------------------------
-
       - name: Configure OBS Studio
         shell: bash
         run: |
           OBS_SRC="$RUNNER_TEMP/obs-studio"
           OBS_BUILD="$RUNNER_TEMP/obs-build"
-
           rm -rf "$OBS_BUILD"
-
-          cmake \
-            -S "$OBS_SRC" \
-            -B "$OBS_BUILD" \
-            --preset macos \
-            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
-            -DENABLE_BROWSER=OFF \
-            -DENABLE_SCRIPTING=OFF \
+          cmake \\
+            -S "$OBS_SRC" \\
+            -B "$OBS_BUILD" \\
+            --preset macos \\
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \\
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \\
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \\
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \\
+            -DENABLE_BROWSER=OFF \\
+            -DENABLE_SCRIPTING=OFF \\
             -DENABLE_FRONTEND=OFF
-
       # ----------------------------------------------------------
       # OBS build
       # ----------------------------------------------------------
-
       - name: Build OBS Studio
         shell: bash
         run: |
-          cmake \
-            --build "$RUNNER_TEMP/obs-build" \
-            --config RelWithDebInfo \
-            --parallel "$(sysctl -n hw.ncpu)"
-
+          cmake \\
+            --build "$RUNNER_TEMP/obs-build" \\
+            --config RelWithDebInfo \\
+            --parallel "$(sysctl -n hw\.ncpu)"
       # ----------------------------------------------------------
       # OBS install
       # ----------------------------------------------------------
-
       - name: Install OBS Studio
         shell: bash
         run: |
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
-
           rm -rf "$OBS_INSTALL"
           mkdir -p "$OBS_INSTALL"
-
-          cmake \
-            --install "$RUNNER_TEMP/obs-build" \
-            --config RelWithDebInfo \
+          cmake \\
+            --install "$RUNNER_TEMP/obs-build" \\
+            --config RelWithDebInfo \\
             --prefix "$OBS_INSTALL"
-
       # ----------------------------------------------------------
       # Locate real macOS libobs binary
       # ----------------------------------------------------------
-
       - name: Configure libobs linker path
         shell: bash
         run: |
           set -euo pipefail
-
           OBS_BUILD="$RUNNER_TEMP/obs-build"
-
           echo "============================================================"
           echo "Locate REAL OBS libobs Mach-O binary"
           echo "============================================================"
-
           LIBOBS_BINARY=""
-
           while IFS= read -r candidate; do
             [ -n "$candidate" ] || continue
-
             case "$candidate" in
               *.tbd)
                 continue
                 ;;
             esac
-
             if file "$candidate" | grep -q "Mach-O"; then
               LIBOBS_BINARY="$candidate"
               break
             fi
           done < <(
-            find "$OBS_BUILD" \
-              -type f \
-              -name "libobs" \
-              ! -path "*/EagerLinkingTBDs/*" \
+            find "$OBS_BUILD" \\
+              -type f \\
+              -name "libobs" \\
+              ! -path "*/EagerLinkingTBDs/*" \\
               -print |
             sort
           )
-
           # Also check symlinked framework binaries.
           if [ -z "$LIBOBS_BINARY" ]; then
             while IFS= read -r candidate; do
               [ -n "$candidate" ] || continue
-
               case "$candidate" in
                 *.tbd)
                   continue
                   ;;
               esac
-
               if file "$candidate" | grep -q "Mach-O"; then
                 LIBOBS_BINARY="$candidate"
                 break
               fi
             done < <(
-              find "$OBS_BUILD" \
-                -name "libobs" \
-                ! -path "*/EagerLinkingTBDs/*" \
+              find "$OBS_BUILD" \\
+                -name "libobs" \\
+                ! -path "*/EagerLinkingTBDs/*" \\
                 -print |
               sort
             )
           fi
-
           if [ -z "$LIBOBS_BINARY" ]; then
             echo
             echo "ERROR: REAL libobs Mach-O binary not found"
             echo
             echo "All libobs paths found:"
-            find "$OBS_BUILD" \
-              -name "libobs" \
+            find "$OBS_BUILD" \\
+              -name "libobs" \\
               -print |
             sort || true
-
             echo
             echo "All libobs.framework paths:"
-            find "$OBS_BUILD" \
-              -type d \
-              -name "libobs.framework" \
+            find "$OBS_BUILD" \\
+              -type d \\
+              -name "libobs.framework" \\
               -print |
             sort || true
-
             echo
             echo "EagerLinkingTBD files:"
-            find "$OBS_BUILD" \
-              -path "*/EagerLinkingTBDs/*" \
+            find "$OBS_BUILD" \\
+              -path "*/EagerLinkingTBDs/*" \\
               -print |
             sort || true
-
             exit 1
           fi
-
           echo
           echo "============================================================"
           echo "REAL libobs binary"
           echo "============================================================"
-
           echo "$LIBOBS_BINARY"
-
           echo
           echo "file:"
           file "$LIBOBS_BINARY"
-
           echo
           echo "architecture:"
           lipo -info "$LIBOBS_BINARY" || true
-
           LIBOBS_DIR="$(dirname "$LIBOBS_BINARY")"
           LIBOBS_LINK="$LIBOBS_DIR/libobs.dylib"
-
           echo
           echo "Linker directory:"
           echo "$LIBOBS_DIR"
-
           # libobs-rs uses:
           #
           #   -L "$LIBOBS_PATH"
@@ -1706,478 +1363,561 @@ jobs:
           if [ -e "$LIBOBS_LINK" ] || [ -L "$LIBOBS_LINK" ]; then
             rm -f "$LIBOBS_LINK"
           fi
-
-          ln -s \
-            "$(basename "$LIBOBS_BINARY")" \
+          ln -s \\
+            "$(basename "$LIBOBS_BINARY")" \\
             "$LIBOBS_LINK"
-
           echo
           echo "Created linker alias:"
           ls -lah "$LIBOBS_LINK"
-
           echo
           echo "Checking OBS symbols:"
-
           nm -gU "$LIBOBS_BINARY" |
-            grep -E \
-              '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' |
+            grep -E \\
+              '(\_base_set_log_handler|\_obs_add_data_path|\_gs_flush|\_gs_ortho)' |
             head -20 ||
             true
-
           echo
           echo "============================================================"
           echo "LIBOBS_PATH"
           echo "============================================================"
-
           echo "$LIBOBS_DIR"
-
-          echo "LIBOBS_PATH=$LIBOBS_DIR" \
-            >> "$GITHUB_ENV"
-
+          echo "LIBOBS_PATH=$LIBOBS_DIR" \\
+            \>> "$GITHUB_ENV"
       # ----------------------------------------------------------
       # Inspect OBS
       # ----------------------------------------------------------
-
       - name: Inspect macOS OBS build
         shell: bash
         run: |
           OBS_BUILD="$RUNNER_TEMP/obs-build"
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
-
           echo "============================================================"
           echo "OBS BUILD: dylibs"
           echo "============================================================"
-
-          find "$OBS_BUILD" \
-            -type f \
-            -name "*.dylib" \
+          find "$OBS_BUILD" \\
+            -type f \\
+            -name "*.dylib" \\
             -print |
           sort
-
           echo
           echo "============================================================"
           echo "OBS BUILD: plugins"
           echo "============================================================"
-
-          find "$OBS_BUILD" \
-            -type d \
-            -name "*.plugin" \
+          find "$OBS_BUILD" \\
+            -type d \\
+            -name "*.plugin" \\
             -print |
           sort
-
           echo
           echo "============================================================"
           echo "OBS BUILD: frameworks"
           echo "============================================================"
-
-          find "$OBS_BUILD" \
-            -type d \
-            -name "*.framework" \
+          find "$OBS_BUILD" \\
+            -type d \\
+            -name "*.framework" \\
             -print |
           sort
-
           echo
           echo "============================================================"
           echo "OBS INSTALL: files"
           echo "============================================================"
-
-          find "$OBS_INSTALL" \
-            -type f \
+          find "$OBS_INSTALL" \\
+            -type f \\
             -print |
           sort |
           head -500
-
       # ----------------------------------------------------------
       # Reject Windows OBS binaries
       # ----------------------------------------------------------
-
       - name: Reject Windows OBS binaries
         shell: bash
         run: |
           OBS_BUILD="$RUNNER_TEMP/obs-build"
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
-
           WINDOWS_BINARIES=$(
             {
-              find "$OBS_BUILD" \
-                -type f \
-                \( \
-                  -name "*.dll" \
-                  -o -name "*.exe" \
-                  -o -name "*.pdb" \
-                \)
-
-              find "$OBS_INSTALL" \
-                -type f \
-                \( \
-                  -name "*.dll" \
-                  -o -name "*.exe" \
-                  -o -name "*.pdb" \
-                \)
+              find "$OBS_BUILD" \\
+                -type f \\
+                \\( \\
+                  -name "*.dll" \\
+                  -o -name "*.exe" \\
+                  -o -name "*.pdb" \\
+                \\)
+              find "$OBS_INSTALL" \\
+                -type f \\
+                \\( \\
+                  -name "*.dll" \\
+                  -o -name "*.exe" \\
+                  -o -name "*.pdb" \\
+                \\)
             } |
             sort -u
           )
-
           if [ -n "$WINDOWS_BINARIES" ]; then
             echo "ERROR: Windows binaries found in macOS OBS build:"
             echo "$WINDOWS_BINARIES"
             exit 1
           fi
-
           echo "No Windows binaries found"
-
       # ----------------------------------------------------------
       # Prepare complete macOS runtime
       # ----------------------------------------------------------
-
       - name: Populate macOS revo-root
         shell: bash
         run: |
           ROOT="src-tauri/resources/revo-root"
           OBS_BUILD="$RUNNER_TEMP/obs-build"
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
-
           rm -rf "$ROOT"
-
-          mkdir -p \
-            "$ROOT/data" \
-            "$ROOT/core/bin" \
-            "$ROOT/core/lib" \
-            "$ROOT/core/lib/obs-plugins" \
+          mkdir -p \\
+            "$ROOT/data" \\
+            "$ROOT/core/bin" \\
+            "$ROOT/core/lib" \\
+            "$ROOT/core/lib/obs-plugins" \\
             "$ROOT/core/share"
-
           # --------------------------------------------------------
           # RevoStream data
           # --------------------------------------------------------
-
           if [ -d "data" ]; then
-            rsync -a \
-              "data/" \
+            rsync -a \\
+              "data/" \\
               "$ROOT/data/"
           fi
-
           # --------------------------------------------------------
           # OBS dylibs
           # --------------------------------------------------------
-
           DYLIB_COUNT=0
-
           while IFS= read -r dylib; do
             [ -n "$dylib" ] || continue
-
             echo "Copying dylib: $dylib"
-
-            cp -L \
-              "$dylib" \
+            cp -L \\
+              "$dylib" \\
               "$ROOT/core/lib/$(basename "$dylib")"
-
             DYLIB_COUNT=$((DYLIB_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \
-              -type f \
-              -name "*.dylib" \
+            find "$OBS_BUILD" \\
+              -type f \\
+              -name "*.dylib" \\
               -print |
             sort
           )
-
           if [ "$DYLIB_COUNT" -eq 0 ]; then
             echo "ERROR: no OBS dylibs found"
             exit 1
           fi
-
           echo "Collected dylibs: $DYLIB_COUNT"
-
           # --------------------------------------------------------
           # Frameworks
           # --------------------------------------------------------
-
           FRAMEWORK_COUNT=0
-
           while IFS= read -r framework; do
             [ -n "$framework" ] || continue
-
             name="$(basename "$framework")"
-
             echo "Copying framework: $name"
-
-            rm -rf \
+            rm -rf \\
               "$ROOT/core/lib/$name"
-
-            cp -R \
-              "$framework" \
+            cp -R \\
+              "$framework" \\
               "$ROOT/core/lib/$name"
-
             FRAMEWORK_COUNT=$((FRAMEWORK_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \
-              -type d \
-              -name "*.framework" \
-              ! -path "*/EagerLinkingTBDs/*" \
+            find "$OBS_BUILD" \\
+              -type d \\
+              -name "*.framework" \\
+              ! -path "*/EagerLinkingTBDs/*" \\
               -print |
             sort -u
           )
-
           echo "Collected frameworks: $FRAMEWORK_COUNT"
-
           # --------------------------------------------------------
           # OBS plugins
           # --------------------------------------------------------
-
           PLUGIN_COUNT=0
-
           while IFS= read -r plugin; do
             [ -n "$plugin" ] || continue
-
             name="$(basename "$plugin")"
-
             echo "Copying plugin: $name"
-
-            rm -rf \
+            rm -rf \\
               "$ROOT/core/lib/obs-plugins/$name"
-
-            cp -R \
-              "$plugin" \
+            cp -R \\
+              "$plugin" \\
               "$ROOT/core/lib/obs-plugins/$name"
-
             PLUGIN_COUNT=$((PLUGIN_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \
-              -type d \
-              -name "*.plugin" \
+            find "$OBS_BUILD" \\
+              -type d \\
+              -name "*.plugin" \\
               -print |
             sort -u
           )
-
           if [ "$PLUGIN_COUNT" -eq 0 ]; then
             echo "ERROR: no OBS .plugin bundles found"
             exit 1
           fi
-
           echo "Collected plugins: $PLUGIN_COUNT"
-
           # --------------------------------------------------------
           # Installed resources
           # --------------------------------------------------------
-
           if [ -d "$OBS_INSTALL/share" ]; then
-            rsync -a \
-              "$OBS_INSTALL/share/" \
+            rsync -a \\
+              "$OBS_INSTALL/share/" \\
               "$ROOT/core/share/"
           fi
-
           if [ -d "$OBS_INSTALL/bin" ]; then
-            rsync -a \
-              "$OBS_INSTALL/bin/" \
+            rsync -a \\
+              "$OBS_INSTALL/bin/" \\
               "$ROOT/core/bin/"
           fi
-
           # --------------------------------------------------------
           # Final tree
           # --------------------------------------------------------
-
           echo
           echo "============================================================"
           echo "FINAL macOS revo-root"
           echo "============================================================"
-
-          find "$ROOT" \
-            -maxdepth 8 \
+          find "$ROOT" \\
+            -maxdepth 8 \\
             -print |
           sort |
           head -2000
-
       # ----------------------------------------------------------
       # Verify macOS runtime
       # ----------------------------------------------------------
-
+      # ----------------------------------------------------------
+      # Bundle FFmpeg and Homebrew dylib dependencies.
+      # ----------------------------------------------------------
+      - name: Bundle macOS FFmpeg dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="src-tauri/resources/revo-root"
+          LIB="$ROOT/core/lib"
+          FFMPEG_PREFIX="$(brew --prefix ffmpeg)"
+          BREW_PREFIX="$(brew --prefix)"
+          mkdir -p "$LIB"
+          declare -a QUEUE=()
+          declare -A SEEN=()
+          enqueue() {
+            local f="$1"
+            [ -e "$f" ] || return 0
+            local real
+            real="$(realpath "$f")"
+            [ -f "$real" ] || return 0
+            if [ -z "${SEEN[$real]+x}" ]; then
+              SEEN["$real"]=1
+              QUEUE+=("$real")
+            fi
+          }
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            enqueue "$f"
+          done < <(
+            find "$FFMPEG_PREFIX/lib" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.dylib" \
+              -print | sort
+          )
+          while IFS= read -r binary; do
+            [ -n "$binary" ] || continue
+            while IFS= read -r dep; do
+              dep="${dep#        }"
+              dep="${dep%% (*}"
+              case "$dep" in
+                "$BREW_PREFIX"/*) enqueue "$dep" ;;
+              esac
+            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
+          done < <(
+            find "$ROOT" -type f \
+              \( -perm -111 -o -name "*.dylib" \) -print
+          )
+          index=0
+          while [ "$index" -lt "${#QUEUE[@]}" ]; do
+            src="${QUEUE[$index]}"
+            index=$((index + 1))
+            dst="$LIB/$(basename "$src")"
+            if [ "$(realpath "$src")" != "$(realpath "$dst" 2>/dev/null || echo "$dst")" ]; then
+              cp -L "$src" "$dst"
+            fi
+            while IFS= read -r dep; do
+              dep="${dep#        }"
+              dep="${dep%% (*}"
+              case "$dep" in
+                "$BREW_PREFIX"/*) enqueue "$dep" ;;
+              esac
+            done < <(otool -L "$src" 2>/dev/null | tail -n +2)
+          done
+          find "$LIB" -maxdepth 1 -type f -name "*.dylib" -print | sort
+      # ----------------------------------------------------------
+      # Normalize @rpath / install names.
+      # ----------------------------------------------------------
+      - name: Normalize macOS runtime rpaths
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="src-tauri/resources/revo-root"
+          LIB="$ROOT/core/lib"
+          BREW_PREFIX="$(brew --prefix)"
+          add_rpath() {
+            local binary="$1"
+            local rpath="$2"
+            if ! otool -l "$binary" 2>/dev/null | grep -Fq "path $rpath "; then
+              install_name_tool -add_rpath "$rpath" "$binary" 2>/dev/null || true
+            fi
+          }
+          while IFS= read -r dylib; do
+            [ -n "$dylib" ] || continue
+            install_name_tool -id "@rpath/$(basename "$dylib")" "$dylib" 2>/dev/null || true
+            add_rpath "$dylib" "@loader_path"
+          done < <(
+            find "$LIB" -maxdepth 1 -type f -name "*.dylib" -print
+          )
+          while IFS= read -r binary; do
+            [ -n "$binary" ] || continue
+            while IFS= read -r dep; do
+              dep="${dep#        }"
+              dep="${dep%% (*}"
+              case "$dep" in
+                "$BREW_PREFIX"/*)
+                  base="$(basename "$dep")"
+                  if [ -f "$LIB/$base" ]; then
+                    install_name_tool -change "$dep" "@rpath/$base" "$binary" 2>/dev/null || true
+                  fi
+                  ;;
+              esac
+            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
+            case "$binary" in
+              */obs-plugins/*.plugin/Contents/MacOS/*)
+                add_rpath "$binary" "@loader_path/../../../.."
+                ;;
+              */libobs.framework/Versions/*/*)
+                add_rpath "$binary" "@loader_path/../../../"
+                ;;
+              */core/lib/*)
+                add_rpath "$binary" "@loader_path"
+                ;;
+            esac
+          done < <(find "$ROOT" -type f -print)
       - name: Verify macOS runtime
         shell: bash
         run: |
           ROOT="src-tauri/resources/revo-root"
-
           if [ ! -d "$ROOT/core/lib" ]; then
             echo "ERROR: core/lib does not exist"
             exit 1
           fi
-
           if [ ! -d "$ROOT/core/lib/obs-plugins" ]; then
             echo "ERROR: core/lib/obs-plugins does not exist"
             exit 1
           fi
-
           DYLIB_COUNT=$(
-            find "$ROOT/core/lib" \
-              -type f \
+            find "$ROOT/core/lib" \\
+              -type f \\
               -name "*.dylib" |
             wc -l |
             tr -d ' '
           )
-
           echo "macOS dylibs: $DYLIB_COUNT"
-
           if [ "$DYLIB_COUNT" -eq 0 ]; then
             echo "ERROR: no macOS dylibs found"
             exit 1
           fi
-
+          for lib in \
+            libavcodec.dylib \
+            libavformat.dylib \
+            libavutil.dylib \
+            libswresample.dylib \
+            libswscale.dylib
+          do
+            test -f "$ROOT/core/lib/$lib" || {
+              echo "ERROR: required FFmpeg library missing: $ROOT/core/lib/$lib"
+              exit 1
+            }
+          done
+          echo "Required FFmpeg dylibs are staged"
           PLUGIN_COUNT=$(
-            find "$ROOT/core/lib/obs-plugins" \
-              -type d \
+            find "$ROOT/core/lib/obs-plugins" \\
+              -type d \\
               -name "*.plugin" |
             wc -l |
             tr -d ' '
           )
-
           echo "macOS OBS plugins: $PLUGIN_COUNT"
-
           if [ "$PLUGIN_COUNT" -eq 0 ]; then
             echo "ERROR: no OBS .plugin bundles found"
             exit 1
           fi
-
           WINDOWS_BINARIES=$(
-            find "$ROOT" \
-              -type f \
-              \( \
-                -name "*.dll" \
-                -o -name "*.exe" \
-                -o -name "*.pdb" \
-              \) \
+            find "$ROOT" \\
+              -type f \\
+              \\( \\
+                -name "*.dll" \\
+                -o -name "*.exe" \\
+                -o -name "*.pdb" \\
+              \\) \\
               -print
           )
-
           if [ -n "$WINDOWS_BINARIES" ]; then
             echo "ERROR: Windows binaries leaked into macOS runtime:"
             echo "$WINDOWS_BINARIES"
             exit 1
           fi
-
           echo
           echo "============================================================"
           echo "macOS dylibs"
           echo "============================================================"
-
-          find "$ROOT/core/lib" \
-            -type f \
-            -name "*.dylib" \
+          find "$ROOT/core/lib" \\
+            -type f \\
+            -name "*.dylib" \\
             -print |
           sort
-
           echo
           echo "============================================================"
           echo "macOS OBS plugins"
           echo "============================================================"
-
-          find "$ROOT/core/lib/obs-plugins" \
-            -type d \
-            -name "*.plugin" \
+          find "$ROOT/core/lib/obs-plugins" \\
+            -type d \\
+            -name "*.plugin" \\
             -print |
           sort
-
           echo
           echo "============================================================"
           echo "macOS frameworks"
           echo "============================================================"
-
-          find "$ROOT/core/lib" \
-            -type d \
-            -name "*.framework" \
+          find "$ROOT/core/lib" \\
+            -type d \\
+            -name "*.framework" \\
             -print |
           sort
-
           echo
           echo "macOS runtime layout looks valid"
-
       # ----------------------------------------------------------
       # Tauri
       # ----------------------------------------------------------
-
       - name: Build macOS DMG
         shell: bash
         run: |
-          pnpm tauri build \
-            --bundles dmg \
-            --target "${{ matrix.target }}" \
-            -- \
+          pnpm tauri build \\
+            --bundles dmg \\
+            --target "${{ matrix.target }}" \\
+            -- \\
             --no-default-features
-
       # ----------------------------------------------------------
       # Verify DMG
       # ----------------------------------------------------------
-
+      # ----------------------------------------------------------
+      # Verify final .app is self-contained.
+      # ----------------------------------------------------------
+      - name: Verify final macOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          APP_DIR="src-tauri/target/$TARGET/release/bundle/macos"
+          APP="$(
+            find "$APP_DIR" \
+              -maxdepth 1 \
+              -type d \
+              -name "*.app" \
+              -print -quit
+          )"
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app was not produced"
+            find "src-tauri/target/$TARGET/release/bundle" -maxdepth 3 -print || true
+            exit 1
+          fi
+          ROOT="$APP/Contents/Resources/resources/revo-root"
+          EXE="$APP/Contents/MacOS/revo-ui"
+          test -x "$EXE"
+          test -d "$ROOT/core/lib"
+          test -d "$ROOT/core/lib/obs-plugins"
+          for lib in \
+            libavcodec.dylib \
+            libavformat.dylib \
+            libavutil.dylib \
+            libswresample.dylib \
+            libswscale.dylib
+          do
+            test -f "$ROOT/core/lib/$lib" || {
+              echo "ERROR: final app is missing $lib"
+              exit 1
+            }
+          done
+          echo "=== FINAL APP SIZE ==="
+          du -sh "$APP"
+          du -sh "$ROOT"
+          BAD="$(
+            find "$APP" -type f -print0 |
+              while IFS= read -r -d '' f; do
+                file "$f" 2>/dev/null | grep -q "Mach-O" || continue
+                otool -L "$f" 2>/dev/null || true
+              done |
+              grep -E '/opt/homebrew/|/usr/local/opt/' || true
+          )"
+          if [ -n "$BAD" ]; then
+            echo "$BAD"
+            echo "ERROR: final app still contains Homebrew absolute dylib references"
+            exit 1
+          fi
+          echo "Final macOS .app is self-contained"
       - name: Verify macOS DMG
         shell: bash
         run: |
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
-
           DMG=$(
-            find "$DMG_DIR" \
-              -maxdepth 1 \
-              -type f \
-              -name "*.dmg" \
+            find "$DMG_DIR" \\
+              -maxdepth 1 \\
+              -type f \\
+              -name "*.dmg" \\
               -print -quit
           )
-
           if [ -z "$DMG" ]; then
             echo "ERROR: DMG was not produced"
             echo "Expected directory: $DMG_DIR"
             exit 1
           fi
-
           echo "macOS DMG:"
           ls -lh "$DMG"
-
       # ----------------------------------------------------------
       # Upload macOS artifact
       # ----------------------------------------------------------
-
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-
-
   # ============================================================
   # RELEASE
   # ============================================================
-
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-
     needs:
       - windows
       - macos
-
     steps:
-
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: windows-x64
           path: release/windows
-
       - name: Download macOS ARM64 artifacts
         uses: actions/download-artifact@v4
         with:
           name: macos-arm64
           path: release/macos-arm64
-
       - name: Download macOS x64 artifacts
         uses: actions/download-artifact@v4
         with:
           name: macos-x64
           path: release/macos-x64
-
       - name: Show release files
         shell: bash
         run: |
-          find release \
-            -type f \
+          find release \\
+            -type f \\
             -print |
           sort
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
