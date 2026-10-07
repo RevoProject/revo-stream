@@ -149,14 +149,15 @@ pub(crate) fn start(
 
 	let locale = std::ffi::CString::new("en-US").map_err(|_| "locale string".to_string())?;
 	let conf = std::ffi::CString::new(conf_dir.to_string_lossy().as_bytes())
-		.map_err(|_| "conf path".to_string())?;
+		.map_err(|_| "conf path".to_string())?;        
+		let path_separator = if cfg!(windows) { ";" } else { ":" };
 
-	let data_path = format!(
-		"{}:{}:{}",
-		data_share_dir.to_string_lossy(),
-		data_share_dir.join("libobs").to_string_lossy(),
-		core_data_dir.to_string_lossy()
-	);
+        let data_path = [
+                data_share_dir.to_string_lossy().to_string(),
+                data_share_dir.join("libobs").to_string_lossy().to_string(),
+                core_data_dir.to_string_lossy().to_string(),
+        ]
+        .join(path_separator);
 	std::env::set_var("OBS_DATA_PATH", data_path);
 	let mut plugin_path_parts = vec![
 		bundled_plugins_dir.to_string_lossy().to_string(),
@@ -165,7 +166,7 @@ pub(crate) fn start(
 	if legacy_runtime_plugins_dir != runtime_plugins_dir {
 		plugin_path_parts.push(legacy_runtime_plugins_dir.to_string_lossy().to_string());
 	}
-	let plugin_path = plugin_path_parts.join(":");
+	let plugin_path = plugin_path_parts.join(path_separator);
 	std::env::set_var("OBS_PLUGIN_PATH", plugin_path);
 	if ffmpeg_bin.exists() {
 		let mut path_parts: Vec<String> = Vec::new();
@@ -178,7 +179,7 @@ pub(crate) fn start(
 		}
 		if let Ok(old_path) = std::env::var("PATH") {
 			path_parts.push(old_path);
-			let new_path = path_parts.join(":");
+			let new_path = path_parts.join(path_separator);
 			std::env::set_var("PATH", new_path);
 		}
 		std::env::set_var("OBS_FFMPEG_PATH", &ffmpeg_bin);

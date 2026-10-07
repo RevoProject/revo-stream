@@ -541,40 +541,40 @@ pub(crate) fn find_root_from(start: &std::path::PathBuf) -> Option<std::path::Pa
 }
 
 pub(crate) fn resolve_root_dir(root_dir: Option<String>) -> Result<std::path::PathBuf, String> {
-	if let Some(root) = root_dir {
-		let path = std::path::PathBuf::from(root);
-		if path.exists() && is_valid_root(&path) {
-			return Ok(path);
-		}
-		return Err(format!("Root path does not exist or is invalid: {path:?}"));
-	}
+        if let Some(root) = root_dir {
+                let path = std::path::PathBuf::from(root);
+                if path.exists() && is_valid_root(&path) {
+                        return Ok(path);
+                }
+                return Err(format!("Root path does not exist or is invalid: {path:?}"));
+        }
 
-	if let Ok(root) = std::env::var("REVO_ROOT") {
-		let path = std::path::PathBuf::from(root);
-		if path.exists() && is_valid_root(&path) {
-			return Ok(path);
-		}
-	}
+        if let Ok(root) = std::env::var("REVO_ROOT") {
+                let path = std::path::PathBuf::from(root);
+                if path.exists() && is_valid_root(&path) {
+                        return Ok(path);
+                }
+        }
 
-	let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-	let repo_root = manifest.join("..").join("..");
-	if is_valid_root(&repo_root) {
-		return Ok(repo_root);
-	}
+        if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                        if let Some(found) = find_root_from(&dir.to_path_buf()) {
+                                return Ok(found);
+                        }
+                }
+        }
 
-	if let Ok(cwd) = std::env::current_dir() {
-		if let Some(found) = find_root_from(&cwd) {
-			return Ok(found);
-		}
-	}
+        if let Ok(cwd) = std::env::current_dir() {
+                if let Some(found) = find_root_from(&cwd) {
+                        return Ok(found);
+                }
+        }
 
-	if let Ok(exe) = std::env::current_exe() {
-		if let Some(dir) = exe.parent() {
-			if let Some(found) = find_root_from(&dir.to_path_buf()) {
-				return Ok(found);
-			}
-		}
-	}
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest.join("..").join("..");
+        if is_valid_root(&repo_root) {
+                return Ok(repo_root);
+        }
 
-	Err("Unable to resolve RevoStream root directory containing libobs effects".to_string())
+        Err("Unable to resolve RevoStream root directory containing libobs effects".to_string())
 }
