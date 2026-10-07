@@ -10,7 +10,7 @@
   export let browserDockTitle = "Dock 1";
   export let dockEngineActive = false;
   export let dockEngineLabel = "chromium";
-  export let isReleaseBuild = false;
+  export let nativeDock = false;
   export let dockFrameKey = 0;
   export let dockHostWebviewUrl = "";
   export let dockCanvasRuntimeReady = false;
@@ -82,16 +82,14 @@
         ondragend={handleDockHandleDragEnd}
         onmousedown={startDockHeaderMove}
         ondblclick={() => {
-          if (isReleaseBuild) void undockDockPane();
+          void undockDockPane();
         }}
         title="Drag to move"
       >
         <span>{browserDockTitle}</span>
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
-          {#if isReleaseBuild}
-            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
-          {/if}
+          <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           <button
             class="dock-refresh"
             draggable="true"
@@ -103,14 +101,10 @@
         </div>
       </div>
       <div class="dock-body" bind:this={dockBodyEl}>
-        {#if isReleaseBuild}
+        {#if !nativeDock}
           {#key dockFrameKey}
             <iframe class="dock-iframe" src={dockHostWebviewUrl} title="Dock webview host"></iframe>
           {/key}
-        {:else}
-          <div class="dock-frame-warning dock-frame-warning-top">
-            <p>Webview frame and dock webview rendering is available only in release mode</p>
-          </div>
         {/if}
         {#if !dockCanvasRuntimeReady}
           <div class="dock-frame-warning dock-frame-warning-top">
@@ -119,7 +113,7 @@
         {/if}
         {#if dockFrameBlocked}
           <div class="dock-frame-warning">
-            <p>Canvas frame pipeline failed for this dock source.</p>
+            <p>Native webview could not load this dock source.</p>
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}
@@ -172,16 +166,14 @@
         ondragend={handleDockHandleDragEnd}
         onmousedown={startDockHeaderMove}
         ondblclick={() => {
-          if (isReleaseBuild) void undockDockPane();
+          void undockDockPane();
         }}
         title="Drag to move"
       >
         <span>{browserDockTitle}</span>
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
-          {#if isReleaseBuild}
-            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
-          {/if}
+          <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           <button
             class="dock-refresh"
             draggable="true"
@@ -193,14 +185,10 @@
         </div>
       </div>
       <div class="dock-body" bind:this={dockBodyEl}>
-        {#if isReleaseBuild}
+        {#if !nativeDock}
           {#key dockFrameKey}
             <iframe class="dock-iframe" src={dockHostWebviewUrl} title="Dock webview host"></iframe>
           {/key}
-        {:else}
-          <div class="dock-frame-warning dock-frame-warning-top">
-            <p>Webview frame and dock webview rendering is available only in release mode.</p>
-          </div>
         {/if}
         {#if !dockCanvasRuntimeReady}
           <div class="dock-frame-warning dock-frame-warning-top">
@@ -209,7 +197,7 @@
         {/if}
         {#if dockFrameBlocked}
           <div class="dock-frame-warning">
-            <p>Canvas frame pipeline failed for this dock source.</p>
+            <p>Native webview could not load this dock source.</p>
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}
@@ -238,16 +226,14 @@
         ondragend={handleDockHandleDragEnd}
         onmousedown={startDockHeaderMove}
         ondblclick={() => {
-          if (isReleaseBuild) void undockDockPane();
+          void undockDockPane();
         }}
         title="Drag to move"
       >
         <span>{browserDockTitle}</span>
         <span class="dock-engine" class:active={dockEngineActive}>{dockEngineLabel}</span>
         <div class="dock-header-actions">
-          {#if isReleaseBuild}
-            <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
-          {/if}
+          <button class="dock-popout" onclick={() => void undockDockPane()} aria-label="Undock to separate window">↗</button>
           <button
             class="dock-refresh"
             draggable="true"
@@ -259,14 +245,10 @@
         </div>
       </div>
       <div class="dock-body" bind:this={dockBodyEl}>
-        {#if isReleaseBuild}
+        {#if !nativeDock}
           {#key dockFrameKey}
             <iframe class="dock-iframe" src={dockHostWebviewUrl} title="Dock webview host"></iframe>
           {/key}
-        {:else}
-          <div class="dock-frame-warning dock-frame-warning-top">
-            <p>Webview frame and dock webview rendering is available only in release mode.</p>
-          </div>
         {/if}
         {#if !dockCanvasRuntimeReady}
           <div class="dock-frame-warning dock-frame-warning-top">
@@ -275,7 +257,7 @@
         {/if}
         {#if dockFrameBlocked}
           <div class="dock-frame-warning">
-            <p>Canvas frame pipeline failed for this dock source.</p>
+            <p>Native webview could not load this dock source.</p>
             {#if dockFrameErrorMessage}
               <p>{dockFrameErrorMessage}</p>
             {/if}

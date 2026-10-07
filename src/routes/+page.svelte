@@ -1250,7 +1250,14 @@
     let dockInlineWebviewUrl = "";
     let dockInlineWebviewActive = false;
     let dockEnsureInFlight = false;
-    const dockUseSubWebview = false;
+    const dockUseSubWebview = true;
+    let dockGeneration = 0;
+    let dockEnsurePending = false;
+    let dockForcePending = false;
+    let dockDestroyed = false;
+    let dockResizeObserver: ResizeObserver | null = null;
+    let dockBoundsSync: Promise<void> = Promise.resolve();
+    let dockLastBounds = "";
     let dockBoundsRaf: number | null = null;
     let dockCanvasEl: HTMLCanvasElement | null = null;
     let dockCanvasPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1435,7 +1442,7 @@
     $: if (openAdditionalSettingsInWindows) allowDraggablePopups = false;
     $: browserDockTitle = "Dock 1";
     $: dockCanvasRuntimeReady = tauriAvailable;
-    $: dockCanvasUnavailableReason = "Renderer backend unavailable in this runtime.";
+    $: dockCanvasUnavailableReason = "Native webviews require the desktop app. Browser previews may be blocked by the site.";
     $: dockEngineLabel = dockInlineWebviewActive
       ? "tauri-webview"
       : (dockCefBridgeCompiled ? "libcef" : "chromium");
@@ -1596,50 +1603,63 @@
     };
 
     const disposeDockInlineWebview = async () => {
+      dockGeneration += 1;
       if (dockBoundsRaf !== null) {
         cancelAnimationFrame(dockBoundsRaf);
         dockBoundsRaf = null;
       }
-      if (dockInlineWebview) {
+      const webview = dockInlineWebview;
+      dockInlineWebview = null;
+      dockInlineWebviewUrl = "";
+      dockInlineWebviewActive = false;
+      dockLastBounds = "";
+      if (webview) {
         try {
-          await dockInlineWebview.close();
+          await webview.close();
         } catch {
           // ignore close errors
         }
       }
-      dockInlineWebview = null;
-      dockInlineWebviewUrl = "";
-      dockInlineWebviewActive = false;
       if (!dockPinnedSide) {
         dockPaneEl = null;
       }
     };
 
-    const syncDockInlineWebviewBounds = async () => {
-      if (!dockInlineWebview || !dockPaneEl) return;
-      const paneRect = dockPaneEl.getBoundingClientRect();
-      const headerEl = dockPaneEl.querySelector(".dock-compact-header") as HTMLElement | null;
-      const headerHeight = Math.max(0, Math.floor(headerEl?.getBoundingClientRect().height ?? 34));
-      const x = Math.floor(paneRect.left);
-      const y = Math.floor(paneRect.top + headerHeight);
-      const width = Math.max(1, Math.floor(paneRect.width));
-      const height = Math.max(1, Math.floor(paneRect.height - headerHeight));
-      if (width < 2 || height < 2) return;
-
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          await dockInlineWebview.setPosition(new LogicalPosition(x, y));
-          await dockInlineWebview.setSize(new LogicalSize(width, height));
-          return;
-        } catch (err) {
-          const message = String(err);
-          if (/webview not found/i.test(message) && attempt === 0) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 120));
-            continue;
-          }
-          throw err;
+    const applyDockInlineWebviewBounds = async () => {
+      const webview = dockInlineWebview;
+      if (!webview) return;
+      const rect = dockBodyEl?.getBoundingClientRect();
+      // Native children sit above DOM overlays, so explicitly hide them while overlays are open.
+      if (!dockPinnedSide || !rect || rect.width < 2 || rect.height < 2 || document.hidden ||
+          document.querySelector('[role="dialog"], .context-menu, .context-overlay, .dock-drop-overlay')) {
+        if (dockLastBounds !== `${webview.label}:hidden`) {
+          await webview.hide();
+          dockLastBounds = `${webview.label}:hidden`;
         }
+        return;
       }
+      const x = Math.max(0, rect.left);
+      const y = Math.max(0, rect.top);
+      const width = Math.min(rect.right, window.innerWidth) - x;
+      const height = Math.min(rect.bottom, window.innerHeight) - y;
+      if (width < 2 || height < 2) {
+        await webview.hide();
+        dockLastBounds = `${webview.label}:hidden`;
+        return;
+      }
+      const bounds = `${webview.label}:${x}:${y}:${width}:${height}`;
+      if (dockLastBounds === bounds) return;
+      await webview.setPosition(new LogicalPosition(x, y));
+      await webview.setSize(new LogicalSize(width, height));
+      if (webview === dockInlineWebview) {
+        await webview.show();
+        dockLastBounds = bounds;
+      }
+    };
+
+    const syncDockInlineWebviewBounds = () => {
+      dockBoundsSync = dockBoundsSync.catch(() => {}).then(applyDockInlineWebviewBounds);
+      return dockBoundsSync;
     };
 
     const requestDockInlineBoundsSync = () => {
@@ -1649,29 +1669,28 @@
       }
       dockBoundsRaf = requestAnimationFrame(() => {
         dockBoundsRaf = null;
-        void syncDockInlineWebviewBounds();
+        void syncDockInlineWebviewBounds().catch((err) => {
+          if (!dockInlineWebview) return;
+          dockFrameBlocked = true;
+          dockFrameErrorMessage = String(err);
+        });
       });
     };
 
-    const waitForDockInlineWebviewReady = async (webview: Webview, timeoutMs = 2000) => {
-      await Promise.race([
-        new Promise<void>((resolve, reject) => {
-          let done = false;
-          void webview.once("tauri://created", () => {
-            if (done) return;
-            done = true;
-            resolve();
-          });
-          void webview.once("tauri://error", (event) => {
-            if (done) return;
-            done = true;
-            reject(new Error(String(event?.payload ?? "tauri://error")));
-          });
-        }),
-        new Promise<void>((_, reject) => {
-          setTimeout(() => reject(new Error("dock inline webview create timeout")), timeoutMs);
-        })
-      ]);
+    const waitForDockInlineWebviewReady = async (webview: Webview) => {
+      const unlisten: Array<() => void> = [];
+      let finished = false;
+      const rememberUnlisten = (off: () => void) => finished ? off() : unlisten.push(off);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          void webview.once("tauri://created", () => resolve()).then(rememberUnlisten, reject);
+          void webview.once("tauri://error", (event) => reject(new Error(String(event.payload))))
+            .then(rememberUnlisten, reject);
+        });
+      } finally {
+        finished = true;
+        unlisten.forEach((off) => off());
+      }
     };
 
     const ensureDockInlineWebview = async (forceRecreate = false) => {
@@ -1679,9 +1698,14 @@
         await disposeDockInlineWebview();
         return;
       }
-      if (dockEnsureInFlight) return;
+      if (dockDestroyed) return;
+      if (dockEnsureInFlight) {
+        dockEnsurePending = true;
+        dockForcePending ||= forceRecreate;
+        return;
+      }
       dockEnsureInFlight = true;
-      if (!tauriAvailable || !dockPinnedSide || !dockPaneEl) {
+      if (!tauriAvailable || !dockPinnedSide || !dockBodyEl) {
         await disposeDockInlineWebview();
         dockEnsureInFlight = false;
         return;
@@ -1689,7 +1713,7 @@
 
       const targetUrl = syncDockUrl();
       if (!/^https?:\/\//i.test(targetUrl ?? "")) {
-        dockInlineWebviewActive = false;
+        await disposeDockInlineWebview();
         dockFrameLoaded = false;
         dockFrameBlocked = true;
         dockFrameErrorMessage = "Dock URL must start with http:// or https://";
@@ -1700,76 +1724,83 @@
       const loadUrl = targetUrl;
 
       try {
-        let recovered = false;
         const urlChanged = dockInlineWebviewUrl !== loadUrl;
         if (forceRecreate || !dockInlineWebview || urlChanged) {
           await disposeDockInlineWebview();
+          await tick();
+          if (dockDestroyed || !dockPinnedSide || !dockBodyEl) return;
+          const generation = dockGeneration;
+          const rect = dockBodyEl.getBoundingClientRect();
           const currentWindow = getCurrentWindow();
           const label = `dock-inline-${Date.now().toString(36)}`;
-          dockInlineWebview = new Webview(currentWindow, label, {
+          const child = new Webview(currentWindow, label, {
             url: loadUrl,
-            x: 0,
-            y: 0,
-            width: 16,
-            height: 16,
+            x: Math.max(0, rect.left),
+            y: Math.max(0, rect.top),
+            width: Math.max(1, rect.width),
+            height: Math.max(1, rect.height),
             focus: false
           });
-          await dockInlineWebview.setAutoResize(false);
+          dockInlineWebview = child;
+          await waitForDockInlineWebviewReady(child);
+          if (generation !== dockGeneration || dockDestroyed || !dockPinnedSide) {
+            await child.close();
+            return;
+          }
+          await child.setAutoResize(false);
           dockInlineWebviewUrl = loadUrl;
-          await waitForDockInlineWebviewReady(dockInlineWebview);
         }
 
         await syncDockInlineWebviewBounds();
+        if (!dockInlineWebview || dockDestroyed || !dockPinnedSide) return;
         dockInlineWebviewActive = true;
         dockFrameLoaded = true;
         dockFrameBlocked = false;
         dockFrameErrorMessage = "";
       } catch (err) {
-        let message = String(err);
-        if (/webview not found|not supported|failed to create webview|set_webview_position/i.test(message)) {
-          try {
-            await disposeDockInlineWebview();
-            await new Promise<void>((resolve) => setTimeout(resolve, 140));
-            const currentWindow = getCurrentWindow();
-            const label = `dock-inline-recover-${Date.now().toString(36)}`;
-            dockInlineWebview = new Webview(currentWindow, label, {
-              url: loadUrl,
-              x: 0,
-              y: 0,
-              width: 16,
-              height: 16,
-              focus: false
-            });
-            await dockInlineWebview.setAutoResize(false);
-            dockInlineWebviewUrl = loadUrl;
-            await waitForDockInlineWebviewReady(dockInlineWebview);
-            await syncDockInlineWebviewBounds();
-            dockInlineWebviewActive = true;
-            dockFrameLoaded = true;
-            dockFrameBlocked = false;
-            dockFrameErrorMessage = "";
-            dockEnsureInFlight = false;
-            return;
-          } catch (recoverErr) {
-            message = String(recoverErr);
-          }
-        }
+        await disposeDockInlineWebview();
         dockInlineWebviewActive = false;
         dockFrameLoaded = false;
         dockFrameBlocked = true;
-        dockFrameErrorMessage = message;
+        dockFrameErrorMessage = String(err);
       } finally {
         dockEnsureInFlight = false;
+        if (dockEnsurePending) {
+          const force = dockForcePending;
+          dockEnsurePending = false;
+          dockForcePending = false;
+          void ensureDockInlineWebview(force);
+        }
       }
     };
 
-    $: if (tauriAvailable && dockPinnedSide && dockPaneEl) {
-      if (!dockInlineWebviewActive) {
+    $: if (tauriAvailable && dockPinnedSide && dockBodyEl && !dockDestroyed) {
+      if (!dockInlineWebviewActive && !dockFrameBlocked) {
         void ensureDockInlineWebview(false);
       } else {
         requestDockInlineBoundsSync();
       }
     }
+
+    $: if (dockResizeObserver && dockBodyEl) {
+      dockResizeObserver.disconnect();
+      dockResizeObserver.observe(dockBodyEl);
+      requestDockInlineBoundsSync();
+    }
+
+    onMount(() => {
+      const observer = new MutationObserver(requestDockInlineBoundsSync);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] });
+      dockResizeObserver = new ResizeObserver(requestDockInlineBoundsSync);
+      document.addEventListener("visibilitychange", requestDockInlineBoundsSync);
+      return () => {
+        dockDestroyed = true;
+        observer.disconnect();
+        dockResizeObserver?.disconnect();
+        document.removeEventListener("visibilitychange", requestDockInlineBoundsSync);
+        void disposeDockInlineWebview();
+      };
+    });
 
     const scheduleDockCanvasFrame = (delay = 0) => {
       stopDockCanvasLoop();
@@ -1907,16 +1938,25 @@
     };
 
     const undockDockPane = async () => {
-      if (!isReleaseBuild) return;
-      await disposeDockInlineWebview();
+      let targetUrl = syncDockUrl();
       if (tauriAvailable) {
         try {
-          await invoke<string>("open_browser_dock", { url: dockHostWebviewUrl });
+          const state = await invoke<{ is_open: boolean; url: string | null }>("browser_dock_state");
+          if (dockInlineWebview && state.url && /^https?:\/\//i.test(state.url)) {
+            targetUrl = state.url;
+            browserDockUrl = targetUrl;
+            localStorage.setItem("browserDockUrl", targetUrl);
+          }
+          await invoke<string>("open_browser_dock", { url: targetUrl });
         } catch (err) {
           showGlobalDialog(String(err), "error");
+          return;
         }
+      } else {
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
       }
       dockPinnedSide = null;
+      await disposeDockInlineWebview();
       dockDragActive = false;
       dockDropTarget = null;
       dockDropCommitted = false;
@@ -6484,8 +6524,8 @@
 
     const removeDockFromWorkspace = async () => {
       closeDockMenu();
-      await disposeDockInlineWebview();
       dockPinnedSide = null;
+      await disposeDockInlineWebview();
       showDockHandle = false;
       dockDragActive = false;
       dockDropTarget = null;
@@ -7425,7 +7465,7 @@
     {browserDockTitle}
     {dockEngineActive}
     {dockEngineLabel}
-    {isReleaseBuild}
+    nativeDock={tauriAvailable && dockUseSubWebview}
     {dockFrameKey}
     {dockHostWebviewUrl}
     {dockCanvasRuntimeReady}

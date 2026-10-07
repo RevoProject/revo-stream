@@ -53,24 +53,14 @@ pub(crate) fn open_browser_dock(app: tauri::AppHandle, url: Option<String>) -> R
 
 	set_browser_dock_last_url(trimmed.to_string());
 
-	let escaped_start_url = trimmed
-		.replace('\\', "\\\\")
-		.replace('"', "\\\"")
-		.replace('\n', "\\n")
-		.replace('\r', "\\r");
-	let dock_script = format!(
-		"(function() {{\n  var startUrl = \"{}\";\n  window.__revoDockStartUrl = startUrl;\n  if (!window.__revoDockBound) {{\n    window.addEventListener('keydown', function(event) {{\n      if (event.key === 'F5') {{\n        event.preventDefault();\n        var target = window.__revoDockStartUrl || startUrl;\n        if (target) window.location.href = target;\n      }}\n    }}, true);\n    window.__revoDockBound = true;\n  }}\n}})();",
-		escaped_start_url
-	);
-
 	if let Some(window) = app.get_webview_window(dock_label) {
-		let _ = window.eval(&dock_script);
-		let _ = window.eval(&format!("window.location.href = \"{}\";", escaped_start_url));
-		let _ = window.set_focus();
+		window.navigate(parsed).map_err(|e| e.to_string())?;
+		window.show().map_err(|e| e.to_string())?;
+		window.set_focus().map_err(|e| e.to_string())?;
 		return Ok("Browser dock focused".to_string());
 	}
 
-	let window = tauri::WebviewWindowBuilder::new(&app, dock_label, tauri::WebviewUrl::External(parsed))
+	tauri::WebviewWindowBuilder::new(&app, dock_label, tauri::WebviewUrl::External(parsed))
 		.title("RevoStream - Browser Dock")
 		.inner_size(1280.0, 800.0)
 		.min_inner_size(640.0, 420.0)
@@ -81,8 +71,6 @@ pub(crate) fn open_browser_dock(app: tauri::AppHandle, url: Option<String>) -> R
 		})
 		.build()
 		.map_err(|e| format!("failed to open browser dock: {e}"))?;
-
-	let _ = window.eval(&dock_script);
 
 	Ok("Browser dock opened".to_string())
 }
@@ -104,7 +92,11 @@ pub(crate) fn browser_dock_state(app: tauri::AppHandle) -> Result<crate::Browser
 
 	Ok(crate::BrowserDockState {
 		is_open: false,
-		url: get_browser_dock_last_url(),
+		url: app.webviews().into_iter()
+			.find(|(label, _)| label.starts_with("dock-inline-"))
+			.and_then(|(_, webview)| webview.url().ok())
+			.map(|url| url.to_string())
+			.or_else(get_browser_dock_last_url),
 	})
 }
 
@@ -112,6 +104,9 @@ pub(crate) fn close_browser_dock(app: tauri::AppHandle) -> Result<(), String> {
 	use tauri::Manager;
 
 	if let Some(window) = app.get_webview_window("browser-dock") {
+		if let Ok(url) = window.url() {
+			set_browser_dock_last_url(url.to_string());
+		}
 		window.close().map_err(|e| e.to_string())?;
 	}
 	Ok(())
