@@ -267,8 +267,10 @@ fn cef_bridge_info() -> Result<CefBridgeInfo, String> {
 }
 
 #[tauri::command]
-fn cef_dock_render_frame(url: String, width: u32, height: u32) -> Result<String, String> {
-    ui::cef::dock_render_frame(url, width, height)
+async fn cef_dock_render_frame(url: String, width: u32, height: u32) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ui::cef::dock_render_frame(url, width, height))
+        .await
+        .map_err(|err| format!("browser capture task failed: {err}"))?
 }
 
 #[tauri::command]

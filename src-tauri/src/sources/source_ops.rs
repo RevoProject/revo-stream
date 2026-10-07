@@ -26,6 +26,10 @@ pub(crate) fn list_external_source_types(
 			if !id_ptr.is_null() {
 				let id = std::ffi::CStr::from_ptr(id_ptr).to_string_lossy().to_string();
 				if !id.trim().is_empty() {
+					if id == "browser_source" && crate::sources::browser::chromium_binary().is_none() {
+						idx += 1;
+						continue;
+					}
 					let display_ptr = revo_lib::obs::obs_source_get_display_name(id_ptr);
 					let label = if display_ptr.is_null() {
 						id.clone()
@@ -180,6 +184,11 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 				crate::extract_source_params(settings, &mut params);
 				revo_lib::obs::obs_data_release(settings);
 			}
+			if source_type == "browser_source" {
+				if let Some(status) = crate::sources::browser::status(source) {
+					params.insert("browser_render_status".into(), status);
+				}
+			}
 
 			if let Some(color1) = params.get("color1").and_then(|v| v.parse::<u32>().ok()) {
 				let hex = crate::abgr_to_hex(color1);
@@ -316,6 +325,11 @@ pub(crate) fn get_source_settings(
 		}
 		let mut params = std::collections::HashMap::new();
 		crate::extract_source_params(settings, &mut params);
+		if source_type == "browser_source" {
+			if let Some(status) = crate::sources::browser::status(source) {
+				params.insert("browser_render_status".into(), status);
+			}
+		}
 
 		let mut source_properties: Vec<crate::SourcePropertySpec> = Vec::new();
 		revo_lib::obs::obs_source_update_properties(source);
@@ -575,6 +589,14 @@ pub(crate) fn create_source_in_scene(
 		return Err("source type required".to_string());
 	}
 	let create_type = resolve_creatable_source_type(requested_type);
+	if create_type == "browser_source" {
+		if !input_type_exists("browser_source") {
+			return Err("Browser snapshots unavailable: no registered browser backend".into());
+		}
+		if let Some(url) = create.params.get("url") {
+			crate::sources::browser::validate_url(url)?;
+		}
+	}
 
 	unsafe {
 		let settings = revo_lib::obs::obs_data_create();
@@ -595,6 +617,10 @@ pub(crate) fn create_source_in_scene(
 		}
 		if source.is_null() {
 			return Err(format!("failed to create source '{}'", requested_type));
+		}
+		if create_type == "browser_source" && crate::sources::browser::status(source).is_none() {
+			revo_lib::obs::obs_source_release(source);
+			return Err("Failed to start browser snapshot worker".into());
 		}
 
 		let item = revo_lib::obs::obs_scene_add(scene.scene, source);
@@ -754,6 +780,14 @@ pub(crate) fn update_source(
 			update.source_type.as_str()
 		};
 		let is_ffmpeg_source = chosen_type.trim().eq_ignore_ascii_case("ffmpeg_source");
+		if actual_type == "browser_source" {
+			if let Some(url) = update.params.get("url") {
+				if let Err(error) = crate::sources::browser::validate_url(url) {
+					revo_lib::obs::obs_data_release(settings);
+					return Err(error);
+				}
+			}
+		}
 		// Zachowaj bazowe wymiary PRZED aktualizacja źródła — po zmianie tekstu/obrazu
 		// naturalny rozmiar źródła może się zmienić, a item_width/item_height z params
 		// jest bezwzględną wartością pikselową ustawioną przez usera.
@@ -927,75 +961,7 @@ pub(crate) fn open_source_interaction(
 	state: tauri::State<crate::ObsState>,
 	id: String,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS is not initialized".to_string());
-	}
-
-	let scene = crate::current_scene(&runtime)?;
-	let item = crate::resolve_scene_item(scene, &id)
-		.ok_or_else(|| format!("source '{}' not found", id))?;
-
-	let mut source_name = id.clone();
-	let mut browser_url: Option<String> = None;
-
-	unsafe {
-		let source = revo_lib::obs::obs_sceneitem_get_source(item);
-		if source.is_null() {
-			return Err("source pointer is null".to_string());
-		}
-
-		let source_type_ptr = revo_lib::obs::obs_source_get_id(source);
-		let source_type = if source_type_ptr.is_null() {
-			String::new()
-		} else {
-			std::ffi::CStr::from_ptr(source_type_ptr)
-				.to_string_lossy()
-				.to_string()
-		};
-
-		if source_type != "browser_source" {
-			return Err(format!(
-				"source '{}' is type '{}', expected 'browser_source'",
-				id, source_type
-			));
-		}
-
-		let name_ptr = revo_lib::obs::obs_source_get_name(source);
-		if !name_ptr.is_null() {
-			source_name = std::ffi::CStr::from_ptr(name_ptr)
-				.to_string_lossy()
-				.to_string();
-		}
-
-		let settings = revo_lib::obs::obs_source_get_settings(source);
-		if !settings.is_null() {
-			let key = std::ffi::CString::new("url").map_err(|_| "invalid key".to_string())?;
-			let url_ptr = revo_lib::obs::obs_data_get_string(settings, key.as_ptr());
-			if !url_ptr.is_null() {
-				let url = std::ffi::CStr::from_ptr(url_ptr).to_string_lossy().to_string();
-				if !url.trim().is_empty() {
-					browser_url = Some(url);
-				}
-			}
-			revo_lib::obs::obs_data_release(settings);
-		}
-	}
-
-	if let Some(url) = browser_url {
-		let parsed = tauri::Url::parse(url.trim())
-			.map_err(|e| format!("invalid browser source url: {e}"))?;
-		let label = format!("browser-interact-{}", uuid::Uuid::new_v4());
-		tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(parsed))
-			.title(format!("Interact - {}", source_name))
-			.inner_size(1200.0, 760.0)
-			.resizable(true)
-			.build()
-			.map_err(|e| format!("failed to open browser interaction window: {e}"))?;
-	}
-
-	Ok("Interaction window opened".to_string())
+	// A separate webview would not interact with the Chromium snapshot page.
+	let _ = (app, state, id);
+	Err("Browser snapshot sources do not support interaction or shared browser state".into())
 }

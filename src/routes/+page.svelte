@@ -1194,6 +1194,7 @@
     );
     let showAddSource = false;
     let newSourceType = sourceTypes[0].id;
+    let availableSourceTypes: SourceTypeItem[] = sourceTypes;
     let externalSourceTypes: SourceTypeItem[] = [];
 
     let showSettings = false;
@@ -4360,10 +4361,16 @@
 
   const openAddSourceModal = async () => {
     externalSourceTypes = [];
+    availableSourceTypes = sourceTypes;
 
     if (backendEnabled && isObsRunning) {
+      availableSourceTypes = [];
       try {
         const listed = await invoke<SourceTypeItem[]>("obs_list_external_source_types");
+        const registered = new Map(listed.map((type) => [type.id, type]));
+        availableSourceTypes = sourceTypes
+          .filter((type) => registered.has(type.id))
+          .map((type) => type.id === "browser_source" ? registered.get(type.id)! : type);
         const seen = new Set<string>();
         externalSourceTypes = listed.filter((t) => {
           if (externalSourceTypeBlacklist.has(t.id)) return false;
@@ -4381,8 +4388,8 @@
       }
     }
 
-    if (![...sourceTypes, ...externalSourceTypes].some((t) => t.id === newSourceType)) {
-      newSourceType = sourceTypes[0].id;
+    if (![...availableSourceTypes, ...externalSourceTypes].some((t) => t.id === newSourceType)) {
+      newSourceType = availableSourceTypes[0]?.id ?? externalSourceTypes[0]?.id ?? "";
     }
 
     showAddSource = true;
@@ -7091,7 +7098,7 @@
   {#if showAddSource}
     <AddSourceModal
       bind:newSourceType
-      {sourceTypes}
+      sourceTypes={availableSourceTypes}
       {externalSourceTypes}
       on:close={() => (showAddSource = false)}
       on:add={addSource}
@@ -7366,7 +7373,7 @@
       <button onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}>Remove</button>
       <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}>Filters</button>
       {#if isBrowserSource(sourceMenu.source)}
-        <button onclick={() => sourceMenu.source && openSourceInteraction(sourceMenu.source)}>Interact</button>
+        <button disabled title="Chromium snapshots render video only; browser interaction is not supported.">Interact (unavailable)</button>
       {:else if isTextSource(sourceMenu.source)}
         <button onclick={() => sourceMenu.source && openTextEdit(sourceMenu.source)}>Text Edit</button>
       {/if}

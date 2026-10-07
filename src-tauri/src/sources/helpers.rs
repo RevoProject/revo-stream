@@ -834,17 +834,17 @@ pub(crate) fn apply_source_params(
 			}
 			"browser_source" => {
 				if let Some(url) = params.get("url") {
-					let key = std::ffi::CString::new("url").unwrap();
-					let val = std::ffi::CString::new(url.as_str()).unwrap();
-					revo_lib::obs::obs_data_set_string(settings, key.as_ptr(), val.as_ptr());
+					if let Ok(val) = std::ffi::CString::new(url.as_str()) {
+						revo_lib::obs::obs_data_set_string(settings, c"url".as_ptr(), val.as_ptr());
+					}
 				}
 				if let Some(width) = params.get("width").and_then(|v| v.parse::<i64>().ok()) {
 					let key = std::ffi::CString::new("width").unwrap();
-					revo_lib::obs::obs_data_set_int(settings, key.as_ptr(), width);
+					revo_lib::obs::obs_data_set_int(settings, key.as_ptr(), width.clamp(64, 4096));
 				}
 				if let Some(height) = params.get("height").and_then(|v| v.parse::<i64>().ok()) {
 					let key = std::ffi::CString::new("height").unwrap();
-					revo_lib::obs::obs_data_set_int(settings, key.as_ptr(), height);
+					revo_lib::obs::obs_data_set_int(settings, key.as_ptr(), height.clamp(64, 4096));
 				}
 			}
 			"window_capture" | "xcomposite_input" => {

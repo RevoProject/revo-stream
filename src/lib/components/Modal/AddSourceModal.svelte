@@ -64,6 +64,9 @@
       <h2>Add Source</h2>
     </header>
     <div class="modal-body">
+      {#if !sourceTypes.length && !externalSourceTypes.length}
+        <p role="status">No source types are available. Check OBS initialization and plugin loading.</p>
+      {/if}
       <div class="source-grid builtin-grid" role="list">
         {#each sourceTypes as type}
           <button
