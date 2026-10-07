@@ -415,11 +415,13 @@ jobs:
       - name: Create Windows Portable ZIP
         shell: pwsh
         run: |
-          $bundleDir = "src-tauri/target/release/bundle"
+          $target = "src-tauri/target/release"
+          $bundleDir = "$target/bundle"
           $portable = "$bundleDir/revo-ui-windows-x64-portable"
           $zip = "$bundleDir/revo-ui-windows-x64.zip"
 
-          $exe = "src-tauri/target/release/revo-ui.exe"
+          $exe = "$target/revo-ui.exe"
+          $obsDll = "$target/obs.dll"
           $root = "src-tauri/resources/revo-root"
 
           Remove-Item `
@@ -437,8 +439,20 @@ jobs:
             throw "Executable not found: $exe"
           }
 
+          if (-not (Test-Path $obsDll)) {
+            throw "Real OBS DLL not found: $obsDll"
+          }
+
           if (-not (Test-Path $root)) {
             throw "revo-root not found: $root"
+          }
+
+          $obsSize = (Get-Item $obsDll).Length
+
+          Write-Host "Real target/release/obs.dll size: $obsSize bytes"
+
+          if ($obsSize -lt 500000) {
+            throw "target/release/obs.dll is unexpectedly small; refusing to package dummy DLL"
           }
 
           New-Item `
@@ -446,44 +460,150 @@ jobs:
             -Force `
             $portable | Out-Null
 
+          # ------------------------------------------------------------
+          # IMPORTANT:
+          # libobs-bootstrapper looks for obs.dll next to revo-ui.exe.
+          # Therefore the portable bundle must contain the REAL OBS DLL
+          # in its root, not only inside revo-root.
+          # ------------------------------------------------------------
+
           Copy-Item `
             $exe `
             "$portable\revo-ui.exe" `
             -Force
 
           Copy-Item `
+            $obsDll `
+            "$portable\obs.dll" `
+            -Force
+
+          # Copy every root-level DLL produced by cargo-obs-build.
+          # This keeps FFmpeg / graphics / runtime dependencies beside
+          # the executable where Windows DLL lookup can find them.
+          $rootDlls = Get-ChildItem `
+            $target `
+            -Filter "*.dll" `
+            -File `
+            -ErrorAction SilentlyContinue
+
+          foreach ($dll in $rootDlls) {
+            Write-Host "Copying runtime DLL: $($dll.Name)"
+
+            Copy-Item `
+              $dll.FullName `
+              "$portable\$($dll.Name)" `
+              -Force
+          }
+
+          # Preserve the OBS runtime directories exactly as produced by
+          # cargo-obs-build.
+          foreach ($dirName in @("bin", "data", "obs-plugins")) {
+            $sourceDir = "$target\$dirName"
+
+            if (Test-Path $sourceDir) {
+              Write-Host "Copying OBS runtime directory: $dirName"
+
+              Copy-Item `
+                $sourceDir `
+                "$portable\$dirName" `
+                -Recurse `
+                -Force
+            }
+          }
+
+          # Revo's own runtime/resource tree.
+          Copy-Item `
             $root `
             "$portable\revo-root" `
             -Recurse `
             -Force
 
+          # ------------------------------------------------------------
+          # Verify final portable layout
+          # ------------------------------------------------------------
+
           $portableExe = "$portable\revo-ui.exe"
-          $portableObs = "$portable\revo-root\core\lib\obs.dll"
+          $portableObs = "$portable\obs.dll"
+          $portableRoot = "$portable\revo-root"
+          $portablePlugins = "$portable\obs-plugins"
 
           if (-not (Test-Path $portableExe)) {
-            throw "Portable executable missing"
+            throw "Portable executable missing: $portableExe"
           }
 
           if (-not (Test-Path $portableObs)) {
-            throw "Portable OBS runtime missing"
+            throw "Portable root obs.dll missing: $portableObs"
           }
 
-          $portablePlugins = @(
+          $portableObsSize = (Get-Item $portableObs).Length
+
+          Write-Host "Portable root obs.dll size: $portableObsSize bytes"
+
+          if ($portableObsSize -lt 500000) {
+            throw "Portable obs.dll is unexpectedly small"
+          }
+
+          if (-not (Test-Path $portableRoot)) {
+            throw "Portable revo-root missing"
+          }
+
+          if (-not (Test-Path "$portableRoot\core\lib\obs.dll")) {
+            throw "Portable revo-root/core/lib/obs.dll missing"
+          }
+
+          if (-not (Test-Path "$portableRoot\core\lib\obs-plugins")) {
+            throw "Portable revo-root/core/lib/obs-plugins missing"
+          }
+
+          $rootPlugins = @(
             Get-ChildItem `
-              "$portable\revo-root\core\lib\obs-plugins" `
+              "$portableRoot\core\lib\obs-plugins" `
               -Recurse `
               -Filter "*.dll" `
               -File
           ).Count
 
-          if ($portablePlugins -eq 0) {
-            throw "Portable OBS plugins missing"
+          if ($rootPlugins -eq 0) {
+            throw "No OBS plugins found in portable revo-root"
           }
 
+          if (Test-Path $portablePlugins) {
+            $portablePluginsCount = @(
+              Get-ChildItem `
+                $portablePlugins `
+                -Recurse `
+                -Filter "*.dll" `
+                -File
+            ).Count
+
+            if ($portablePluginsCount -eq 0) {
+              throw "Portable obs-plugins directory is empty"
+            }
+
+            Write-Host "Portable root OBS plugin DLLs: $portablePluginsCount"
+          }
+
+          Write-Host ""
+          Write-Host "============================================================"
+          Write-Host "FINAL WINDOWS PORTABLE LAYOUT"
+          Write-Host "============================================================"
+
+          Get-ChildItem `
+            $portable `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          # Compress the COMPLETE application directory.
           Compress-Archive `
             -Path "$portable\*" `
             -DestinationPath $zip `
             -CompressionLevel Optimal
+
+          if (-not (Test-Path $zip)) {
+            throw "Portable ZIP was not created"
+          }
 
           Write-Host ""
           Write-Host "Portable ZIP:"
@@ -493,15 +613,55 @@ jobs:
             Select-Object FullName, Length |
             Format-Table -AutoSize
 
-          Write-Host ""
-          Write-Host "Portable contents:"
+          # Validate the archive itself, not only the temporary directory.
+          $verifyDir = "$bundleDir\portable-verify"
 
-          Get-ChildItem `
-            $portable `
+          Remove-Item `
+            $verifyDir `
             -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
+            -Force `
+            -ErrorAction SilentlyContinue
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            $verifyDir | Out-Null
+
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $verifyDir `
+            -Force
+
+          if (-not (Test-Path "$verifyDir\revo-ui.exe")) {
+            throw "ZIP verification failed: revo-ui.exe missing"
+          }
+
+          if (-not (Test-Path "$verifyDir\obs.dll")) {
+            throw "ZIP verification failed: root obs.dll missing"
+          }
+
+          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs.dll")) {
+            throw "ZIP verification failed: revo-root/core/lib/obs.dll missing"
+          }
+
+          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs-plugins")) {
+            throw "ZIP verification failed: OBS plugins missing"
+          }
+
+          $verifiedObsSize = (Get-Item "$verifyDir\obs.dll").Length
+
+          if ($verifiedObsSize -lt 500000) {
+            throw "ZIP verification failed: root obs.dll is dummy/small"
+          }
+
+          Write-Host ""
+          Write-Host "ZIP verification passed"
+          Write-Host "Verified root obs.dll: $verifiedObsSize bytes"
+
+          Remove-Item `
+            $verifyDir `
+            -Recurse `
+            -Force
 
           Remove-Item `
             $portable `
