@@ -214,9 +214,9 @@ jobs:
             'revo-cef = { path = "../../modules/revo-cef", optional = true }',
             ''
           )
-          Set-Content \`
-            -Path $path \`
-            -Value $content \`
+          Set-Content `
+            -Path $path `
+            -Value $content `
             -NoNewline
           Write-Host "CEF disabled for CI"
       # ----------------------------------------------------------
@@ -225,14 +225,14 @@ jobs:
       - name: Prepare revo-root
         shell: pwsh
         run: |
-          Remove-Item \`
-            "src-tauri/resources/revo-root" \`
-            -Recurse \`
-            -Force \`
+          Remove-Item `
+            "src-tauri/resources/revo-root" `
+            -Recurse `
+            -Force `
             -ErrorAction SilentlyContinue
-          New-Item \`
-            -ItemType Directory \`
-            -Force \`
+          New-Item `
+            -ItemType Directory `
+            -Force `
             "src-tauri/resources/revo-root" | Out-Null
       # ----------------------------------------------------------
       # Rust dependencies
@@ -246,9 +246,9 @@ jobs:
         shell: pwsh
         run: |
           $root = "$env:USERPROFILE\\.cargo\git\checkouts"
-          $bootstrapper = Get-ChildItem \`
-            $root \`
-            -Recurse \`
+          $bootstrapper = Get-ChildItem `
+            $root `
+            -Recurse `
             -Filter Cargo.toml |
             Where-Object {
               $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
@@ -296,10 +296,10 @@ jobs:
             throw "OBS plugin directory missing: $plugins"
           }
           $pluginCount = @(
-            Get-ChildItem \`
-              $plugins \`
-              -Recurse \`
-              -Filter "*.dll" \`
+            Get-ChildItem `
+              $plugins `
+              -Recurse `
+              -Filter "*.dll" `
               -File
           ).Count
           Write-Host "OBS plugin DLLs: $pluginCount"
@@ -321,10 +321,10 @@ jobs:
         run: |
           $OUT = "src-tauri/target/release"
           $ROOT = "src-tauri/resources/revo-root"
-          Remove-Item \`
-            $ROOT \`
-            -Recurse \`
-            -Force \`
+          Remove-Item `
+            $ROOT `
+            -Recurse `
+            -Force `
             -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
@@ -332,56 +332,56 @@ jobs:
           New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
           if (Test-Path "data") {
-            Copy-Item \`
-              "data\\*" \`
-              "$ROOT\data" \`
-              -Recurse \`
+            Copy-Item `
+              "data\\*" `
+              "$ROOT\data" `
+              -Recurse `
               -Force
           }
-          $dlls = Get-ChildItem \`
-            $OUT \`
-            -Filter "*.dll" \`
-            -File \`
+          $dlls = Get-ChildItem `
+            $OUT `
+            -Filter "*.dll" `
+            -File `
             -ErrorAction SilentlyContinue
           if (-not $dlls) {
             throw "No OBS DLLs found in $OUT"
           }
           foreach ($dll in $dlls) {
             Write-Host "Copying OBS DLL: $($dll.Name)"
-            Copy-Item \`
-              $dll.FullName \`
-              "$ROOT\core\lib\\$($dll.Name)" \`
+            Copy-Item `
+              $dll.FullName `
+              "$ROOT\core\lib\\$($dll.Name)" `
               -Force
           }
           if (Test-Path "$OUT\obs-plugins") {
-            Copy-Item \`
-              "$OUT\obs-plugins" \`
-              "$ROOT\core\lib\obs-plugins" \`
-              -Recurse \`
+            Copy-Item `
+              "$OUT\obs-plugins" `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
               -Force
           }
           else {
             throw "OBS obs-plugins directory missing"
           }
           if (Test-Path "$OUT\bin") {
-            Copy-Item \`
-              "$OUT\bin\\*" \`
-              "$ROOT\core\bin" \`
-              -Recurse \`
+            Copy-Item `
+              "$OUT\bin\\*" `
+              "$ROOT\core\bin" `
+              -Recurse `
               -Force
           }
           if (Test-Path "$OUT\share") {
-            Copy-Item \`
-              "$OUT\share\\*" \`
-              "$ROOT\core\share" \`
-              -Recurse \`
+            Copy-Item `
+              "$OUT\share\\*" `
+              "$ROOT\core\share" `
+              -Recurse `
               -Force
           }
           if (Test-Path "$OUT\data") {
-            Copy-Item \`
-              "$OUT\data\\*" \`
-              "$ROOT\data" \`
-              -Recurse \`
+            Copy-Item `
+              "$OUT\data\\*" `
+              "$ROOT\data" `
+              -Recurse `
               -Force
           }
           $runtimeObs = "$ROOT\core\lib\obs.dll"
@@ -389,10 +389,10 @@ jobs:
             throw "Staged obs.dll missing: $runtimeObs"
           }
           $runtimePlugins = @(
-            Get-ChildItem \`
-              "$ROOT\core\lib\obs-plugins" \`
-              -Recurse \`
-              -Filter "*.dll" \`
+            Get-ChildItem `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
               -File
           ).Count
           if ($runtimePlugins -eq 0) {
@@ -402,9 +402,9 @@ jobs:
           Write-Host "============================================================"
           Write-Host "WINDOWS revo-root"
           Write-Host "============================================================"
-          Get-ChildItem \`
-            $ROOT \`
-            -Recurse \`
+          Get-ChildItem `
+            $ROOT `
+            -Recurse `
             -File |
             Select-Object FullName, Length |
             Format-Table -AutoSize
@@ -429,16 +429,16 @@ jobs:
             Write-Host "OK: $path"
           }
           $dllCount = @(
-            Get-ChildItem \`
-              "$ROOT\core\lib" \`
-              -Filter "*.dll" \`
+            Get-ChildItem `
+              "$ROOT\core\lib" `
+              -Filter "*.dll" `
               -File
           ).Count
           $pluginCount = @(
-            Get-ChildItem \`
-              "$ROOT\core\lib\obs-plugins" \`
-              -Recurse \`
-              -Filter "*.dll" \`
+            Get-ChildItem `
+              "$ROOT\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
               -File
           ).Count
           Write-Host "Core DLLs: $dllCount"
@@ -461,10 +461,10 @@ jobs:
       - name: Verify Windows MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem \`
-            "src-tauri/target/release/bundle/msi" \`
-            -Filter "*.msi" \`
-            -File \`
+          $msi = Get-ChildItem `
+            "src-tauri/target/release/bundle/msi" `
+            -Filter "*.msi" `
+            -File `
             -ErrorAction SilentlyContinue
           if (-not $msi) {
             throw "MSI was not produced"
@@ -485,14 +485,14 @@ jobs:
           $exe = "$target/revo-ui.exe"
           $obsDll = "$target/obs.dll"
           $root = "src-tauri/resources/revo-root"
-          Remove-Item \`
-            $portable \`
-            -Recurse \`
-            -Force \`
+          Remove-Item `
+            $portable `
+            -Recurse `
+            -Force `
             -ErrorAction SilentlyContinue
-          Remove-Item \`
-            $zip \`
-            -Force \`
+          Remove-Item `
+            $zip `
+            -Force `
             -ErrorAction SilentlyContinue
           if (-not (Test-Path $exe)) {
             throw "Executable not found: $exe"
@@ -508,9 +508,9 @@ jobs:
           if ($obsSize -lt 500000) {
             throw "target/release/obs.dll is unexpectedly small; refusing to package dummy DLL"
           }
-          New-Item \`
-            -ItemType Directory \`
-            -Force \`
+          New-Item `
+            -ItemType Directory `
+            -Force `
             $portable | Out-Null
           # ------------------------------------------------------------
           # IMPORTANT:
@@ -518,27 +518,27 @@ jobs:
           # Therefore the portable bundle must contain the REAL OBS DLL
           # in its root, not only inside revo-root.
           # ------------------------------------------------------------
-          Copy-Item \`
-            $exe \`
-            "$portable\revo-ui.exe" \`
+          Copy-Item `
+            $exe `
+            "$portable\revo-ui.exe" `
             -Force
-          Copy-Item \`
-            $obsDll \`
-            "$portable\obs.dll" \`
+          Copy-Item `
+            $obsDll `
+            "$portable\obs.dll" `
             -Force
           # Copy every root-level DLL produced by cargo-obs-build.
           # This keeps FFmpeg / graphics / runtime dependencies beside
           # the executable where Windows DLL lookup can find them.
-          $rootDlls = Get-ChildItem \`
-            $target \`
-            -Filter "*.dll" \`
-            -File \`
+          $rootDlls = Get-ChildItem `
+            $target `
+            -Filter "*.dll" `
+            -File `
             -ErrorAction SilentlyContinue
           foreach ($dll in $rootDlls) {
             Write-Host "Copying runtime DLL: $($dll.Name)"
-            Copy-Item \`
-              $dll.FullName \`
-              "$portable\\$($dll.Name)" \`
+            Copy-Item `
+              $dll.FullName `
+              "$portable\\$($dll.Name)" `
               -Force
           }
           # Preserve the OBS runtime directories exactly as produced by
@@ -547,18 +547,18 @@ jobs:
             $sourceDir = "$target\\$dirName"
             if (Test-Path $sourceDir) {
               Write-Host "Copying OBS runtime directory: $dirName"
-              Copy-Item \`
-                $sourceDir \`
-                "$portable\\$dirName" \`
-                -Recurse \`
+              Copy-Item `
+                $sourceDir `
+                "$portable\\$dirName" `
+                -Recurse `
                 -Force
             }
           }
           # Revo's own runtime/resource tree.
-          Copy-Item \`
-            $root \`
-            "$portable\revo-root" \`
-            -Recurse \`
+          Copy-Item `
+            $root `
+            "$portable\revo-root" `
+            -Recurse `
             -Force
           # ------------------------------------------------------------
           # Verify final portable layout
@@ -588,10 +588,10 @@ jobs:
             throw "Portable revo-root/core/lib/obs-plugins missing"
           }
           $rootPlugins = @(
-            Get-ChildItem \`
-              "$portableRoot\core\lib\obs-plugins" \`
-              -Recurse \`
-              -Filter "*.dll" \`
+            Get-ChildItem `
+              "$portableRoot\core\lib\obs-plugins" `
+              -Recurse `
+              -Filter "*.dll" `
               -File
           ).Count
           if ($rootPlugins -eq 0) {
@@ -599,10 +599,10 @@ jobs:
           }
           if (Test-Path $portablePlugins) {
             $portablePluginsCount = @(
-              Get-ChildItem \`
-                $portablePlugins \`
-                -Recurse \`
-                -Filter "*.dll" \`
+              Get-ChildItem `
+                $portablePlugins `
+                -Recurse `
+                -Filter "*.dll" `
                 -File
             ).Count
             if ($portablePluginsCount -eq 0) {
@@ -614,16 +614,16 @@ jobs:
           Write-Host "============================================================"
           Write-Host "FINAL WINDOWS PORTABLE LAYOUT"
           Write-Host "============================================================"
-          Get-ChildItem \`
-            $portable \`
-            -Recurse \`
+          Get-ChildItem `
+            $portable `
+            -Recurse `
             -File |
             Select-Object FullName, Length |
             Format-Table -AutoSize
           # Compress the COMPLETE application directory.
-          Compress-Archive \`
-            -Path "$portable\\*" \`
-            -DestinationPath $zip \`
+          Compress-Archive `
+            -Path "$portable\\*" `
+            -DestinationPath $zip `
             -CompressionLevel Optimal
           if (-not (Test-Path $zip)) {
             throw "Portable ZIP was not created"
@@ -636,18 +636,18 @@ jobs:
             Format-Table -AutoSize
           # Validate the archive itself, not only the temporary directory.
           $verifyDir = "$bundleDir\portable-verify"
-          Remove-Item \`
-            $verifyDir \`
-            -Recurse \`
-            -Force \`
+          Remove-Item `
+            $verifyDir `
+            -Recurse `
+            -Force `
             -ErrorAction SilentlyContinue
-          New-Item \`
-            -ItemType Directory \`
-            -Force \`
+          New-Item `
+            -ItemType Directory `
+            -Force `
             $verifyDir | Out-Null
-          Expand-Archive \`
-            -Path $zip \`
-            -DestinationPath $verifyDir \`
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $verifyDir `
             -Force
           if (-not (Test-Path "$verifyDir\revo-ui.exe")) {
             throw "ZIP verification failed: revo-ui.exe missing"
@@ -668,13 +668,13 @@ jobs:
           Write-Host ""
           Write-Host "ZIP verification passed"
           Write-Host "Verified root obs.dll: $verifiedObsSize bytes"
-          Remove-Item \`
-            $verifyDir \`
-            -Recurse \`
+          Remove-Item `
+            $verifyDir `
+            -Recurse `
             -Force
-          Remove-Item \`
-            $portable \`
-            -Recurse \`
+          Remove-Item `
+            $portable `
+            -Recurse `
             -Force
       # ----------------------------------------------------------
       # Upload Windows artifacts
@@ -812,148 +812,68 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          # --------------------------------------------------------
+
+          linux_cfg = '#[cfg(target_os = "linux")]'
+
           # logging/mod.rs
-          # --------------------------------------------------------
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
-          text = text.replace(
-              '#[cfg(unix)]\npub mod obs_logger;',
-              '#[cfg(target_os = "linux")]\npub mod obs_logger;'
+          text = re.sub(
+              r'(?m)^[ \t]*#\[cfg\([^\n]+\)\]\n([ \t]*pub mod obs_logger;)',
+              linux_cfg + r'\n\1',
+              text,
+              count=1,
           )
-          if '#[cfg(target_os = "linux")]\npub mod obs_logger;' not in text:
-              raise SystemExit(
-                  "ERROR: could not make obs_logger module Linux-only"
-              )
+          if linux_cfg + "\npub mod obs_logger;" not in text:
+              raise SystemExit("ERROR: obs_logger module was not made Linux-only")
           mod.write_text(text)
-          print("logging/mod.rs: obs_logger is Linux-only")
-          # --------------------------------------------------------
+
           # logging/obs_logger.rs
-          # --------------------------------------------------------
           logger = Path("src-tauri/src/logging/obs_logger.rs")
           if logger.exists():
               logger_text = logger.read_text()
-              logger_text = logger_text.replace(
-                  '#![cfg(unix)]',
-                  '#![cfg(target_os = "linux")]',
-                  1
+              logger_text = re.sub(
+                  r'\A#!\[cfg\([^\n]+\)\]\n?',
+                  linux_cfg.replace('#[', '#![') + "\n",
+                  logger_text,
+                  count=1,
               )
-              if '#![cfg(target_os = "linux")]' not in logger_text:
-                  logger_text = (
-                      '#![cfg(target_os = "linux")]\n\n'
-                      \+ logger_text
-                  )
+              if not logger_text.startswith('#![cfg(target_os = "linux")]'):
+                  logger_text = '#![cfg(target_os = "linux")]\n\n' + logger_text
               logger.write_text(logger_text)
-              print("logging/obs_logger.rs: Linux-only")
-          # --------------------------------------------------------
+
           # runtime/init.rs
-          #
-          # The OBS logger call must also be Linux-only.
-          # --------------------------------------------------------
           init = Path("src-tauri/src/runtime/init.rs")
           init_text = init.read_text()
           marker = "crate::logging::obs_logger::obs_log_handler"
-          if marker not in init_text:
-              raise SystemExit(
-                  "ERROR: obs_log_handler reference not found in runtime/init.rs"
-              )
-          # Find the base_set_log_handler statement containing
-          # obs_log_handler.
-          handler_pos = init_text.find(marker)
-          statement_start = init_text.rfind(
-              "revo_lib::obs::base_set_log_handler(",
-              0,
-              handler_pos
-          )
-          if statement_start == -1:
-              raise SystemExit(
-                  "ERROR: base_set_log_handler call not found"
-              )
-          line_start = init_text.rfind("\n", 0, statement_start) + 1
-          # Determine indentation of the statement.
-          line = init_text[line_start:statement_start]
-          if not line.strip() == "":
-              raise SystemExit(
-                  "ERROR: unexpected content before base_set_log_handler"
-              )
-          indent = line
-          # Remove any existing cfg attribute immediately before
-          # the statement.
+          statement = "revo_lib::obs::base_set_log_handler("
+          if marker not in init_text or statement not in init_text:
+              raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
+
+          statement_pos = init_text.find(statement)
+          line_start = init_text.rfind("\n", 0, statement_pos) + 1
           prefix = init_text[:line_start]
-          cfg_match = re.search(
-              r'(?m)^([ \t]*)#\\[cfg\\((?:unix|target_family\s*=\s*"unix"|target_os\s*=\s*"[^"]+")\\)\\]\s*\n$',
-              prefix
+
+          # Remove cfg attributes immediately before the handler, regardless
+          # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
+          prefix = re.sub(
+              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
+              '',
+              prefix,
           )
-          if cfg_match:
-              cfg_start = cfg_match.start()
-              init_text = (
-                  init_text[:cfg_start]
-                  \+ init_text[cfg_match.end():]
-              )
-              statement_start = init_text.find(
-                  "revo_lib::obs::base_set_log_handler("
-              )
-              line_start = init_text.rfind(
-                  "\n",
-                  0,
-                  statement_start
-              ) + 1
-              indent = init_text[line_start:statement_start]
-          # Insert Linux-only cfg immediately before the call.
-          statement_start = init_text.find(
-              "revo_lib::obs::base_set_log_handler("
-          )
-          line_start = init_text.rfind(
-              "\n",
-              0,
-              statement_start
-          ) + 1
+          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
+          indent = indent_match.group(1) if indent_match else '        '
           init_text = (
-              init_text[:line_start]
-              \+ f'{indent}#[cfg(target_os = "linux")]\n'
-              \+ init_text[line_start:]
+              prefix
+              + f'{indent}#[cfg(target_os = "linux")]\n'
+              + init_text[line_start:]
           )
           init.write_text(init_text)
-          print(
-              "runtime/init.rs: base_set_log_handler is Linux-only"
-          )
-          # --------------------------------------------------------
+
           # Final verification
-          # --------------------------------------------------------
-          mod_text = mod.read_text()
-          if (
-              '#[cfg(target_os = "linux")]\n'
-              'pub mod obs_logger;'
-          ) not in mod_text:
-              raise SystemExit(
-                  "ERROR: obs_logger module verification failed"
-              )
-          if logger.exists():
-              logger_text = logger.read_text()
-              if '#![cfg(target_os = "linux")]' not in logger_text:
-                  raise SystemExit(
-                      "ERROR: obs_logger.rs verification failed"
-                  )
-          init_text = init.read_text()
-          handler_pos = init_text.find(
-              "revo_lib::obs::base_set_log_handler("
-          )
-          if handler_pos == -1:
-              raise SystemExit(
-                  "ERROR: base_set_log_handler call disappeared"
-              )
-          before_handler = init_text[:handler_pos]
-          cfg_pos = before_handler.rfind(
-              '#[cfg(target_os = "linux")]'
-          )
-          if cfg_pos == -1:
-              raise SystemExit(
-                  "ERROR: base_set_log_handler is not Linux-only"
-              )
-          print("")
-          print("============================================================")
-          print("OBS LOGGER PATCH VERIFIED")
-          print("============================================================")
+          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
+              raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
+          print("OBS logger is Linux-only")
           PY
       # ----------------------------------------------------------
       # Rust dependencies
@@ -991,14 +911,14 @@ jobs:
               )
           replacement = (
               needle
-              \+ "\n\n"
-              \+ '    #[cfg(target_os = "macos")]'
-              \+ "\n"
-              \+ "    {"
-              \+ "\n"
-              \+ "        builder = builder.layout_tests(false);"
-              \+ "\n"
-              \+ "    }"
+              + "\n\n"
+              + '    #[cfg(target_os = "macos")]'
+              + "\n"
+              + "    {"
+              + "\n"
+              + "        builder = builder.layout_tests(false);"
+              + "\n"
+              + "    }"
           )
           path.write_text(
               text.replace(
@@ -1300,7 +1220,7 @@ jobs:
           else:
               path.write_text(
                   "enable_language(Swift)\n\n"
-                  \+ text
+                  + text
               )
               print(
                   "Added enable_language(Swift)"
@@ -1346,7 +1266,7 @@ jobs:
           ):
               text = (
                   text.rstrip()
-                  \+ "\n\n#pragma clang diagnostic pop\n"
+                  + "\n\n#pragma clang diagnostic pop\n"
               )
           path.write_text(text)
           print(f"Patched: {path}")
