@@ -846,18 +846,22 @@ jobs:
           if marker not in init_text or statement not in init_text:
               raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
 
-          statement_pos = init_text.find(statement)
+          handler_pos = init_text.find(marker)
+          statement_pos = init_text.rfind(statement, 0, handler_pos)
+          if statement_pos == -1:
+              raise SystemExit("ERROR: base_set_log_handler call for obs logger not found")
+
           line_start = init_text.rfind("\n", 0, statement_pos) + 1
           prefix = init_text[:line_start]
 
           # Remove cfg attributes immediately before the handler, regardless
           # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
           prefix = re.sub(
-              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
+              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\][ \t]*\n)+$',
               '',
               prefix,
           )
-          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
+          indent_match = re.match(r'([ \t]*)', init_text[line_start:])
           indent = indent_match.group(1) if indent_match else '        '
           init_text = (
               prefix
@@ -866,8 +870,17 @@ jobs:
           )
           init.write_text(init_text)
 
-          # Final verification
-          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
+          # Final verification: the cfg must be the immediately preceding
+          # non-blank line before the base_set_log_handler call.
+          verify = init.read_text()
+          handler_pos = verify.find(marker)
+          statement_pos = verify.rfind(statement, 0, handler_pos)
+          if statement_pos == -1:
+              raise SystemExit("ERROR: patched base_set_log_handler call not found")
+          before = verify[:statement_pos].splitlines()
+          while before and not before[-1].strip():
+              before.pop()
+          if not before or before[-1].strip() != '#[cfg(target_os = "linux")]':
               raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
           print("OBS logger is Linux-only")
           PY
