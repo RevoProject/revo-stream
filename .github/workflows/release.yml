@@ -245,7 +245,7 @@ jobs:
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
+          $root = "$env:USERPROFILE\.cargo\git\checkouts"
           $bootstrapper = Get-ChildItem `
             $root `
             -Recurse `
@@ -260,7 +260,7 @@ jobs:
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
+          if ($cargo -notmatch '(?ms)default\s*=\s*\[[^\]]*["'']install_dummy_dll["''][^\]]*\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
           $dummy = Join-Path $dir "assets\obs-dummy.dll"
@@ -627,22 +627,41 @@ jobs:
           init_text = init.read_text()
           marker = "crate::logging::obs_logger::obs_log_handler"
           statement = "revo_lib::obs::base_set_log_handler("
-          if marker not in init_text or statement not in init_text:
-              raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
 
-          statement_pos = init_text.find(statement)
-          line_start = init_text.rfind("\n", 0, statement_pos) + 1
+          if marker not in init_text:
+              raise SystemExit("ERROR: obs_log_handler reference not found in runtime/init.rs")
+
+          handler_pos = init_text.find(marker)
+          statement_start = init_text.rfind(statement, 0, handler_pos)
+
+          if statement_start == -1:
+              raise SystemExit("ERROR: base_set_log_handler call not found")
+
+          line_start = init_text.rfind("\n", 0, statement_start) + 1
+          statement_prefix = init_text[line_start:statement_start]
+
+          if statement_prefix.strip():
+              raise SystemExit("ERROR: unexpected content before base_set_log_handler")
+
+          indent = statement_prefix
           prefix = init_text[:line_start]
+          prefix_lines = prefix.splitlines(keepends=True)
 
-          # Remove cfg attributes immediately before the handler, regardless
-          # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
-          prefix = re.sub(
-              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
-              '',
-              prefix,
-          )
-          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
-          indent = indent_match.group(1) if indent_match else '        '
+          while prefix_lines and not prefix_lines[-1].strip():
+              prefix_lines.pop()
+
+          while prefix_lines and re.fullmatch(
+              r'[ \t]*#\[cfg\([^\n]+\)\][ \t]*',
+              prefix_lines[-1].rstrip("\r\n")
+          ):
+              prefix_lines.pop()
+              while prefix_lines and not prefix_lines[-1].strip():
+                  prefix_lines.pop()
+
+          prefix = "".join(prefix_lines)
+          if prefix and not prefix.endswith("\n"):
+              prefix += "\n"
+
           init_text = (
               prefix
               + f'{indent}#[cfg(target_os = "linux")]\n'
@@ -650,9 +669,29 @@ jobs:
           )
           init.write_text(init_text)
 
-          # Final verification
-          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
-              raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
+          # Verify the exact call that references obs_log_handler.
+          init_text = init.read_text()
+          handler_pos = init_text.find(marker)
+          statement_start = init_text.rfind(statement, 0, handler_pos)
+
+          if statement_start == -1:
+              raise SystemExit("ERROR: base_set_log_handler call disappeared")
+
+          line_start = init_text.rfind("\n", 0, statement_start) + 1
+          before_call = init_text[:line_start].splitlines()
+
+          while before_call and not before_call[-1].strip():
+              before_call.pop()
+
+          if (
+              not before_call
+              or before_call[-1].strip()
+              != '#[cfg(target_os = "linux")]'
+          ):
+              raise SystemExit(
+                  "ERROR: exact OBS logger call is not Linux-only"
+              )
+
           print("OBS logger is Linux-only")
           PY
       # ----------------------------------------------------------
