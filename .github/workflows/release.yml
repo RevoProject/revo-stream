@@ -245,13 +245,13 @@ jobs:
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
+          $root = "$env:USERPROFILE\.cargo\git\checkouts"
           $bootstrapper = Get-ChildItem `
             $root `
             -Recurse `
             -Filter Cargo.toml |
             Where-Object {
-              $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
+              $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
             Select-Object -First 1
           if (-not $bootstrapper) {
@@ -260,7 +260,7 @@ jobs:
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
+          if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
           $dummy = Join-Path $dir "assets\obs-dummy.dll"
@@ -333,7 +333,7 @@ jobs:
           New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
           if (Test-Path "data") {
             Copy-Item `
-              "data\\*" `
+              "data\*" `
               "$ROOT\data" `
               -Recurse `
               -Force
@@ -350,7 +350,7 @@ jobs:
             Write-Host "Copying OBS DLL: $($dll.Name)"
             Copy-Item `
               $dll.FullName `
-              "$ROOT\core\lib\\$($dll.Name)" `
+              "$ROOT\core\lib\$($dll.Name)" `
               -Force
           }
           if (Test-Path "$OUT\obs-plugins") {
@@ -365,21 +365,21 @@ jobs:
           }
           if (Test-Path "$OUT\bin") {
             Copy-Item `
-              "$OUT\bin\\*" `
+              "$OUT\bin\*" `
               "$ROOT\core\bin" `
               -Recurse `
               -Force
           }
           if (Test-Path "$OUT\share") {
             Copy-Item `
-              "$OUT\share\\*" `
+              "$OUT\share\*" `
               "$ROOT\core\share" `
               -Recurse `
               -Force
           }
           if (Test-Path "$OUT\data") {
             Copy-Item `
-              "$OUT\data\\*" `
+              "$OUT\data\*" `
               "$ROOT\data" `
               -Recurse `
               -Force
@@ -461,16 +461,12 @@ jobs:
       - name: Verify Windows MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem `
-            "src-tauri/target/release/bundle/msi" `
-            -Filter "*.msi" `
-            -File `
-            -ErrorAction SilentlyContinue
-          if (-not $msi) {
+          $msi = @(Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue)
+          if ($msi.Count -eq 0) {
             throw "MSI was not produced"
           }
-          $msi | ForEach-Object {
-            Write-Host "MSI: $($\_.FullName)"
+          foreach ($item in $msi) {
+            Write-Host "MSI: $($item.FullName)"
           }
       # ----------------------------------------------------------
       # Portable ZIP
@@ -538,18 +534,18 @@ jobs:
             Write-Host "Copying runtime DLL: $($dll.Name)"
             Copy-Item `
               $dll.FullName `
-              "$portable\\$($dll.Name)" `
+              "$portable\$($dll.Name)" `
               -Force
           }
           # Preserve the OBS runtime directories exactly as produced by
           # cargo-obs-build.
           foreach ($dirName in @("bin", "data", "obs-plugins")) {
-            $sourceDir = "$target\\$dirName"
+            $sourceDir = "$target\$dirName"
             if (Test-Path $sourceDir) {
               Write-Host "Copying OBS runtime directory: $dirName"
               Copy-Item `
                 $sourceDir `
-                "$portable\\$dirName" `
+                "$portable\$dirName" `
                 -Recurse `
                 -Force
             }
@@ -622,7 +618,7 @@ jobs:
             Format-Table -AutoSize
           # Compress the COMPLETE application directory.
           Compress-Archive `
-            -Path "$portable\\*" `
+            -Path "$portable\*" `
             -DestinationPath $zip `
             -CompressionLevel Optimal
           if (-not (Test-Path $zip)) {
@@ -990,7 +986,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "pub(crate) struct PlatformSpecificGuard {"
+                  == "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1007,7 +1003,7 @@ jobs:
               if (
                   derive_index > 0
                   and lines[derive_index - 1].strip()
-                  \== "#[derive(Debug)]"
+                  == "#[derive(Debug)]"
               ):
                   derive_index -= 1
               lines.insert(
@@ -1019,7 +1015,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "pub(crate) struct PlatformSpecificGuard {"
+                  == "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1046,7 +1042,7 @@ jobs:
               )
           stub_exists = any(
               line.strip()
-              \== "pub(crate) struct PlatformSpecificGuard;"
+              == "pub(crate) struct PlatformSpecificGuard;"
               for line in lines
           )
           if not stub_exists:
@@ -1062,7 +1058,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "impl Drop for PlatformSpecificGuard {"
+                  == "impl Drop for PlatformSpecificGuard {"
               ):
                   if (
                       i == 0
@@ -1186,13 +1182,13 @@ jobs:
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/obs-studio"
-          git clone \\
-            --depth 1 \\
-            --branch "${OBS_VERSION}" \\
-            --recursive \\
-            https\://github.com/obsproject/obs-studio.git \\
+          git clone \
+            --depth 1 \
+            --branch "${OBS_VERSION}" \
+            --recursive \
+            https://github.com/obsproject/obs-studio.git \
             "$RUNNER_TEMP/obs-studio"
-          git -C "$RUNNER_TEMP/obs-studio" \\
+          git -C "$RUNNER_TEMP/obs-studio" \
             log -1 --oneline
       # ----------------------------------------------------------
       # OBS libobs-metal / Swift
@@ -1253,10 +1249,8 @@ jobs:
           text = path.read_text()
           pragma = (
               "#pragma clang diagnostic push\n"
-              "#pragma clang diagnostic ignored "
-              "\\"-Wimplicit-int-float-conversion\\"\n"
-              "#pragma clang diagnostic ignored "
-              "\\"-Wenum-enum-conversion\\"\n"
+              "#pragma clang diagnostic ignored \"-Wimplicit-int-float-conversion\"\n"
+              "#pragma clang diagnostic ignored \"-Wenum-enum-conversion\"\n"
           )
           if (
               "#pragma clang diagnostic push"
@@ -1282,16 +1276,16 @@ jobs:
           test -f "$OBS_SRC/libobs-metal/CMakeLists.txt"
           test -f "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
           echo "=== OBS source ==="
-          git -C "$OBS_SRC" \\
+          git -C "$OBS_SRC" \
             log -1 --oneline
           echo
           echo "=== libobs-metal ==="
-          head -n 8 \\
+          head -n 8 \
             "$OBS_SRC/libobs-metal/CMakeLists.txt"
           echo
           echo "=== OBSDALStream diagnostics ==="
-          grep -n -C 2 \\
-            "clang diagnostic" \\
+          grep -n -C 2 \
+            "clang diagnostic" \
             "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"
       # ----------------------------------------------------------
       # OBS configure
@@ -1302,16 +1296,16 @@ jobs:
           OBS_SRC="$RUNNER_TEMP/obs-studio"
           OBS_BUILD="$RUNNER_TEMP/obs-build"
           rm -rf "$OBS_BUILD"
-          cmake \\
-            -S "$OBS_SRC" \\
-            -B "$OBS_BUILD" \\
-            --preset macos \\
-            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \\
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \\
-            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \\
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \\
-            -DENABLE_BROWSER=OFF \\
-            -DENABLE_SCRIPTING=OFF \\
+          cmake \
+            -S "$OBS_SRC" \
+            -B "$OBS_BUILD" \
+            --preset macos \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DENABLE_BROWSER=OFF \
+            -DENABLE_SCRIPTING=OFF \
             -DENABLE_FRONTEND=OFF
       # ----------------------------------------------------------
       # OBS build
@@ -1319,10 +1313,10 @@ jobs:
       - name: Build OBS Studio
         shell: bash
         run: |
-          cmake \\
-            --build "$RUNNER_TEMP/obs-build" \\
-            --config RelWithDebInfo \\
-            --parallel "$(sysctl -n hw\.ncpu)"
+          cmake \
+            --build "$RUNNER_TEMP/obs-build" \
+            --config RelWithDebInfo \
+            --parallel "$(sysctl -n hw.ncpu)"
       # ----------------------------------------------------------
       # OBS install
       # ----------------------------------------------------------
@@ -1332,9 +1326,9 @@ jobs:
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
           rm -rf "$OBS_INSTALL"
           mkdir -p "$OBS_INSTALL"
-          cmake \\
-            --install "$RUNNER_TEMP/obs-build" \\
-            --config RelWithDebInfo \\
+          cmake \
+            --install "$RUNNER_TEMP/obs-build" \
+            --config RelWithDebInfo \
             --prefix "$OBS_INSTALL"
       # ----------------------------------------------------------
       # Locate real macOS libobs binary
@@ -1360,10 +1354,10 @@ jobs:
               break
             fi
           done < <(
-            find "$OBS_BUILD" \\
-              -type f \\
-              -name "libobs" \\
-              ! -path "*/EagerLinkingTBDs/*" \\
+            find "$OBS_BUILD" \
+              -type f \
+              -name "libobs" \
+              ! -path "*/EagerLinkingTBDs/*" \
               -print |
             sort
           )
@@ -1381,9 +1375,9 @@ jobs:
                 break
               fi
             done < <(
-              find "$OBS_BUILD" \\
-                -name "libobs" \\
-                ! -path "*/EagerLinkingTBDs/*" \\
+              find "$OBS_BUILD" \
+                -name "libobs" \
+                ! -path "*/EagerLinkingTBDs/*" \
                 -print |
               sort
             )
@@ -1393,21 +1387,21 @@ jobs:
             echo "ERROR: REAL libobs Mach-O binary not found"
             echo
             echo "All libobs paths found:"
-            find "$OBS_BUILD" \\
-              -name "libobs" \\
+            find "$OBS_BUILD" \
+              -name "libobs" \
               -print |
             sort || true
             echo
             echo "All libobs.framework paths:"
-            find "$OBS_BUILD" \\
-              -type d \\
-              -name "libobs.framework" \\
+            find "$OBS_BUILD" \
+              -type d \
+              -name "libobs.framework" \
               -print |
             sort || true
             echo
             echo "EagerLinkingTBD files:"
-            find "$OBS_BUILD" \\
-              -path "*/EagerLinkingTBDs/*" \\
+            find "$OBS_BUILD" \
+              -path "*/EagerLinkingTBDs/*" \
               -print |
             sort || true
             exit 1
@@ -1438,8 +1432,8 @@ jobs:
           if [ -e "$LIBOBS_LINK" ] || [ -L "$LIBOBS_LINK" ]; then
             rm -f "$LIBOBS_LINK"
           fi
-          ln -s \\
-            "$(basename "$LIBOBS_BINARY")" \\
+          ln -s \
+            "$(basename "$LIBOBS_BINARY")" \
             "$LIBOBS_LINK"
           echo
           echo "Created linker alias:"
@@ -1447,7 +1441,7 @@ jobs:
           echo
           echo "Checking OBS symbols:"
           nm -gU "$LIBOBS_BINARY" |
-            grep -E \\
+            grep -E \
               '(\_base_set_log_handler|\_obs_add_data_path|\_gs_flush|\_gs_ortho)' |
             head -20 ||
             true
@@ -1456,7 +1450,7 @@ jobs:
           echo "LIBOBS_PATH"
           echo "============================================================"
           echo "$LIBOBS_DIR"
-          echo "LIBOBS_PATH=$LIBOBS_DIR" \\
+          echo "LIBOBS_PATH=$LIBOBS_DIR" \
             \>> "$GITHUB_ENV"
       # ----------------------------------------------------------
       # Inspect OBS
@@ -1469,35 +1463,35 @@ jobs:
           echo "============================================================"
           echo "OBS BUILD: dylibs"
           echo "============================================================"
-          find "$OBS_BUILD" \\
-            -type f \\
-            -name "*.dylib" \\
+          find "$OBS_BUILD" \
+            -type f \
+            -name "*.dylib" \
             -print |
           sort
           echo
           echo "============================================================"
           echo "OBS BUILD: plugins"
           echo "============================================================"
-          find "$OBS_BUILD" \\
-            -type d \\
-            -name "*.plugin" \\
+          find "$OBS_BUILD" \
+            -type d \
+            -name "*.plugin" \
             -print |
           sort
           echo
           echo "============================================================"
           echo "OBS BUILD: frameworks"
           echo "============================================================"
-          find "$OBS_BUILD" \\
-            -type d \\
-            -name "*.framework" \\
+          find "$OBS_BUILD" \
+            -type d \
+            -name "*.framework" \
             -print |
           sort
           echo
           echo "============================================================"
           echo "OBS INSTALL: files"
           echo "============================================================"
-          find "$OBS_INSTALL" \\
-            -type f \\
+          find "$OBS_INSTALL" \
+            -type f \
             -print |
           sort |
           head -500
@@ -1511,20 +1505,20 @@ jobs:
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
           WINDOWS_BINARIES=$(
             {
-              find "$OBS_BUILD" \\
-                -type f \\
-                \\( \\
-                  -name "*.dll" \\
-                  -o -name "*.exe" \\
-                  -o -name "*.pdb" \\
-                \\)
-              find "$OBS_INSTALL" \\
-                -type f \\
-                \\( \\
-                  -name "*.dll" \\
-                  -o -name "*.exe" \\
-                  -o -name "*.pdb" \\
-                \\)
+              find "$OBS_BUILD" \
+                -type f \
+                \( \
+                  -name "*.dll" \
+                  -o -name "*.exe" \
+                  -o -name "*.pdb" \
+                \)
+              find "$OBS_INSTALL" \
+                -type f \
+                \( \
+                  -name "*.dll" \
+                  -o -name "*.exe" \
+                  -o -name "*.pdb" \
+                \)
             } |
             sort -u
           )
@@ -1544,18 +1538,18 @@ jobs:
           OBS_BUILD="$RUNNER_TEMP/obs-build"
           OBS_INSTALL="$RUNNER_TEMP/obs-install"
           rm -rf "$ROOT"
-          mkdir -p \\
-            "$ROOT/data" \\
-            "$ROOT/core/bin" \\
-            "$ROOT/core/lib" \\
-            "$ROOT/core/lib/obs-plugins" \\
+          mkdir -p \
+            "$ROOT/data" \
+            "$ROOT/core/bin" \
+            "$ROOT/core/lib" \
+            "$ROOT/core/lib/obs-plugins" \
             "$ROOT/core/share"
           # --------------------------------------------------------
           # RevoStream data
           # --------------------------------------------------------
           if [ -d "data" ]; then
-            rsync -a \\
-              "data/" \\
+            rsync -a \
+              "data/" \
               "$ROOT/data/"
           fi
           # --------------------------------------------------------
@@ -1565,14 +1559,14 @@ jobs:
           while IFS= read -r dylib; do
             [ -n "$dylib" ] || continue
             echo "Copying dylib: $dylib"
-            cp -L \\
-              "$dylib" \\
+            cp -L \
+              "$dylib" \
               "$ROOT/core/lib/$(basename "$dylib")"
             DYLIB_COUNT=$((DYLIB_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \\
-              -type f \\
-              -name "*.dylib" \\
+            find "$OBS_BUILD" \
+              -type f \
+              -name "*.dylib" \
               -print |
             sort
           )
@@ -1589,17 +1583,17 @@ jobs:
             [ -n "$framework" ] || continue
             name="$(basename "$framework")"
             echo "Copying framework: $name"
-            rm -rf \\
+            rm -rf \
               "$ROOT/core/lib/$name"
-            cp -R \\
-              "$framework" \\
+            cp -R \
+              "$framework" \
               "$ROOT/core/lib/$name"
             FRAMEWORK_COUNT=$((FRAMEWORK_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \\
-              -type d \\
-              -name "*.framework" \\
-              ! -path "*/EagerLinkingTBDs/*" \\
+            find "$OBS_BUILD" \
+              -type d \
+              -name "*.framework" \
+              ! -path "*/EagerLinkingTBDs/*" \
               -print |
             sort -u
           )
@@ -1612,16 +1606,16 @@ jobs:
             [ -n "$plugin" ] || continue
             name="$(basename "$plugin")"
             echo "Copying plugin: $name"
-            rm -rf \\
+            rm -rf \
               "$ROOT/core/lib/obs-plugins/$name"
-            cp -R \\
-              "$plugin" \\
+            cp -R \
+              "$plugin" \
               "$ROOT/core/lib/obs-plugins/$name"
             PLUGIN_COUNT=$((PLUGIN_COUNT + 1))
           done < <(
-            find "$OBS_BUILD" \\
-              -type d \\
-              -name "*.plugin" \\
+            find "$OBS_BUILD" \
+              -type d \
+              -name "*.plugin" \
               -print |
             sort -u
           )
@@ -1634,13 +1628,13 @@ jobs:
           # Installed resources
           # --------------------------------------------------------
           if [ -d "$OBS_INSTALL/share" ]; then
-            rsync -a \\
-              "$OBS_INSTALL/share/" \\
+            rsync -a \
+              "$OBS_INSTALL/share/" \
               "$ROOT/core/share/"
           fi
           if [ -d "$OBS_INSTALL/bin" ]; then
-            rsync -a \\
-              "$OBS_INSTALL/bin/" \\
+            rsync -a \
+              "$OBS_INSTALL/bin/" \
               "$ROOT/core/bin/"
           fi
           # --------------------------------------------------------
@@ -1650,8 +1644,8 @@ jobs:
           echo "============================================================"
           echo "FINAL macOS revo-root"
           echo "============================================================"
-          find "$ROOT" \\
-            -maxdepth 8 \\
+          find "$ROOT" \
+            -maxdepth 8 \
             -print |
           sort |
           head -2000
@@ -1786,8 +1780,8 @@ jobs:
             exit 1
           fi
           DYLIB_COUNT=$(
-            find "$ROOT/core/lib" \\
-              -type f \\
+            find "$ROOT/core/lib" \
+              -type f \
               -name "*.dylib" |
             wc -l |
             tr -d ' '
@@ -1811,8 +1805,8 @@ jobs:
           done
           echo "Required FFmpeg dylibs are staged"
           PLUGIN_COUNT=$(
-            find "$ROOT/core/lib/obs-plugins" \\
-              -type d \\
+            find "$ROOT/core/lib/obs-plugins" \
+              -type d \
               -name "*.plugin" |
             wc -l |
             tr -d ' '
@@ -1823,13 +1817,13 @@ jobs:
             exit 1
           fi
           WINDOWS_BINARIES=$(
-            find "$ROOT" \\
-              -type f \\
-              \\( \\
-                -name "*.dll" \\
-                -o -name "*.exe" \\
-                -o -name "*.pdb" \\
-              \\) \\
+            find "$ROOT" \
+              -type f \
+              \( \
+                -name "*.dll" \
+                -o -name "*.exe" \
+                -o -name "*.pdb" \
+              \) \
               -print
           )
           if [ -n "$WINDOWS_BINARIES" ]; then
@@ -1841,27 +1835,27 @@ jobs:
           echo "============================================================"
           echo "macOS dylibs"
           echo "============================================================"
-          find "$ROOT/core/lib" \\
-            -type f \\
-            -name "*.dylib" \\
+          find "$ROOT/core/lib" \
+            -type f \
+            -name "*.dylib" \
             -print |
           sort
           echo
           echo "============================================================"
           echo "macOS OBS plugins"
           echo "============================================================"
-          find "$ROOT/core/lib/obs-plugins" \\
-            -type d \\
-            -name "*.plugin" \\
+          find "$ROOT/core/lib/obs-plugins" \
+            -type d \
+            -name "*.plugin" \
             -print |
           sort
           echo
           echo "============================================================"
           echo "macOS frameworks"
           echo "============================================================"
-          find "$ROOT/core/lib" \\
-            -type d \\
-            -name "*.framework" \\
+          find "$ROOT/core/lib" \
+            -type d \
+            -name "*.framework" \
             -print |
           sort
           echo
@@ -1872,10 +1866,10 @@ jobs:
       - name: Build macOS DMG
         shell: bash
         run: |
-          pnpm tauri build \\
-            --bundles dmg \\
-            --target "${{ matrix.target }}" \\
-            -- \\
+          pnpm tauri build \
+            --bundles dmg \
+            --target "${{ matrix.target }}" \
+            -- \
             --no-default-features
       # ----------------------------------------------------------
       # Verify DMG
@@ -1940,10 +1934,10 @@ jobs:
         run: |
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
           DMG=$(
-            find "$DMG_DIR" \\
-              -maxdepth 1 \\
-              -type f \\
-              -name "*.dmg" \\
+            find "$DMG_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.dmg" \
               -print -quit
           )
           if [ -z "$DMG" ]; then
@@ -1995,8 +1989,8 @@ jobs:
       - name: Show release files
         shell: bash
         run: |
-          find release \\
-            -type f \\
+          find release \
+            -type f \
             -print |
           sort
       - name: Create GitHub Release
