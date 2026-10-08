@@ -1270,8 +1270,7 @@ jobs:
           echo "LIBOBS_PATH"
           echo "============================================================"
           echo "$LIBOBS_DIR"
-          echo "LIBOBS_PATH=$LIBOBS_DIR" \
-            \>> "$GITHUB_ENV"
+          printf 'LIBOBS_PATH=%s\n' "$LIBOBS_DIR" >> "$GITHUB_ENV"
       # ----------------------------------------------------------
       # Inspect OBS
       # ----------------------------------------------------------
