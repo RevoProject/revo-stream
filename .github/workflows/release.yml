@@ -242,32 +242,75 @@ jobs:
       # ----------------------------------------------------------
       # libobs-bootstrapper
       # ----------------------------------------------------------
-      - name: Verify libobs-bootstrapper
+      - name: Patch libobs-bootstrapper dummy DLL feature
         shell: pwsh
         run: |
           $root = "$env:USERPROFILE\.cargo\git\checkouts"
-          $bootstrapper = Get-ChildItem `
-            $root `
-            -Recurse `
-            -Filter Cargo.toml |
-            Where-Object {
-              $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
-            } |
+          $bootstrapper = Get-ChildItem $root -Recurse -Filter Cargo.toml |
+            Where-Object { $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml" } |
             Select-Object -First 1
           if (-not $bootstrapper) {
             throw "libobs-bootstrapper Cargo.toml not found"
           }
-          $dir = Split-Path $bootstrapper.FullName
-          $cargo = Get-Content $bootstrapper.FullName -Raw
+
+          $path = $bootstrapper.FullName
+          $dir = Split-Path $path
+          $cargo = Get-Content $path -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch '(?ms)default\s*=\s*\[[^\]]*["'']install_dummy_dll["''][^\]]*\]') {
-            throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
+
+          if ($cargo -notmatch '(?ms)^\[features\]\s*(.*?)(?=^\[|\z)') {
+            $cargo += "`r`n[features]`r`n"
           }
+
+          if ($cargo -match '(?ms)^\[features\]\s*(.*?)(?=^\[|\z)') {
+            if ($cargo -match '(?m)^default\s*=\s*\[([^\]]*)\]') {
+              $defaults = $Matches[1]
+              if ($defaults -notmatch '(^|,)\s*["'']install_dummy_dll["'']\s*(,|$)') {
+                $newDefaults = $defaults.Trim()
+                if ($newDefaults) {
+                  $newDefaults += ', '
+                }
+                $newDefaults += '"install_dummy_dll"'
+                $cargo = [regex]::Replace(
+                  $cargo,
+                  '(?m)^default\s*=\s*\[[^\]]*\]',
+                  "default = [$newDefaults]",
+                  1
+                )
+              }
+            }
+            else {
+              $cargo = [regex]::Replace(
+                $cargo,
+                '(?m)^\[features\]\s*',
+                "[features]`r`ndefault = [""install_dummy_dll""]`r`n",
+                1
+              )
+            }
+          }
+
+          if ($cargo -notmatch '(?m)^install_dummy_dll\s*=') {
+            $cargo = [regex]::Replace(
+              $cargo,
+              '(?m)^\[features\]\s*',
+              "[features]`r`ninstall_dummy_dll = []`r`n",
+              1
+            )
+          }
+
+          Set-Content -Path $path -Value $cargo -NoNewline
+
+          $verify = Get-Content $path -Raw
+          if ($verify -notmatch '(?m)^default\s*=\s*\[[^\]]*["'']install_dummy_dll["''][^\]]*\]') {
+            throw "Failed to enable install_dummy_dll by default"
+          }
+
           $dummy = Join-Path $dir "assets\obs-dummy.dll"
           if (-not (Test-Path $dummy)) {
             throw "Dummy DLL not found: $dummy"
           }
-          Write-Host "install_dummy_dll: enabled"
+
+          Write-Host "install_dummy_dll: enabled by default"
           Write-Host "dummy DLL: $dummy"
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --locked
@@ -1136,7 +1179,7 @@ jobs:
           cmake \
             --build "$RUNNER_TEMP/obs-build" \
             --config RelWithDebInfo \
-            --parallel "$(sysctl -n hw\.ncpu)"
+            --parallel "$(sysctl -n hw.ncpu)"
       # ----------------------------------------------------------
       # OBS install
       # ----------------------------------------------------------
@@ -1705,17 +1748,132 @@ jobs:
       # ----------------------------------------------------------
       # Tauri
       # ----------------------------------------------------------
-      - name: Build macOS DMG
+      - name: Build macOS app
         shell: bash
         run: |
           pnpm tauri build \
-            --bundles app,dmg \
+            --bundles app \
             --target "${{ matrix.target }}" \
             -- \
             --no-default-features
+
       # ----------------------------------------------------------
-      # Verify DMG
+      # Normalize final .app Mach-O dependencies
       # ----------------------------------------------------------
+      - name: Normalize final macOS app dylib paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          APP_DIR="src-tauri/target/$TARGET/release/bundle/macos"
+          APP="$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app was not produced before final normalization"
+            find "src-tauri/target/$TARGET/release/bundle" -maxdepth 3 -print || true
+            exit 1
+          fi
+
+          APP_LIB="$APP/Contents/Resources/resources/revo-root/core/lib"
+          test -d "$APP_LIB"
+
+          add_rpath() {
+            local binary="$1"
+            local rpath="$2"
+            if ! otool -l "$binary" 2>/dev/null | grep -Fq "path $rpath "; then
+              install_name_tool -add_rpath "$rpath" "$binary" 2>/dev/null || true
+            fi
+          }
+
+          find_bundled() {
+            local base="$1"
+            find "$APP/Contents/Resources" -type f -name "$base" -print -quit
+          }
+
+          while IFS= read -r -d '' binary; do
+            case "$binary" in
+              "$APP/Contents/MacOS/"*)
+                add_rpath "$binary" "@loader_path/../Resources/resources/revo-root/core/lib"
+                ;;
+              "$APP/Contents/Resources/resources/revo-root/core/lib/obs-plugins/"*.plugin/Contents/MacOS/*)
+                add_rpath "$binary" "@loader_path/../../../.."
+                ;;
+              "$APP/Contents/Resources/resources/revo-root/core/lib/"*.framework/Versions/*/*)
+                add_rpath "$binary" "@loader_path/../../../"
+                ;;
+              "$APP/Contents/Resources/resources/revo-root/core/lib/"*)
+                add_rpath "$binary" "@loader_path"
+                ;;
+            esac
+
+            while IFS= read -r dep; do
+              dep="${dep#        }"
+              dep="${dep%% (*}"
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/opt/*)
+                  base="$(basename "$dep")"
+                  bundled="$(find_bundled "$base")"
+                  if [ -n "$bundled" ] && [ -f "$bundled" ]; then
+                    echo "Relinking $(basename "$binary"): $dep -> @rpath/$base"
+                    install_name_tool -change "$dep" "@rpath/$base" "$binary"
+                  else
+                    echo "ERROR: bundled dependency not found for $dep"
+                    echo "       expected basename: $base"
+                    exit 1
+                  fi
+                  ;;
+              esac
+            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
+          done < <(
+            find "$APP" -type f -print0 |
+              while IFS= read -r -d '' f; do
+                file "$f" 2>/dev/null | grep -q "Mach-O" && printf '%s\0' "$f"
+              done
+          )
+
+          echo "Final macOS app Mach-O normalization complete"
+
+      # ----------------------------------------------------------
+      # Recreate DMG from normalized .app
+      # ----------------------------------------------------------
+      - name: Build macOS DMG from normalized app
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          ARCH="${{ matrix.arch }}"
+          APP_DIR="src-tauri/target/$TARGET/release/bundle/macos"
+          DMG_DIR="src-tauri/target/$TARGET/release/bundle/dmg"
+          APP="$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "ERROR: normalized .app not found"
+            exit 1
+          fi
+
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          if [ "$ARCH" = "arm64" ]; then
+            DMG_ARCH="arm64"
+          else
+            DMG_ARCH="x64"
+          fi
+
+          rm -rf "$RUNNER_TEMP/revo-dmg-stage"
+          mkdir -p "$RUNNER_TEMP/revo-dmg-stage" "$DMG_DIR"
+          cp -R "$APP" "$RUNNER_TEMP/revo-dmg-stage/"
+
+          rm -f "$DMG_DIR"/*.dmg
+          DMG="$DMG_DIR/revo-ui_${VERSION}_${DMG_ARCH}.dmg"
+
+          hdiutil create \
+            -volname "RevoStream" \
+            -srcfolder "$RUNNER_TEMP/revo-dmg-stage" \
+            -ov \
+            -format UDZO \
+            "$DMG"
+
+          test -s "$DMG"
+          echo "Created normalized macOS DMG:"
+          ls -lh "$DMG"
+
       # ----------------------------------------------------------
       # Verify final .app is self-contained.
       # ----------------------------------------------------------
@@ -1737,11 +1895,13 @@ jobs:
             find "src-tauri/target/$TARGET/release/bundle" -maxdepth 3 -print || true
             exit 1
           fi
+
           ROOT="$APP/Contents/Resources/resources/revo-root"
           EXE="$APP/Contents/MacOS/revo-ui"
           test -x "$EXE"
           test -d "$ROOT/core/lib"
           test -d "$ROOT/core/lib/obs-plugins"
+
           for lib in \
             libavcodec.dylib \
             libavformat.dylib \
@@ -1754,9 +1914,11 @@ jobs:
               exit 1
             }
           done
+
           echo "=== FINAL APP SIZE ==="
           du -sh "$APP"
           du -sh "$ROOT"
+
           BAD="$(
             find "$APP" -type f -print0 |
               while IFS= read -r -d '' f; do
@@ -1765,30 +1927,39 @@ jobs:
               done |
               grep -E '/opt/homebrew/|/usr/local/opt/' || true
           )"
+
           if [ -n "$BAD" ]; then
             echo "$BAD"
             echo "ERROR: final app still contains Homebrew absolute dylib references"
             exit 1
           fi
+
           echo "Final macOS .app is self-contained"
+
       - name: Verify macOS DMG
         shell: bash
         run: |
+          set -euo pipefail
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
-          DMG=$(
+          DMG="$(
             find "$DMG_DIR" \
               -maxdepth 1 \
               -type f \
               -name "*.dmg" \
               -print -quit
-          )
+          )"
           if [ -z "$DMG" ]; then
             echo "ERROR: DMG was not produced"
             echo "Expected directory: $DMG_DIR"
             exit 1
           fi
+
           echo "macOS DMG:"
           ls -lh "$DMG"
+
+          if command -v hdiutil >/dev/null 2>&1; then
+            hdiutil imageinfo "$DMG" >/dev/null
+          fi
       # ----------------------------------------------------------
       # Upload macOS artifact
       # ----------------------------------------------------------
