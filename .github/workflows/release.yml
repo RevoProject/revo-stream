@@ -1068,11 +1068,9 @@ jobs:
               )
           text = path.read_text()
           pragma = (
-              "#pragma clang diagnostic push\n"
-              "#pragma clang diagnostic ignored "
-              "\\"-Wimplicit-int-float-conversion\\"\n"
-              "#pragma clang diagnostic ignored "
-              "\\"-Wenum-enum-conversion\\"\n"
+              '#pragma clang diagnostic push\n'
+              '#pragma clang diagnostic ignored "-Wimplicit-int-float-conversion"\n'
+              '#pragma clang diagnostic ignored "-Wenum-enum-conversion"\n'
           )
           if (
               "#pragma clang diagnostic push"
