@@ -1709,7 +1709,7 @@ jobs:
         shell: bash
         run: |
           pnpm tauri build \
-            --bundles dmg \
+            --bundles app,dmg \
             --target "${{ matrix.target }}" \
             -- \
             --no-default-features
