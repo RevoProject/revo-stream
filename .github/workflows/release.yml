@@ -564,7 +564,7 @@ jobs:
               exit 1
             }
           done
-          find "$FFMPEG_PREFIX/lib" -maxdepth 1 -type f -name "*.dylib" -print | sort
+          find "$FFMPEG_PREFIX/lib" -maxdepth 1 \( -type f -o -type l \) -name "*.dylib" -print | sort
       - name: Disable CEF for CI build
         shell: bash
         run: |
@@ -1505,7 +1505,7 @@ jobs:
             [ -n "$f" ] || continue
             enqueue "$f"
           done < <(
-            find "$FFMPEG_PREFIX/lib" -maxdepth 1 -type f -name "*.dylib" -print | sort
+            find "$FFMPEG_PREFIX/lib" -maxdepth 1 \( -type f -o -type l \) -name "*.dylib" -print | sort
           )
 
           index=1
@@ -1521,12 +1521,15 @@ jobs:
           done < <(find "$ROOT" -type f \
             \( -perm -111 -o -name "*.dylib" \) -print)
 
-          while IFS= read -r src; do
+          queue_index=1
+          while [ "$queue_index" -le "$(wc -l < "$QUEUE_FILE" | tr -d ' ')" ]; do
+            src="$(sed -n "${queue_index}p" "$QUEUE_FILE")"
+            queue_index=$((queue_index + 1))
             [ -n "$src" ] || continue
+
             dst="$LIB/$(basename "$src")"
-            if [ "$(realpath "$src")" != "$(realpath "$dst" 2>/dev/null || echo "$dst")" ]; then
-              cp -L "$src" "$dst"
-            fi
+            cp -L "$src" "$dst"
+
             while IFS= read -r dep; do
               dep="${dep#        }"
               dep="${dep%% (*}"
@@ -1534,9 +1537,9 @@ jobs:
                 "$BREW_PREFIX"/*) enqueue "$dep" ;;
               esac
             done < <(otool -L "$src" 2>/dev/null | tail -n +2)
-          done < "$QUEUE_FILE"
+          done
 
-          find "$LIB" -maxdepth 1 -type f -name "*.dylib" -print | sort
+          find "$LIB" -maxdepth 1 \( -type f -o -type l \) -name "*.dylib" -print | sort
       # ----------------------------------------------------------
       # Normalize @rpath / install names.
       # ----------------------------------------------------------
