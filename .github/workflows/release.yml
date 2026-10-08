@@ -1773,23 +1773,55 @@ jobs:
             exit 1
           fi
 
-          APP_LIB="$APP/Contents/Resources/resources/revo-root/core/lib"
+          ROOT="$APP/Contents/Resources/resources/revo-root"
+          APP_LIB="$ROOT/core/lib"
+          BREW_PREFIX="$(brew --prefix)"
           test -d "$APP_LIB"
 
           add_rpath() {
             local binary="$1"
             local rpath="$2"
             if ! otool -l "$binary" 2>/dev/null | grep -Fq "path $rpath "; then
-              install_name_tool -add_rpath "$rpath" "$binary" 2>/dev/null || true
+              install_name_tool -add_rpath "$rpath" "$binary"
             fi
           }
 
-          find_bundled() {
-            local base="$1"
-            find "$APP/Contents/Resources" -type f -name "$base" -print -quit
+          is_macho() {
+            file "$1" 2>/dev/null | grep -q "Mach-O"
           }
 
+          # Make sure every Homebrew dependency referenced by the final app
+          # exists inside the app. The source runtime already bundles the
+          # normal FFmpeg/OBS dependencies; this catches anything Tauri copied
+          # with a versioned Homebrew basename that was not staged explicitly.
           while IFS= read -r -d '' binary; do
+            is_macho "$binary" || continue
+            while IFS= read -r dep; do
+              dep="$(printf '%s\n' "$dep" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/opt/*|/opt/homebrew/Cellar/*|/usr/local/Cellar/*)
+                  base="$(basename "$dep")"
+                  if [ ! -f "$APP_LIB/$base" ]; then
+                    src="$dep"
+                    if [ ! -f "$src" ]; then
+                      echo "ERROR: Homebrew dependency is not present: $dep"
+                      exit 1
+                    fi
+                    echo "Bundling missing Homebrew dependency: $base"
+                    cp -L "$src" "$APP_LIB/$base"
+                  fi
+                  ;;
+              esac
+            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
+          done < <(find "$APP" -type f -print0)
+
+          # Normalize every Mach-O in the final .app, not just the files in
+          # revo-root. The previous verification showed absolute Homebrew
+          # paths surviving because some dependencies use versioned basenames
+          # and some dylibs keep an absolute LC_ID_DYLIB.
+          while IFS= read -r -d '' binary; do
+            is_macho "$binary" || continue
+
             case "$binary" in
               "$APP/Contents/MacOS/"*)
                 add_rpath "$binary" "@loader_path/../Resources/resources/revo-root/core/lib"
@@ -1805,31 +1837,48 @@ jobs:
                 ;;
             esac
 
+            # Dylib/framework binaries must not advertise a Homebrew path as
+            # their own install name.
+            if [[ "$binary" == *.dylib || "$binary" == *.framework/Versions/*/* ]]; then
+              base="$(basename "$binary")"
+              install_name_tool -id "@rpath/$base" "$binary" 2>/dev/null || true
+            fi
+
             while IFS= read -r dep; do
-              dep="${dep#        }"
-              dep="${dep%% (*}"
+              dep="$(printf '%s\n' "$dep" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+              [ -n "$dep" ] || continue
               case "$dep" in
-                /opt/homebrew/*|/usr/local/opt/*)
+                /opt/homebrew/*|/usr/local/opt/*|/opt/homebrew/Cellar/*|/usr/local/Cellar/*)
                   base="$(basename "$dep")"
-                  bundled="$(find_bundled "$base")"
-                  if [ -n "$bundled" ] && [ -f "$bundled" ]; then
+                  if [ -f "$APP_LIB/$base" ]; then
                     echo "Relinking $(basename "$binary"): $dep -> @rpath/$base"
                     install_name_tool -change "$dep" "@rpath/$base" "$binary"
                   else
                     echo "ERROR: bundled dependency not found for $dep"
-                    echo "       expected basename: $base"
+                    echo "       expected: $APP_LIB/$base"
                     exit 1
                   fi
                   ;;
               esac
             done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
           done < <(
-            find "$APP" -type f -print0 |
-              while IFS= read -r -d '' f; do
-                file "$f" 2>/dev/null | grep -q "Mach-O" && printf '%s\0' "$f"
-              done
+            find "$APP" -type f -print0
           )
 
+          echo "=== Remaining Homebrew references after normalization ==="
+          REMAINING="$(
+            find "$APP" -type f -print0 |
+              while IFS= read -r -d '' f; do
+                is_macho "$f" || continue
+                otool -L "$f" 2>/dev/null || true
+              done |
+              grep -E '/opt/homebrew/|/usr/local/opt/|/opt/homebrew/Cellar/|/usr/local/Cellar/' || true
+          )"
+          if [ -n "$REMAINING" ]; then
+            echo "$REMAINING"
+            echo "ERROR: Homebrew absolute dylib references remain after normalization"
+            exit 1
+          fi
           echo "Final macOS app Mach-O normalization complete"
 
       # ----------------------------------------------------------
