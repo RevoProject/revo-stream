@@ -1814,10 +1814,8 @@ jobs:
               return 0
             fi
 
-            # First try the exact install_name path.
             if [ -f "$dep" ]; then
               src="$dep"
-            # Then resolve a Homebrew opt/Cellar symlink by basename.
             elif [ -d "$BREW_CELLAR" ]; then
               src="$(
                 find "$BREW_CELLAR" \
@@ -1840,32 +1838,13 @@ jobs:
             return 0
           }
 
-          # ------------------------------------------------------------
-          # Pass 1: discover every Homebrew dylib referenced by the final
-          # Tauri .app and make sure it exists inside revo-root/core/lib.
-          # ------------------------------------------------------------
-          while IFS= read -r -d '' binary; do
-            is_macho "$binary" || continue
+          normalize_binary() {
+            local binary="$1"
+            local dep
+            local base
+            local id
 
-            while IFS= read -r dep; do
-              dep="$(printf '%s\n' "$dep" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
-              [ -n "$dep" ] || continue
-
-              case "$dep" in
-                /opt/homebrew/*|/usr/local/opt/*|/opt/homebrew/Cellar/*|/usr/local/Cellar/*)
-                  normalize_dep "$dep"
-                  ;;
-              esac
-            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
-          done < <(find "$APP" -type f -print0)
-
-          # ------------------------------------------------------------
-          # Pass 2: normalize every Mach-O in the FINAL .app.
-          # This is intentionally after Tauri bundling because Tauri can
-          # introduce/copy additional native binaries.
-          # ------------------------------------------------------------
-          while IFS= read -r -d '' binary; do
-            is_macho "$binary" || continue
+            is_macho "$binary" || return 0
 
             case "$binary" in
               "$APP/Contents/MacOS/"*)
@@ -1887,14 +1866,28 @@ jobs:
                 ;;
             esac
 
-            # Normalize LC_ID_DYLIB for actual dylibs.
-            if [[ "$binary" == *.dylib ]]; then
+            # Every dylib/framework binary gets an app-local install name.
+            # This is important for dylibs such as libmpg123 whose own
+            # LC_ID_DYLIB can still point at Homebrew.
+            if [[ "$binary" == *.dylib ||
+                  "$binary" == *.framework/Versions/*/* ]]; then
               base="$(basename "$binary")"
-              install_name_tool -id "@rpath/$base" "$binary"
+              id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -1 | sed 's/^[[:space:]]*//')"
+
+              case "$id" in
+                /opt/homebrew/*|/usr/local/opt/*|/opt/homebrew/Cellar/*|/usr/local/Cellar/*)
+                  echo "Relinking install name $(basename "$binary"): $id -> @rpath/$base"
+                  install_name_tool -id "@rpath/$base" "$binary"
+                  ;;
+              esac
             fi
 
+            # Relink every Homebrew load command. Re-read otool output after
+            # changing LC_ID_DYLIB so a dylib's own old Homebrew install name
+            # cannot survive into the final gate.
             while IFS= read -r dep; do
-              dep="$(printf '%s\n' "$dep" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+              dep="$(printf '%s\n' "$dep" |
+                sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
               [ -n "$dep" ] || continue
 
               case "$dep" in
@@ -1918,8 +1911,47 @@ jobs:
                     "$binary"
                   ;;
               esac
-            done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
+            done < <(
+              otool -L "$binary" 2>/dev/null |
+                tail -n +2
+            )
+          }
 
+          # ------------------------------------------------------------
+          # Pass 1: discover and stage all Homebrew dependencies.
+          # ------------------------------------------------------------
+          while IFS= read -r -d '' binary; do
+            is_macho "$binary" || continue
+
+            while IFS= read -r dep; do
+              dep="$(printf '%s\n' "$dep" |
+                sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+              [ -n "$dep" ] || continue
+
+              case "$dep" in
+                /opt/homebrew/*|/usr/local/opt/*|/opt/homebrew/Cellar/*|/usr/local/Cellar/*)
+                  normalize_dep "$dep"
+                  ;;
+              esac
+            done < <(
+              otool -L "$binary" 2>/dev/null |
+                tail -n +2
+            )
+          done < <(find "$APP" -type f -print0)
+
+          # ------------------------------------------------------------
+          # Pass 2: normalize every Mach-O currently in the final .app.
+          # ------------------------------------------------------------
+          while IFS= read -r -d '' binary; do
+            normalize_binary "$binary"
+          done < <(find "$APP" -type f -print0)
+
+          # ------------------------------------------------------------
+          # Pass 3: re-scan the final app. This catches dependencies
+          # introduced by dylibs that were bundled during Pass 1/2.
+          # ------------------------------------------------------------
+          while IFS= read -r -d '' binary; do
+            normalize_binary "$binary"
           done < <(find "$APP" -type f -print0)
 
           # ------------------------------------------------------------
@@ -1927,17 +1959,26 @@ jobs:
           # remain anywhere in the shipped .app.
           # ------------------------------------------------------------
           echo "=== Exact remaining Homebrew references ==="
+
           find "$APP" -type f -print0 |
             while IFS= read -r -d '' f; do
               is_macho "$f" || continue
-              if otool -L "$f" 2>/dev/null | grep -q '/opt/homebrew/'; then
+
+              remaining="$(
+                otool -L "$f" 2>/dev/null |
+                  grep -E \
+                    '/opt/homebrew/|/usr/local/opt/|/opt/homebrew/Cellar/|/usr/local/Cellar/' \
+                  || true
+              )"
+
+              if [ -n "$remaining" ]; then
                 echo "--- $f"
-                otool -L "$f" 2>/dev/null | grep '/opt/homebrew/'
+                echo "$remaining"
               fi
             done
-          
+
           echo "=== Remaining Homebrew references after normalization ==="
-          
+
           REMAINING="$(
             find "$APP" -type f -print0 |
               while IFS= read -r -d '' f; do
@@ -1948,13 +1989,13 @@ jobs:
                 '/opt/homebrew/|/usr/local/opt/|/opt/homebrew/Cellar/|/usr/local/Cellar/' \
                 || true
           )"
-          
+
           if [ -n "$REMAINING" ]; then
             echo "$REMAINING"
             echo "ERROR: Homebrew absolute dylib references remain after normalization"
             exit 1
           fi
-          
+
           echo "Final macOS app Mach-O normalization complete"
 
       # ----------------------------------------------------------
