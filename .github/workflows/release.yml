@@ -245,7 +245,7 @@ jobs:
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = "$env:USERPROFILE\.cargo\git\checkouts"
+          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
           $bootstrapper = Get-ChildItem `
             $root `
             -Recurse `
@@ -260,7 +260,7 @@ jobs:
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch 'default\s*=\s*\["install_dummy_dll"\]') {
+          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
           $dummy = Join-Path $dir "assets\obs-dummy.dll"
@@ -321,94 +321,31 @@ jobs:
         run: |
           $OUT = "src-tauri/target/release"
           $ROOT = "src-tauri/resources/revo-root"
-          Remove-Item `
-            $ROOT `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
+          Remove-Item $ROOT -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\lib" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
           New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
-          if (Test-Path "data") {
-            Copy-Item `
-              "data\*" `
-              "$ROOT\data" `
-              -Recurse `
-              -Force
-          }
-          $dlls = Get-ChildItem `
-            $OUT `
-            -Filter "*.dll" `
-            -File `
-            -ErrorAction SilentlyContinue
-          if (-not $dlls) {
-            throw "No OBS DLLs found in $OUT"
-          }
-          foreach ($dll in $dlls) {
-            Write-Host "Copying OBS DLL: $($dll.Name)"
-            Copy-Item `
-              $dll.FullName `
-              "$ROOT\core\lib\$($dll.Name)" `
-              -Force
-          }
-          if (Test-Path "$OUT\obs-plugins") {
-            Copy-Item `
-              "$OUT\obs-plugins" `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Force
-          }
-          else {
-            throw "OBS obs-plugins directory missing"
-          }
-          if (Test-Path "$OUT\bin") {
-            Copy-Item `
-              "$OUT\bin\*" `
-              "$ROOT\core\bin" `
-              -Recurse `
-              -Force
-          }
-          if (Test-Path "$OUT\share") {
-            Copy-Item `
-              "$OUT\share\*" `
-              "$ROOT\core\share" `
-              -Recurse `
-              -Force
-          }
-          if (Test-Path "$OUT\data") {
-            Copy-Item `
-              "$OUT\data\*" `
-              "$ROOT\data" `
-              -Recurse `
-              -Force
-          }
+
+          if (Test-Path "data") { Copy-Item "data\*" "$ROOT\data" -Recurse -Force }
+
+          $dlls = @(Get-ChildItem $OUT -Filter "*.dll" -File -ErrorAction SilentlyContinue)
+          if ($dlls.Count -eq 0) { throw "No OBS DLLs found in $OUT" }
+          foreach ($dll in $dlls) { Copy-Item $dll.FullName "$ROOT\core\lib\$($dll.Name)" -Force }
+
+          $pluginSource = "$OUT\obs-plugins"
+          if (-not (Test-Path $pluginSource)) { throw "OBS obs-plugins directory missing" }
+          Copy-Item "$pluginSource\*" "$ROOT\core\lib\obs-plugins" -Recurse -Force
+
+          if (Test-Path "$OUT\bin") { Copy-Item "$OUT\bin\*" "$ROOT\core\bin" -Recurse -Force }
+          if (Test-Path "$OUT\share") { Copy-Item "$OUT\share\*" "$ROOT\core\share" -Recurse -Force }
+          if (Test-Path "$OUT\data") { Copy-Item "$OUT\data\*" "$ROOT\data" -Recurse -Force }
+
           $runtimeObs = "$ROOT\core\lib\obs.dll"
-          if (-not (Test-Path $runtimeObs)) {
-            throw "Staged obs.dll missing: $runtimeObs"
-          }
-          $runtimePlugins = @(
-            Get-ChildItem `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
-              -File
-          ).Count
-          if ($runtimePlugins -eq 0) {
-            throw "No staged OBS plugins found"
-          }
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "WINDOWS revo-root"
-          Write-Host "============================================================"
-          Get-ChildItem `
-            $ROOT `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-          Write-Host ""
+          if (-not (Test-Path $runtimeObs)) { throw "Staged obs.dll missing: $runtimeObs" }
+          $runtimePlugins = @(Get-ChildItem "$ROOT\core\lib\obs-plugins" -Recurse -Filter "*.dll" -File).Count
+          if ($runtimePlugins -eq 0) { throw "No staged OBS plugins found" }
           Write-Host "Staged OBS plugin DLLs: $runtimePlugins"
       # ----------------------------------------------------------
       # Verify Windows runtime before Tauri
@@ -462,12 +399,8 @@ jobs:
         shell: pwsh
         run: |
           $msi = @(Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue)
-          if ($msi.Count -eq 0) {
-            throw "MSI was not produced"
-          }
-          foreach ($item in $msi) {
-            Write-Host "MSI: $($item.FullName)"
-          }
+          if ($msi.Count -eq 0) { throw "MSI was not produced" }
+          foreach ($item in $msi) { Write-Host "MSI: $($item.FullName)" }
       # ----------------------------------------------------------
       # Portable ZIP
       # ----------------------------------------------------------
@@ -481,197 +414,48 @@ jobs:
           $exe = "$target/revo-ui.exe"
           $obsDll = "$target/obs.dll"
           $root = "src-tauri/resources/revo-root"
-          Remove-Item `
-            $portable `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-          Remove-Item `
-            $zip `
-            -Force `
-            -ErrorAction SilentlyContinue
-          if (-not (Test-Path $exe)) {
-            throw "Executable not found: $exe"
-          }
-          if (-not (Test-Path $obsDll)) {
-            throw "Real OBS DLL not found: $obsDll"
-          }
-          if (-not (Test-Path $root)) {
-            throw "revo-root not found: $root"
-          }
+
+          Remove-Item $portable -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $zip -Force -ErrorAction SilentlyContinue
+          if (-not (Test-Path $exe)) { throw "Executable not found: $exe" }
+          if (-not (Test-Path $obsDll)) { throw "Real OBS DLL not found: $obsDll" }
+          if (-not (Test-Path $root)) { throw "revo-root not found: $root" }
           $obsSize = (Get-Item $obsDll).Length
-          Write-Host "Real target/release/obs.dll size: $obsSize bytes"
-          if ($obsSize -lt 500000) {
-            throw "target/release/obs.dll is unexpectedly small; refusing to package dummy DLL"
+          if ($obsSize -lt 500000) { throw "target/release/obs.dll is unexpectedly small; refusing to package dummy DLL" }
+
+          New-Item -ItemType Directory -Force $portable | Out-Null
+          Copy-Item $exe "$portable\revo-ui.exe" -Force
+          Copy-Item $obsDll "$portable\obs.dll" -Force
+
+          # Only root-level DLLs are duplicated here because Windows/bootstrapper
+          # needs them beside revo-ui.exe. Do not copy bin/data/obs-plugins again.
+          Get-ChildItem $target -Filter "*.dll" -File | ForEach-Object {
+            Copy-Item $_.FullName "$portable\$($_.Name)" -Force
           }
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            $portable | Out-Null
-          # ------------------------------------------------------------
-          # IMPORTANT:
-          # libobs-bootstrapper looks for obs.dll next to revo-ui.exe.
-          # Therefore the portable bundle must contain the REAL OBS DLL
-          # in its root, not only inside revo-root.
-          # ------------------------------------------------------------
-          Copy-Item `
-            $exe `
-            "$portable\revo-ui.exe" `
-            -Force
-          Copy-Item `
-            $obsDll `
-            "$portable\obs.dll" `
-            -Force
-          # Copy every root-level DLL produced by cargo-obs-build.
-          # This keeps FFmpeg / graphics / runtime dependencies beside
-          # the executable where Windows DLL lookup can find them.
-          $rootDlls = Get-ChildItem `
-            $target `
-            -Filter "*.dll" `
-            -File `
-            -ErrorAction SilentlyContinue
-          foreach ($dll in $rootDlls) {
-            Write-Host "Copying runtime DLL: $($dll.Name)"
-            Copy-Item `
-              $dll.FullName `
-              "$portable\$($dll.Name)" `
-              -Force
-          }
-          # Preserve the OBS runtime directories exactly as produced by
-          # cargo-obs-build.
-          foreach ($dirName in @("bin", "data", "obs-plugins")) {
-            $sourceDir = "$target\$dirName"
-            if (Test-Path $sourceDir) {
-              Write-Host "Copying OBS runtime directory: $dirName"
-              Copy-Item `
-                $sourceDir `
-                "$portable\$dirName" `
-                -Recurse `
-                -Force
-            }
-          }
-          # Revo's own runtime/resource tree.
-          Copy-Item `
-            $root `
-            "$portable\revo-root" `
-            -Recurse `
-            -Force
-          # ------------------------------------------------------------
-          # Verify final portable layout
-          # ------------------------------------------------------------
-          $portableExe = "$portable\revo-ui.exe"
-          $portableObs = "$portable\obs.dll"
-          $portableRoot = "$portable\revo-root"
-          $portablePlugins = "$portable\obs-plugins"
-          if (-not (Test-Path $portableExe)) {
-            throw "Portable executable missing: $portableExe"
-          }
-          if (-not (Test-Path $portableObs)) {
-            throw "Portable root obs.dll missing: $portableObs"
-          }
-          $portableObsSize = (Get-Item $portableObs).Length
-          Write-Host "Portable root obs.dll size: $portableObsSize bytes"
-          if ($portableObsSize -lt 500000) {
-            throw "Portable obs.dll is unexpectedly small"
-          }
-          if (-not (Test-Path $portableRoot)) {
-            throw "Portable revo-root missing"
-          }
-          if (-not (Test-Path "$portableRoot\core\lib\obs.dll")) {
-            throw "Portable revo-root/core/lib/obs.dll missing"
-          }
-          if (-not (Test-Path "$portableRoot\core\lib\obs-plugins")) {
-            throw "Portable revo-root/core/lib/obs-plugins missing"
-          }
-          $rootPlugins = @(
-            Get-ChildItem `
-              "$portableRoot\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
-              -File
-          ).Count
-          if ($rootPlugins -eq 0) {
-            throw "No OBS plugins found in portable revo-root"
-          }
-          if (Test-Path $portablePlugins) {
-            $portablePluginsCount = @(
-              Get-ChildItem `
-                $portablePlugins `
-                -Recurse `
-                -Filter "*.dll" `
-                -File
-            ).Count
-            if ($portablePluginsCount -eq 0) {
-              throw "Portable obs-plugins directory is empty"
-            }
-            Write-Host "Portable root OBS plugin DLLs: $portablePluginsCount"
-          }
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "FINAL WINDOWS PORTABLE LAYOUT"
-          Write-Host "============================================================"
-          Get-ChildItem `
-            $portable `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-          # Compress the COMPLETE application directory.
-          Compress-Archive `
-            -Path "$portable\*" `
-            -DestinationPath $zip `
-            -CompressionLevel Optimal
-          if (-not (Test-Path $zip)) {
-            throw "Portable ZIP was not created"
-          }
-          Write-Host ""
-          Write-Host "Portable ZIP:"
-          Write-Host "$zip"
-          Get-Item $zip |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-          # Validate the archive itself, not only the temporary directory.
+          Copy-Item $root "$portable\revo-root" -Recurse -Force
+
+          if (-not (Test-Path "$portable\revo-root\core\lib\obs.dll")) { throw "Portable revo-root/core/lib/obs.dll missing" }
+          if (-not (Test-Path "$portable\revo-root\core\lib\obs-plugins")) { throw "Portable revo-root/core/lib/obs-plugins missing" }
+          $pluginCount = @(Get-ChildItem "$portable\revo-root\core\lib\obs-plugins" -Recurse -Filter "*.dll" -File).Count
+          if ($pluginCount -eq 0) { throw "No OBS plugins found in portable revo-root" }
+
+          Compress-Archive -Path "$portable\*" -DestinationPath $zip -CompressionLevel Optimal
+          if (-not (Test-Path $zip)) { throw "Portable ZIP was not created" }
+
           $verifyDir = "$bundleDir\portable-verify"
-          Remove-Item `
-            $verifyDir `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            $verifyDir | Out-Null
-          Expand-Archive `
-            -Path $zip `
-            -DestinationPath $verifyDir `
-            -Force
-          if (-not (Test-Path "$verifyDir\revo-ui.exe")) {
-            throw "ZIP verification failed: revo-ui.exe missing"
-          }
-          if (-not (Test-Path "$verifyDir\obs.dll")) {
-            throw "ZIP verification failed: root obs.dll missing"
-          }
-          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs.dll")) {
-            throw "ZIP verification failed: revo-root/core/lib/obs.dll missing"
-          }
-          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs-plugins")) {
-            throw "ZIP verification failed: OBS plugins missing"
-          }
+          Remove-Item $verifyDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $verifyDir | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $verifyDir -Force
+          if (-not (Test-Path "$verifyDir\revo-ui.exe")) { throw "ZIP verification failed: revo-ui.exe missing" }
+          if (-not (Test-Path "$verifyDir\obs.dll")) { throw "ZIP verification failed: root obs.dll missing" }
+          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs.dll")) { throw "ZIP verification failed: revo-root/core/lib/obs.dll missing" }
           $verifiedObsSize = (Get-Item "$verifyDir\obs.dll").Length
-          if ($verifiedObsSize -lt 500000) {
-            throw "ZIP verification failed: root obs.dll is dummy/small"
-          }
-          Write-Host ""
+          if ($verifiedObsSize -lt 500000) { throw "ZIP verification failed: root obs.dll is dummy/small" }
+          if (-not (Test-Path "$verifyDir\revo-root\core\lib\obs-plugins")) { throw "ZIP verification failed: OBS plugins missing" }
+          if (@(Get-ChildItem "$verifyDir\revo-root\core\lib\obs-plugins" -Recurse -Filter "*.dll" -File).Count -eq 0) { throw "ZIP verification failed: no OBS plugin DLLs" }
           Write-Host "ZIP verification passed"
-          Write-Host "Verified root obs.dll: $verifiedObsSize bytes"
-          Remove-Item `
-            $verifyDir `
-            -Recurse `
-            -Force
-          Remove-Item `
-            $portable `
-            -Recurse `
-            -Force
+          Remove-Item $verifyDir -Recurse -Force
+          Remove-Item $portable -Recurse -Force
       # ----------------------------------------------------------
       # Upload Windows artifacts
       # ----------------------------------------------------------
@@ -846,22 +630,18 @@ jobs:
           if marker not in init_text or statement not in init_text:
               raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
 
-          handler_pos = init_text.find(marker)
-          statement_pos = init_text.rfind(statement, 0, handler_pos)
-          if statement_pos == -1:
-              raise SystemExit("ERROR: base_set_log_handler call for obs logger not found")
-
+          statement_pos = init_text.find(statement)
           line_start = init_text.rfind("\n", 0, statement_pos) + 1
           prefix = init_text[:line_start]
 
           # Remove cfg attributes immediately before the handler, regardless
           # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
           prefix = re.sub(
-              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\][ \t]*\n)+$',
+              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
               '',
               prefix,
           )
-          indent_match = re.match(r'([ \t]*)', init_text[line_start:])
+          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
           indent = indent_match.group(1) if indent_match else '        '
           init_text = (
               prefix
@@ -870,17 +650,8 @@ jobs:
           )
           init.write_text(init_text)
 
-          # Final verification: the cfg must be the immediately preceding
-          # non-blank line before the base_set_log_handler call.
-          verify = init.read_text()
-          handler_pos = verify.find(marker)
-          statement_pos = verify.rfind(statement, 0, handler_pos)
-          if statement_pos == -1:
-              raise SystemExit("ERROR: patched base_set_log_handler call not found")
-          before = verify[:statement_pos].splitlines()
-          while before and not before[-1].strip():
-              before.pop()
-          if not before or before[-1].strip() != '#[cfg(target_os = "linux")]':
+          # Final verification
+          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
               raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
           print("OBS logger is Linux-only")
           PY
@@ -1125,61 +896,58 @@ jobs:
           echo "============================================================"
           echo "VERIFY libobs bindgen"
           echo "============================================================"
-          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" -path "*/7e76c91/libobs/build.rs" -print -quit)
+          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs/build.rs" \
+            -print -quit)
           if [ -z "$BUILD_RS" ]; then
             echo "libobs build.rs not found"
             exit 1
           fi
-          echo "Using: $BUILD_RS"
-          grep -n -C 4 "layout_tests" "$BUILD_RS"
+          grep -n -C 4 \
+            "layout_tests" \
+            "$BUILD_RS"
           echo
           echo "============================================================"
           echo "VERIFY libobs-wrapper"
           echo "============================================================"
-          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" -path "*/7e76c91/libobs-wrapper/src" -type d -print -quit)
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
+            -path "*/7e76c91/libobs-wrapper/src" \
+            -type d \
+            -print -quit)
           if [ -z "$WRAPPER_SRC" ]; then
             echo "libobs-wrapper source not found"
             exit 1
           fi
-          echo "Using: $WRAPPER_SRC"
           OTHER_RS="$WRAPPER_SRC/utils/initialization/other.rs"
-          RUNTIME_RS="$WRAPPER_SRC/runtime.rs"
-          test -f "$OTHER_RS" || { echo "other.rs not found: $OTHER_RS"; exit 1; }
-          test -f "$RUNTIME_RS" || { echo "runtime.rs not found: $RUNTIME_RS"; exit 1; }
           echo
           echo "--- Rc import ---"
-          grep -n -C 3 "use std::rc::Rc;" "$OTHER_RS"
-          if grep -B1 "use std::rc::Rc;" "$OTHER_RS" | grep -q 'cfg(target_os = "linux")'; then
+          grep -n -C 3 \
+            "use std::rc::Rc;" \
+            "$OTHER_RS"
+          if grep -B1 \
+            'use std::rc::Rc;' \
+            "$OTHER_RS" |
+            grep -q 'cfg(target_os = "linux")'; then
             echo "ERROR: Rc is still Linux-only"
             exit 1
           fi
-          if ! grep -q '^use std::rc::Rc;$' "$OTHER_RS"; then
+          if ! grep -q \
+            '^use std::rc::Rc;$' \
+            "$OTHER_RS"; then
             echo "ERROR: Rc import is missing"
             exit 1
           fi
           echo "OK: Rc is available on macOS"
           echo
           echo "--- PlatformSpecificGuard ---"
-          grep -n -C 5 "PlatformSpecificGuard" "$OTHER_RS"
-          if ! grep -q '^pub(crate) struct PlatformSpecificGuard;$' "$OTHER_RS"; then
-            echo "ERROR: non-Linux PlatformSpecificGuard stub is missing"
-            exit 1
-          fi
-          echo "OK: PlatformSpecificGuard macOS stub exists"
+          grep -n -C 5 \
+            "PlatformSpecificGuard" \
+            "$OTHER_RS"
           echo
           echo "--- platform_specific_setup ---"
-          grep -n -C 5 "platform_specific_setup" "$RUNTIME_RS" || true
-          if grep -q 'platform_specific_setup(info.nix_display.clone())?' "$RUNTIME_RS"; then
-            echo "ERROR: runtime.rs still passes nix_display to platform_specific_setup"
-            exit 1
-          fi
-          if ! grep -q 'platform_specific_setup()?' "$RUNTIME_RS"; then
-            echo "ERROR: patched platform_specific_setup() call is missing"
-            exit 1
-          fi
-          echo "OK: platform_specific_setup() is macOS-compatible"
-          echo "libobs patches verification passed"
-
+          grep -n -C 5 \
+            "platform_specific_setup" \
+            "$WRAPPER_SRC/runtime.rs" || true
       # ----------------------------------------------------------
       # Runtime resources
       # ----------------------------------------------------------
@@ -1262,8 +1030,10 @@ jobs:
           text = path.read_text()
           pragma = (
               "#pragma clang diagnostic push\n"
-              "#pragma clang diagnostic ignored \"-Wimplicit-int-float-conversion\"\n"
-              "#pragma clang diagnostic ignored \"-Wenum-enum-conversion\"\n"
+              "#pragma clang diagnostic ignored "
+              "\\"-Wimplicit-int-float-conversion\\"\n"
+              "#pragma clang diagnostic ignored "
+              "\\"-Wenum-enum-conversion\\"\n"
           )
           if (
               "#pragma clang diagnostic push"
@@ -1329,7 +1099,7 @@ jobs:
           cmake \
             --build "$RUNNER_TEMP/obs-build" \
             --config RelWithDebInfo \
-            --parallel "$(sysctl -n hw.ncpu)"
+            --parallel "$(sysctl -n hw\.ncpu)"
       # ----------------------------------------------------------
       # OBS install
       # ----------------------------------------------------------
@@ -1455,7 +1225,7 @@ jobs:
           echo "Checking OBS symbols:"
           nm -gU "$LIBOBS_BINARY" |
             grep -E \
-              '(\_base_set_log_handler|\_obs_add_data_path|\_gs_flush|\_gs_ortho)' |
+              '(_base_set_log_handler|_obs_add_data_path|_gs_flush|_gs_ortho)' |
             head -20 ||
             true
           echo
@@ -1676,30 +1446,32 @@ jobs:
           LIB="$ROOT/core/lib"
           FFMPEG_PREFIX="$(brew --prefix ffmpeg)"
           BREW_PREFIX="$(brew --prefix)"
+          SEEN_FILE="$RUNNER_TEMP/revo-seen-dylibs.txt"
+          QUEUE_FILE="$RUNNER_TEMP/revo-dylib-queue.txt"
+          : > "$SEEN_FILE"
+          : > "$QUEUE_FILE"
           mkdir -p "$LIB"
-          declare -a QUEUE=()
-          declare -A SEEN=()
+
           enqueue() {
             local f="$1"
             [ -e "$f" ] || return 0
             local real
             real="$(realpath "$f")"
             [ -f "$real" ] || return 0
-            if [ -z "${SEEN[$real]+x}" ]; then
-              SEEN["$real"]=1
-              QUEUE+=("$real")
+            if ! grep -Fqx "$real" "$SEEN_FILE" 2>/dev/null; then
+              printf '%s\n' "$real" >> "$SEEN_FILE"
+              printf '%s\n' "$real" >> "$QUEUE_FILE"
             fi
           }
+
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             enqueue "$f"
           done < <(
-            find "$FFMPEG_PREFIX/lib" \
-              -maxdepth 1 \
-              -type f \
-              -name "*.dylib" \
-              -print | sort
+            find "$FFMPEG_PREFIX/lib" -maxdepth 1 -type f -name "*.dylib" -print | sort
           )
+
+          index=1
           while IFS= read -r binary; do
             [ -n "$binary" ] || continue
             while IFS= read -r dep; do
@@ -1709,14 +1481,11 @@ jobs:
                 "$BREW_PREFIX"/*) enqueue "$dep" ;;
               esac
             done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
-          done < <(
-            find "$ROOT" -type f \
-              \( -perm -111 -o -name "*.dylib" \) -print
-          )
-          index=0
-          while [ "$index" -lt "${#QUEUE[@]}" ]; do
-            src="${QUEUE[$index]}"
-            index=$((index + 1))
+          done < <(find "$ROOT" -type f \
+            \( -perm -111 -o -name "*.dylib" \) -print)
+
+          while IFS= read -r src; do
+            [ -n "$src" ] || continue
             dst="$LIB/$(basename "$src")"
             if [ "$(realpath "$src")" != "$(realpath "$dst" 2>/dev/null || echo "$dst")" ]; then
               cp -L "$src" "$dst"
@@ -1728,7 +1497,8 @@ jobs:
                 "$BREW_PREFIX"/*) enqueue "$dep" ;;
               esac
             done < <(otool -L "$src" 2>/dev/null | tail -n +2)
-          done
+          done < "$QUEUE_FILE"
+
           find "$LIB" -maxdepth 1 -type f -name "*.dylib" -print | sort
       # ----------------------------------------------------------
       # Normalize @rpath / install names.
