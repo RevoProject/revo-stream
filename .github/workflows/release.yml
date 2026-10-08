@@ -245,17 +245,13 @@ jobs:
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = Join-Path $env:USERPROFILE '.cargo\git\checkouts'
-          if (-not (Test-Path $root)) {
-            throw "Cargo git checkout directory not found: $root"
-          }
+          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
           $bootstrapper = Get-ChildItem `
-            -Path $root `
+            $root `
             -Recurse `
-            -Filter Cargo.toml `
-            -File |
+            -Filter Cargo.toml |
             Where-Object {
-              $_.FullName -like '*\7e76c91\libobs-bootstrapper\Cargo.toml'
+              $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
             Select-Object -First 1
           if (-not $bootstrapper) {
@@ -264,10 +260,10 @@ jobs:
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch 'default\s*=\s*\[\s*"install_dummy_dll"\s*\]') {
+          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
-          $dummy = Join-Path $dir 'assets\obs-dummy.dll'
+          $dummy = Join-Path $dir "assets\obs-dummy.dll"
           if (-not (Test-Path $dummy)) {
             throw "Dummy DLL not found: $dummy"
           }
@@ -817,90 +813,66 @@ jobs:
           from pathlib import Path
           import re
 
-          LINUX_CFG = '#[cfg(target_os = "linux")]'
+          linux_cfg = '#[cfg(target_os = "linux")]'
 
-          def fail(message):
-              raise SystemExit(message)
-
-          # logging/mod.rs: make the module Linux-only.
+          # logging/mod.rs
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
-          if LINUX_CFG + "\npub mod obs_logger;" not in text:
-              text, count = re.subn(
-                  r'(?m)^[ \t]*#\[cfg\([^\n]+\)\][ \t]*\n([ \t]*pub mod obs_logger;)',
-                  LINUX_CFG + r'\n\1',
-                  text,
-                  count=1,
-              )
-              if count != 1:
-                  fail("ERROR: obs_logger module not found in logging/mod.rs")
-          if LINUX_CFG + "\npub mod obs_logger;" not in text:
-              fail("ERROR: logging/mod.rs obs_logger cfg verification failed")
+          text = re.sub(
+              r'(?m)^[ \t]*#\[cfg\([^\n]+\)\]\n([ \t]*pub mod obs_logger;)',
+              linux_cfg + r'\n\1',
+              text,
+              count=1,
+          )
+          if linux_cfg + "\npub mod obs_logger;" not in text:
+              raise SystemExit("ERROR: obs_logger module was not made Linux-only")
           mod.write_text(text)
 
-          # logging/obs_logger.rs: hard Linux-only at file level.
+          # logging/obs_logger.rs
           logger = Path("src-tauri/src/logging/obs_logger.rs")
           if logger.exists():
               logger_text = logger.read_text()
               logger_text = re.sub(
-                  r'\A#!\[cfg\([^\n]+\)\][ \t]*\n?',
-                  "#![cfg(target_os = \"linux\")]\n",
+                  r'\A#!\[cfg\([^\n]+\)\]\n?',
+                  linux_cfg.replace('#[', '#![') + "\n",
                   logger_text,
                   count=1,
               )
-              if not logger_text.startswith("#![cfg(target_os = \"linux\")]"):
-                  logger_text = "#![cfg(target_os = \"linux\")]\n" + logger_text.lstrip("\n")
+              if not logger_text.startswith('#![cfg(target_os = "linux")]'):
+                  logger_text = '#![cfg(target_os = "linux")]\n\n' + logger_text
               logger.write_text(logger_text)
 
-          # runtime/init.rs: add Linux cfg directly to the logger call.
+          # runtime/init.rs
           init = Path("src-tauri/src/runtime/init.rs")
-          lines = init.read_text().splitlines(keepends=True)
+          init_text = init.read_text()
           marker = "crate::logging::obs_logger::obs_log_handler"
-          call = "revo_lib::obs::base_set_log_handler("
+          statement = "revo_lib::obs::base_set_log_handler("
+          if marker not in init_text or statement not in init_text:
+              raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
 
-          marker_index = next((i for i, line in enumerate(lines) if marker in line), None)
-          if marker_index is None:
-              fail("ERROR: obs_log_handler reference not found in runtime/init.rs")
+          statement_pos = init_text.find(statement)
+          line_start = init_text.rfind("\n", 0, statement_pos) + 1
+          prefix = init_text[:line_start]
 
-          call_index = None
-          for i in range(marker_index, -1, -1):
-              if call in lines[i]:
-                  call_index = i
-                  break
-          if call_index is None:
-              fail("ERROR: base_set_log_handler call not found in runtime/init.rs")
+          # Remove cfg attributes immediately before the handler, regardless
+          # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
+          prefix = re.sub(
+              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
+              '',
+              prefix,
+          )
+          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
+          indent = indent_match.group(1) if indent_match else '        '
+          init_text = (
+              prefix
+              + f'{indent}#[cfg(target_os = "linux")]\n'
+              + init_text[line_start:]
+          )
+          init.write_text(init_text)
 
-          # Do not remove older cfg attributes: adding the Linux cfg makes the
-          # logger call safe even if an older unix cfg is still present.
-          previous = call_index - 1
-          while previous >= 0 and not lines[previous].strip():
-              previous -= 1
-
-          if previous < 0 or lines[previous].strip() != LINUX_CFG:
-              indent = re.match(r'[ \t]*', lines[call_index]).group(0)
-              lines.insert(call_index, indent + LINUX_CFG + "\n")
-
-          init.write_text("".join(lines))
-
-          # Exact verification against the logger call associated with the marker.
-          lines = init.read_text().splitlines()
-          marker_index = next((i for i, line in enumerate(lines) if marker in line), None)
-          if marker_index is None:
-              fail("ERROR: runtime/init.rs logger marker disappeared")
-          call_index = None
-          for i in range(marker_index, -1, -1):
-              if call in lines[i]:
-                  call_index = i
-                  break
-          if call_index is None or call_index == 0:
-              fail("ERROR: runtime/init.rs logger call disappeared")
-
-          previous = call_index - 1
-          while previous >= 0 and not lines[previous].strip():
-              previous -= 1
-          if previous < 0 or lines[previous].strip() != LINUX_CFG:
-              fail("ERROR: runtime/init.rs logger cfg verification failed")
-
+          # Final verification
+          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
+              raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
           print("OBS logger is Linux-only")
           PY
       # ----------------------------------------------------------
@@ -1018,7 +990,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "pub(crate) struct PlatformSpecificGuard {"
+                  \== "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1035,7 +1007,7 @@ jobs:
               if (
                   derive_index > 0
                   and lines[derive_index - 1].strip()
-                  == "#[derive(Debug)]"
+                  \== "#[derive(Debug)]"
               ):
                   derive_index -= 1
               lines.insert(
@@ -1047,7 +1019,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "pub(crate) struct PlatformSpecificGuard {"
+                  \== "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1074,7 +1046,7 @@ jobs:
               )
           stub_exists = any(
               line.strip()
-              == "pub(crate) struct PlatformSpecificGuard;"
+              \== "pub(crate) struct PlatformSpecificGuard;"
               for line in lines
           )
           if not stub_exists:
@@ -1090,7 +1062,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  == "impl Drop for PlatformSpecificGuard {"
+                  \== "impl Drop for PlatformSpecificGuard {"
               ):
                   if (
                       i == 0
@@ -1144,58 +1116,61 @@ jobs:
           echo "============================================================"
           echo "VERIFY libobs bindgen"
           echo "============================================================"
-          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \\
-            -path "*/7e76c91/libobs/build.rs" \\
-            -print -quit)
+          BUILD_RS=$(find "$HOME/.cargo/git/checkouts" -path "*/7e76c91/libobs/build.rs" -print -quit)
           if [ -z "$BUILD_RS" ]; then
             echo "libobs build.rs not found"
             exit 1
           fi
-          grep -n -C 4 \\
-            "layout_tests" \\
-            "$BUILD_RS"
+          echo "Using: $BUILD_RS"
+          grep -n -C 4 "layout_tests" "$BUILD_RS"
           echo
           echo "============================================================"
           echo "VERIFY libobs-wrapper"
           echo "============================================================"
-          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \\
-            -path "*/7e76c91/libobs-wrapper/src" \\
-            -type d \\
-            -print -quit)
+          WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" -path "*/7e76c91/libobs-wrapper/src" -type d -print -quit)
           if [ -z "$WRAPPER_SRC" ]; then
             echo "libobs-wrapper source not found"
             exit 1
           fi
+          echo "Using: $WRAPPER_SRC"
           OTHER_RS="$WRAPPER_SRC/utils/initialization/other.rs"
+          RUNTIME_RS="$WRAPPER_SRC/runtime.rs"
+          test -f "$OTHER_RS" || { echo "other.rs not found: $OTHER_RS"; exit 1; }
+          test -f "$RUNTIME_RS" || { echo "runtime.rs not found: $RUNTIME_RS"; exit 1; }
           echo
           echo "--- Rc import ---"
-          grep -n -C 3 \\
-            "use std::rc::Rc;" \\
-            "$OTHER_RS"
-          if grep -B1 \\
-            'use std::rc::Rc;' \\
-            "$OTHER_RS" |
-            grep -q 'cfg(target_os = "linux")'; then
+          grep -n -C 3 "use std::rc::Rc;" "$OTHER_RS"
+          if grep -B1 "use std::rc::Rc;" "$OTHER_RS" | grep -q 'cfg(target_os = "linux")'; then
             echo "ERROR: Rc is still Linux-only"
             exit 1
           fi
-          if ! grep -q \\
-            '^use std::rc::Rc;$' \\
-            "$OTHER_RS"; then
+          if ! grep -q '^use std::rc::Rc;$' "$OTHER_RS"; then
             echo "ERROR: Rc import is missing"
             exit 1
           fi
           echo "OK: Rc is available on macOS"
           echo
           echo "--- PlatformSpecificGuard ---"
-          grep -n -C 5 \\
-            "PlatformSpecificGuard" \\
-            "$OTHER_RS"
+          grep -n -C 5 "PlatformSpecificGuard" "$OTHER_RS"
+          if ! grep -q '^pub(crate) struct PlatformSpecificGuard;$' "$OTHER_RS"; then
+            echo "ERROR: non-Linux PlatformSpecificGuard stub is missing"
+            exit 1
+          fi
+          echo "OK: PlatformSpecificGuard macOS stub exists"
           echo
           echo "--- platform_specific_setup ---"
-          grep -n -C 5 \\
-            "platform_specific_setup" \\
-            "$WRAPPER_SRC/runtime.rs" || true
+          grep -n -C 5 "platform_specific_setup" "$RUNTIME_RS" || true
+          if grep -q 'platform_specific_setup(info.nix_display.clone())?' "$RUNTIME_RS"; then
+            echo "ERROR: runtime.rs still passes nix_display to platform_specific_setup"
+            exit 1
+          fi
+          if ! grep -q 'platform_specific_setup()?' "$RUNTIME_RS"; then
+            echo "ERROR: patched platform_specific_setup() call is missing"
+            exit 1
+          fi
+          echo "OK: platform_specific_setup() is macOS-compatible"
+          echo "libobs patches verification passed"
+
       # ----------------------------------------------------------
       # Runtime resources
       # ----------------------------------------------------------
