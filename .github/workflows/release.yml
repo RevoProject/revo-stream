@@ -245,13 +245,17 @@ jobs:
       - name: Verify libobs-bootstrapper
         shell: pwsh
         run: |
-          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
+          $root = Join-Path $env:USERPROFILE '.cargo\git\checkouts'
+          if (-not (Test-Path $root)) {
+            throw "Cargo git checkout directory not found: $root"
+          }
           $bootstrapper = Get-ChildItem `
-            $root `
+            -Path $root `
             -Recurse `
-            -Filter Cargo.toml |
+            -Filter Cargo.toml `
+            -File |
             Where-Object {
-              $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
+              $_.FullName -like '*\7e76c91\libobs-bootstrapper\Cargo.toml'
             } |
             Select-Object -First 1
           if (-not $bootstrapper) {
@@ -260,10 +264,10 @@ jobs:
           $dir = Split-Path $bootstrapper.FullName
           $cargo = Get-Content $bootstrapper.FullName -Raw
           Write-Host "Using bootstrapper: $dir"
-          if ($cargo -notmatch 'default\s*=\s*\\["install_dummy_dll"\\]') {
+          if ($cargo -notmatch 'default\s*=\s*\[\s*"install_dummy_dll"\s*\]') {
             throw "libobs-bootstrapper install_dummy_dll is not enabled by default"
           }
-          $dummy = Join-Path $dir "assets\obs-dummy.dll"
+          $dummy = Join-Path $dir 'assets\obs-dummy.dll'
           if (-not (Test-Path $dummy)) {
             throw "Dummy DLL not found: $dummy"
           }
@@ -813,66 +817,90 @@ jobs:
           from pathlib import Path
           import re
 
-          linux_cfg = '#[cfg(target_os = "linux")]'
+          LINUX_CFG = '#[cfg(target_os = "linux")]'
 
-          # logging/mod.rs
+          def fail(message):
+              raise SystemExit(message)
+
+          # logging/mod.rs: make the module Linux-only.
           mod = Path("src-tauri/src/logging/mod.rs")
           text = mod.read_text()
-          text = re.sub(
-              r'(?m)^[ \t]*#\[cfg\([^\n]+\)\]\n([ \t]*pub mod obs_logger;)',
-              linux_cfg + r'\n\1',
-              text,
-              count=1,
-          )
-          if linux_cfg + "\npub mod obs_logger;" not in text:
-              raise SystemExit("ERROR: obs_logger module was not made Linux-only")
+          if LINUX_CFG + "\npub mod obs_logger;" not in text:
+              text, count = re.subn(
+                  r'(?m)^[ \t]*#\[cfg\([^\n]+\)\][ \t]*\n([ \t]*pub mod obs_logger;)',
+                  LINUX_CFG + r'\n\1',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  fail("ERROR: obs_logger module not found in logging/mod.rs")
+          if LINUX_CFG + "\npub mod obs_logger;" not in text:
+              fail("ERROR: logging/mod.rs obs_logger cfg verification failed")
           mod.write_text(text)
 
-          # logging/obs_logger.rs
+          # logging/obs_logger.rs: hard Linux-only at file level.
           logger = Path("src-tauri/src/logging/obs_logger.rs")
           if logger.exists():
               logger_text = logger.read_text()
               logger_text = re.sub(
-                  r'\A#!\[cfg\([^\n]+\)\]\n?',
-                  linux_cfg.replace('#[', '#![') + "\n",
+                  r'\A#!\[cfg\([^\n]+\)\][ \t]*\n?',
+                  "#![cfg(target_os = \"linux\")]\n",
                   logger_text,
                   count=1,
               )
-              if not logger_text.startswith('#![cfg(target_os = "linux")]'):
-                  logger_text = '#![cfg(target_os = "linux")]\n\n' + logger_text
+              if not logger_text.startswith("#![cfg(target_os = \"linux\")]"):
+                  logger_text = "#![cfg(target_os = \"linux\")]\n" + logger_text.lstrip("\n")
               logger.write_text(logger_text)
 
-          # runtime/init.rs
+          # runtime/init.rs: add Linux cfg directly to the logger call.
           init = Path("src-tauri/src/runtime/init.rs")
-          init_text = init.read_text()
+          lines = init.read_text().splitlines(keepends=True)
           marker = "crate::logging::obs_logger::obs_log_handler"
-          statement = "revo_lib::obs::base_set_log_handler("
-          if marker not in init_text or statement not in init_text:
-              raise SystemExit("ERROR: OBS logger handler not found in runtime/init.rs")
+          call = "revo_lib::obs::base_set_log_handler("
 
-          statement_pos = init_text.find(statement)
-          line_start = init_text.rfind("\n", 0, statement_pos) + 1
-          prefix = init_text[:line_start]
+          marker_index = next((i for i, line in enumerate(lines) if marker in line), None)
+          if marker_index is None:
+              fail("ERROR: obs_log_handler reference not found in runtime/init.rs")
 
-          # Remove cfg attributes immediately before the handler, regardless
-          # of whether an older patch used cfg(unix), cfg(target_os), or cfg(all(...)).
-          prefix = re.sub(
-              r'(?m)(?:^[ \t]*#\[cfg\([^\n]+\)\]\n)+$',
-              '',
-              prefix,
-          )
-          indent_match = re.search(r'(?m)^([ \t]*)' + re.escape(statement), init_text)
-          indent = indent_match.group(1) if indent_match else '        '
-          init_text = (
-              prefix
-              + f'{indent}#[cfg(target_os = "linux")]\n'
-              + init_text[line_start:]
-          )
-          init.write_text(init_text)
+          call_index = None
+          for i in range(marker_index, -1, -1):
+              if call in lines[i]:
+                  call_index = i
+                  break
+          if call_index is None:
+              fail("ERROR: base_set_log_handler call not found in runtime/init.rs")
 
-          # Final verification
-          if '#[cfg(target_os = "linux")]' not in init.read_text().split(statement, 1)[0].splitlines()[-1]:
-              raise SystemExit("ERROR: runtime/init.rs logger cfg verification failed")
+          # Do not remove older cfg attributes: adding the Linux cfg makes the
+          # logger call safe even if an older unix cfg is still present.
+          previous = call_index - 1
+          while previous >= 0 and not lines[previous].strip():
+              previous -= 1
+
+          if previous < 0 or lines[previous].strip() != LINUX_CFG:
+              indent = re.match(r'[ \t]*', lines[call_index]).group(0)
+              lines.insert(call_index, indent + LINUX_CFG + "\n")
+
+          init.write_text("".join(lines))
+
+          # Exact verification against the logger call associated with the marker.
+          lines = init.read_text().splitlines()
+          marker_index = next((i for i, line in enumerate(lines) if marker in line), None)
+          if marker_index is None:
+              fail("ERROR: runtime/init.rs logger marker disappeared")
+          call_index = None
+          for i in range(marker_index, -1, -1):
+              if call in lines[i]:
+                  call_index = i
+                  break
+          if call_index is None or call_index == 0:
+              fail("ERROR: runtime/init.rs logger call disappeared")
+
+          previous = call_index - 1
+          while previous >= 0 and not lines[previous].strip():
+              previous -= 1
+          if previous < 0 or lines[previous].strip() != LINUX_CFG:
+              fail("ERROR: runtime/init.rs logger cfg verification failed")
+
           print("OBS logger is Linux-only")
           PY
       # ----------------------------------------------------------
