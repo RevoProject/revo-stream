@@ -1018,7 +1018,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "pub(crate) struct PlatformSpecificGuard {"
+                  == "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1035,7 +1035,7 @@ jobs:
               if (
                   derive_index > 0
                   and lines[derive_index - 1].strip()
-                  \== "#[derive(Debug)]"
+                  == "#[derive(Debug)]"
               ):
                   derive_index -= 1
               lines.insert(
@@ -1047,7 +1047,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "pub(crate) struct PlatformSpecificGuard {"
+                  == "pub(crate) struct PlatformSpecificGuard {"
               ):
                   struct_index = i
                   break
@@ -1074,7 +1074,7 @@ jobs:
               )
           stub_exists = any(
               line.strip()
-              \== "pub(crate) struct PlatformSpecificGuard;"
+              == "pub(crate) struct PlatformSpecificGuard;"
               for line in lines
           )
           if not stub_exists:
@@ -1090,7 +1090,7 @@ jobs:
           for i, line in enumerate(lines):
               if (
                   line.strip()
-                  \== "impl Drop for PlatformSpecificGuard {"
+                  == "impl Drop for PlatformSpecificGuard {"
               ):
                   if (
                       i == 0
