@@ -28,3 +28,4 @@ plans/
 # Local build artifacts
 .cache/
 *.AppImage
+tmp/
