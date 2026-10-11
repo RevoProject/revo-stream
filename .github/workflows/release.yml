@@ -248,20 +248,9 @@ jobs:
       - name: Patch libobs-bootstrapper dummy DLL feature
         shell: pwsh
         run: |
-<<<<<<< HEAD
-          $root = "$env:USERPROFILE\\.cargo\git\checkouts"
-          $bootstrapper = Get-ChildItem `
-            $root `
-            -Recurse `
-            -Filter Cargo.toml |
-            Where-Object {
-               $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
-            } |
-=======
           $root = "$env:USERPROFILE\.cargo\git\checkouts"
           $bootstrapper = Get-ChildItem $root -Recurse -Filter Cargo.toml |
             Where-Object { $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml" } |
->>>>>>> 922e81bdc1c842b0b6e9d7b5e3f6093a38e446ef
             Select-Object -First 1
           if (-not $bootstrapper) {
             throw "libobs-bootstrapper Cargo.toml not found"
@@ -375,39 +364,7 @@ jobs:
       # ----------------------------------------------------------
       - name: Populate Windows revo-root
         shell: pwsh
-<<<<<<< HEAD
         run: ./scripts/prepare-windows-runtime.ps1
-=======
-        run: |
-          $OUT = "src-tauri/target/release"
-          $ROOT = "src-tauri/resources/revo-root"
-          Remove-Item $ROOT -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\lib" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
-
-          if (Test-Path "data") { Copy-Item "data\*" "$ROOT\data" -Recurse -Force }
-
-          $dlls = @(Get-ChildItem $OUT -Filter "*.dll" -File -ErrorAction SilentlyContinue)
-          if ($dlls.Count -eq 0) { throw "No OBS DLLs found in $OUT" }
-          foreach ($dll in $dlls) { Copy-Item $dll.FullName "$ROOT\core\lib\$($dll.Name)" -Force }
-
-          $pluginSource = "$OUT\obs-plugins"
-          if (-not (Test-Path $pluginSource)) { throw "OBS obs-plugins directory missing" }
-          Copy-Item "$pluginSource\*" "$ROOT\core\lib\obs-plugins" -Recurse -Force
-
-          if (Test-Path "$OUT\bin") { Copy-Item "$OUT\bin\*" "$ROOT\core\bin" -Recurse -Force }
-          if (Test-Path "$OUT\share") { Copy-Item "$OUT\share\*" "$ROOT\core\share" -Recurse -Force }
-          if (Test-Path "$OUT\data") { Copy-Item "$OUT\data\*" "$ROOT\data" -Recurse -Force }
-
-          $runtimeObs = "$ROOT\core\lib\obs.dll"
-          if (-not (Test-Path $runtimeObs)) { throw "Staged obs.dll missing: $runtimeObs" }
-          $runtimePlugins = @(Get-ChildItem "$ROOT\core\lib\obs-plugins" -Recurse -Filter "*.dll" -File).Count
-          if ($runtimePlugins -eq 0) { throw "No staged OBS plugins found" }
-          Write-Host "Staged OBS plugin DLLs: $runtimePlugins"
->>>>>>> 922e81bdc1c842b0b6e9d7b5e3f6093a38e446ef
       # ----------------------------------------------------------
       # Verify Windows runtime before Tauri
       # ----------------------------------------------------------
@@ -464,7 +421,6 @@ jobs:
       - name: Verify Windows MSI
         shell: pwsh
         run: |
-<<<<<<< HEAD
           $msi = Get-ChildItem `
             "src-tauri/target/release/bundle/msi" `
             -Filter "*.msi" `
@@ -474,13 +430,8 @@ jobs:
             throw "MSI was not produced"
           }
           $msi | ForEach-Object {
-             Write-Host "MSI: $($_.FullName)"
-          }
-=======
-          $msi = @(Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue)
-          if ($msi.Count -eq 0) { throw "MSI was not produced" }
-          foreach ($item in $msi) { Write-Host "MSI: $($item.FullName)" }
->>>>>>> 922e81bdc1c842b0b6e9d7b5e3f6093a38e446ef
+           Write-Host "MSI: $($_.FullName)"
+           }
       # ----------------------------------------------------------
       # Portable ZIP
       # ----------------------------------------------------------
