@@ -5,7 +5,10 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 env:
   PNPM_VERSION: 10
   NODE_VERSION: 24
@@ -169,7 +172,7 @@ jobs:
   # ============================================================
   windows:
     name: Windows x64
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       # ----------------------------------------------------------
       # Checkout / toolchain
@@ -251,7 +254,7 @@ jobs:
             -Recurse `
             -Filter Cargo.toml |
             Where-Object {
-              $\_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
+               $_.FullName -like "*\7e76c91\libobs-bootstrapper\Cargo.toml"
             } |
             Select-Object -First 1
           if (-not $bootstrapper) {
@@ -318,98 +321,7 @@ jobs:
       # ----------------------------------------------------------
       - name: Populate Windows revo-root
         shell: pwsh
-        run: |
-          $OUT = "src-tauri/target/release"
-          $ROOT = "src-tauri/resources/revo-root"
-          Remove-Item `
-            $ROOT `
-            -Recurse `
-            -Force `
-            -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force "$ROOT\data" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\bin" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\lib" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\lib\obs-plugins" | Out-Null
-          New-Item -ItemType Directory -Force "$ROOT\core\share" | Out-Null
-          if (Test-Path "data") {
-            Copy-Item `
-              "data\\*" `
-              "$ROOT\data" `
-              -Recurse `
-              -Force
-          }
-          $dlls = Get-ChildItem `
-            $OUT `
-            -Filter "*.dll" `
-            -File `
-            -ErrorAction SilentlyContinue
-          if (-not $dlls) {
-            throw "No OBS DLLs found in $OUT"
-          }
-          foreach ($dll in $dlls) {
-            Write-Host "Copying OBS DLL: $($dll.Name)"
-            Copy-Item `
-              $dll.FullName `
-              "$ROOT\core\lib\\$($dll.Name)" `
-              -Force
-          }
-          if (Test-Path "$OUT\obs-plugins") {
-            Copy-Item `
-              "$OUT\obs-plugins" `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Force
-          }
-          else {
-            throw "OBS obs-plugins directory missing"
-          }
-          if (Test-Path "$OUT\bin") {
-            Copy-Item `
-              "$OUT\bin\\*" `
-              "$ROOT\core\bin" `
-              -Recurse `
-              -Force
-          }
-          if (Test-Path "$OUT\share") {
-            Copy-Item `
-              "$OUT\share\\*" `
-              "$ROOT\core\share" `
-              -Recurse `
-              -Force
-          }
-          if (Test-Path "$OUT\data") {
-            Copy-Item `
-              "$OUT\data\\*" `
-              "$ROOT\data" `
-              -Recurse `
-              -Force
-          }
-          $runtimeObs = "$ROOT\core\lib\obs.dll"
-          if (-not (Test-Path $runtimeObs)) {
-            throw "Staged obs.dll missing: $runtimeObs"
-          }
-          $runtimePlugins = @(
-            Get-ChildItem `
-              "$ROOT\core\lib\obs-plugins" `
-              -Recurse `
-              -Filter "*.dll" `
-              -File
-          ).Count
-          if ($runtimePlugins -eq 0) {
-            throw "No staged OBS plugins found"
-          }
-          Write-Host ""
-          Write-Host "============================================================"
-          Write-Host "WINDOWS revo-root"
-          Write-Host "============================================================"
-          Get-ChildItem `
-            $ROOT `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
-          Write-Host ""
-          Write-Host "Staged OBS plugin DLLs: $runtimePlugins"
+        run: ./scripts/prepare-windows-runtime.ps1
       # ----------------------------------------------------------
       # Verify Windows runtime before Tauri
       # ----------------------------------------------------------
@@ -419,8 +331,10 @@ jobs:
           $ROOT = "src-tauri/resources/revo-root"
           $required = @(
             "$ROOT\core\lib\obs.dll",
+            "$ROOT\core\bin\obs-ffmpeg-mux.exe",
             "$ROOT\core\lib\obs-plugins",
-            "$ROOT\data"
+            "$ROOT\core\share\obs\libobs\default.effect",
+            "$ROOT\data\share\obs\libobs\default.effect"
           )
           foreach ($path in $required) {
             if (-not (Test-Path $path)) {
@@ -449,6 +363,9 @@ jobs:
           if ($pluginCount -eq 0) {
             throw "No plugin DLLs staged"
           }
+          if (Test-Path "$ROOT\core\lib\obs-plugins\64bit") {
+            throw "Plugins must be flattened into core/lib/obs-plugins"
+          }
           Write-Host "Windows runtime is complete"
       # ----------------------------------------------------------
       # Tauri
@@ -470,7 +387,7 @@ jobs:
             throw "MSI was not produced"
           }
           $msi | ForEach-Object {
-            Write-Host "MSI: $($\_.FullName)"
+             Write-Host "MSI: $($_.FullName)"
           }
       # ----------------------------------------------------------
       # Portable ZIP
@@ -691,7 +608,7 @@ jobs:
   # ============================================================
   macos:
     name: macOS ${{ matrix.arch }}
-    runs-on: macos-latest
+    runs-on: macos-14
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     strategy:
@@ -1964,6 +1881,8 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - linux
       - windows
