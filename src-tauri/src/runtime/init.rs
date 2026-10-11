@@ -5,6 +5,52 @@ struct ModuleCandidate {
 	data_path: String,
 }
 
+/// OBS parses several paths itself (including shader includes and module globs).
+/// Keep filesystem paths native for Rust, but pass normalized paths over FFI.
+fn obs_path(path: &std::path::Path, trailing_separator: bool) -> Result<std::ffi::CString, String> {
+	let mut value = path.to_string_lossy().into_owned();
+	if let Some(stripped) = value.strip_prefix("\\\\?\\") {
+		value = stripped.to_owned();
+	}
+	if cfg!(windows) {
+		value = value.replace('\\', "/");
+	}
+	if trailing_separator {
+		while value.ends_with('/') {
+			value.pop();
+		}
+		value.push('/');
+	}
+	std::ffi::CString::new(value).map_err(|_| "OBS path contains an embedded NUL".to_string())
+}
+
+fn obs_env_path(path: &std::path::Path) -> String {
+	obs_path(path, false)
+		.map(|value| value.to_string_lossy().into_owned())
+		.unwrap_or_else(|_| path.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod obs_path_tests {
+	use super::obs_path;
+	use std::path::Path;
+
+	#[test]
+	fn obs_paths_have_forward_slashes_and_optional_trailing_separator() {
+		let path = if cfg!(windows) {
+			Path::new(r"\\?\C:\revo\data\obs")
+		} else {
+			Path::new("/revo/data/obs")
+		};
+		let value = obs_path(path, true).unwrap().into_string().unwrap();
+		assert!(value.ends_with('/'));
+		assert!(!value.ends_with("//"));
+		if cfg!(windows) {
+			assert_eq!(value, "C:/revo/data/obs/");
+		}
+	}
+}
+
 unsafe extern "C" fn collect_module_candidate(
 	param: *mut std::os::raw::c_void,
 	info: *const revo_lib::obs::obs_module_info2,
@@ -155,34 +201,36 @@ pub(crate) fn start(
 	let _ = std::env::set_current_dir(&data_dir);
 
 	let locale = std::ffi::CString::new("en-US").map_err(|_| "locale string".to_string())?;
-	let conf = std::ffi::CString::new(conf_dir.to_string_lossy().as_bytes())
-		.map_err(|_| "conf path".to_string())?;        
+	let conf = obs_path(&conf_dir, false)?;
 		let path_separator = if cfg!(windows) { ";" } else { ":" };
 
         let data_path = [
-                data_share_dir.to_string_lossy().to_string(),
-                data_share_dir.join("libobs").to_string_lossy().to_string(),
-                core_data_dir.to_string_lossy().to_string(),
+	                obs_env_path(&data_share_dir),
+	                obs_env_path(&data_share_dir.join("libobs")),
+	                obs_env_path(&core_data_dir),
         ]
         .join(path_separator);
 	std::env::set_var("OBS_DATA_PATH", data_path);
 	let mut plugin_path_parts = vec![
-		bundled_plugins_dir.to_string_lossy().to_string(),
-		runtime_plugins_dir.to_string_lossy().to_string(),
+		obs_env_path(&bundled_plugins_dir),
+		obs_env_path(&runtime_plugins_dir),
 	];
 	if legacy_runtime_plugins_dir != runtime_plugins_dir {
-		plugin_path_parts.push(legacy_runtime_plugins_dir.to_string_lossy().to_string());
+		plugin_path_parts.push(obs_env_path(&legacy_runtime_plugins_dir));
 	}
 	let plugin_path = plugin_path_parts.join(path_separator);
 	std::env::set_var("OBS_PLUGIN_PATH", plugin_path);
 	if ffmpeg_bin.exists() {
 		let mut path_parts: Vec<String> = Vec::new();
-		path_parts.push(ffmpeg_bin.to_string_lossy().to_string());
+		path_parts.push(obs_env_path(&ffmpeg_bin));
+		if cfg!(windows) && core_dir.join("lib").is_dir() {
+			path_parts.push(obs_env_path(&core_dir.join("lib")));
+		}
 		if core_ffmpeg_bin != ffmpeg_bin && core_ffmpeg_bin.exists() {
-			path_parts.push(core_ffmpeg_bin.to_string_lossy().to_string());
+			path_parts.push(obs_env_path(&core_ffmpeg_bin));
 		}
 		if data_ffmpeg_bin != ffmpeg_bin && data_ffmpeg_bin.exists() {
-			path_parts.push(data_ffmpeg_bin.to_string_lossy().to_string());
+			path_parts.push(obs_env_path(&data_ffmpeg_bin));
 		}
 		if let Ok(old_path) = std::env::var("PATH") {
 			path_parts.push(old_path);
@@ -207,51 +255,32 @@ pub(crate) fn start(
 			return Err("obs_startup failed".to_string());
 		}
 
-		let data_share_c = std::ffi::CString::new(data_share_dir.to_string_lossy().as_bytes())
-			.map_err(|_| "data share path".to_string())?;
+		let data_share_c = obs_path(&data_share_dir, true)?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
 
-		let data_share_libobs =
-			std::ffi::CString::new(data_share_dir.join("libobs").to_string_lossy().as_bytes())
-				.map_err(|_| "data share libobs path".to_string())?;
+		let data_share_libobs = obs_path(&data_share_dir.join("libobs"), true)?;
 		revo_lib::obs::obs_add_data_path(data_share_libobs.as_ptr());
 
-		let core_data_c = std::ffi::CString::new(core_data_dir.to_string_lossy().as_bytes())
-			.map_err(|_| "core data path".to_string())?;
+		let core_data_c = obs_path(&core_data_dir, true)?;
 		revo_lib::obs::obs_add_data_path(core_data_c.as_ptr());
 
-		let libobs_core =
-			std::ffi::CString::new(core_data_dir.join("libobs").to_string_lossy().as_bytes())
-				.map_err(|_| "libobs core path".to_string())?;
+		let libobs_core = obs_path(&core_data_dir.join("libobs"), true)?;
 		revo_lib::obs::obs_add_data_path(libobs_core.as_ptr());
 
-		let libobs_data =
-			std::ffi::CString::new(data_share_dir.join("libobs").to_string_lossy().as_bytes())
-				.map_err(|_| "libobs data path".to_string())?;
+		let libobs_data = obs_path(&data_share_dir.join("libobs"), true)?;
 		revo_lib::obs::obs_add_data_path(libobs_data.as_ptr());
 
-		let bin_dir_c = std::ffi::CString::new(bundled_plugins_dir.to_string_lossy().as_bytes())
-			.map_err(|_| "plugins path".to_string())?;
-		let data_dir_c = std::ffi::CString::new(bundled_plugin_data_dir.to_string_lossy().as_bytes())
-			.map_err(|_| "plugin data path".to_string())?;
+		let bin_dir_c = obs_path(&bundled_plugins_dir, true)?;
+		let data_dir_c = obs_path(&bundled_plugin_data_dir, true)?;
 		revo_lib::obs::obs_add_module_path(bin_dir_c.as_ptr(), data_dir_c.as_ptr());
 
-		let runtime_bin_dir_c =
-			std::ffi::CString::new(runtime_plugins_dir.to_string_lossy().as_bytes())
-				.map_err(|_| "runtime plugins path".to_string())?;
-		let runtime_data_dir_c =
-			std::ffi::CString::new(runtime_plugin_data_dir.to_string_lossy().as_bytes())
-				.map_err(|_| "runtime plugin data path".to_string())?;
+		let runtime_bin_dir_c = obs_path(&runtime_plugins_dir, true)?;
+		let runtime_data_dir_c = obs_path(&runtime_plugin_data_dir, true)?;
 		revo_lib::obs::obs_add_module_path(runtime_bin_dir_c.as_ptr(), runtime_data_dir_c.as_ptr());
 
 		if legacy_runtime_plugins_dir != runtime_plugins_dir {
-			let legacy_runtime_bin_dir_c =
-				std::ffi::CString::new(legacy_runtime_plugins_dir.to_string_lossy().as_bytes())
-					.map_err(|_| "legacy runtime plugins path".to_string())?;
-			let legacy_runtime_data_dir_c = std::ffi::CString::new(
-				legacy_runtime_plugin_data_dir.to_string_lossy().as_bytes(),
-			)
-			.map_err(|_| "legacy runtime plugin data path".to_string())?;
+			let legacy_runtime_bin_dir_c = obs_path(&legacy_runtime_plugins_dir, true)?;
+			let legacy_runtime_data_dir_c = obs_path(&legacy_runtime_plugin_data_dir, true)?;
 			revo_lib::obs::obs_add_module_path(
 				legacy_runtime_bin_dir_c.as_ptr(),
 				legacy_runtime_data_dir_c.as_ptr(),
