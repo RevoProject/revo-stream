@@ -114,6 +114,10 @@ impl Drop for CaptureProcess {
     }
 }
 
+pub(crate) fn chromium_binary_pub() -> Option<String> {
+	chromium_binary().map(|path| path.to_string_lossy().into_owned())
+}
+
 pub(crate) fn capture_png(
     url: &str,
     width: u32,
@@ -281,13 +285,35 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
             }
             (state.config.clone(), state.revision)
         };
-        let result = capture_png(
-            &config.url,
-            config.width,
-            config.height,
-            &config.user_agent,
-            &shared.stop,
-        )
+        let source_name = unsafe {
+            let name_ptr = revo_lib::obs::obs_source_get_name(source);
+            if name_ptr.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+            }
+        };
+        let result = if !source_name.is_empty()
+            && crate::sources::browser_interact::has_session(&source_name)
+        {
+            // An active Interact session owns the browser state: render its
+            // live page so user interactions show up in the source output.
+            if crate::sources::browser_interact::session_url(&source_name)
+                .map(|session_url| session_url != config.url)
+                .unwrap_or(false)
+            {
+                let _ = crate::sources::browser_interact::navigate_session(&source_name, &config.url);
+            }
+            crate::sources::browser_interact::frame_png(&source_name)
+        } else {
+            capture_png(
+                &config.url,
+                config.width,
+                config.height,
+                &config.user_agent,
+                &shared.stop,
+            )
+        }
             .and_then(|png| {
                 image::load_from_memory_with_format(&png, image::ImageFormat::Png)
                     .map(|image| image.to_rgba8())

@@ -467,6 +467,7 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	}
 	super::helpers::stop_recording_internal(&mut runtime);
 	super::helpers::stop_streaming_internal(&mut runtime);
+	crate::sources::browser_interact::close_all();
 	cleanup_scene(&mut runtime);
 	crate::devices::levels::cleanup_audio_volmeters();
 	unsafe {

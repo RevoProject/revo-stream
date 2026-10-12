@@ -582,6 +582,70 @@ fn obs_get_source_settings(state: tauri::State<ObsState>, id: String) -> Result<
 }
 
 #[tauri::command]
+fn obs_interact_frame(source_id: String) -> Result<String, String> {
+    use base64::Engine as _;
+    let png = sources::browser_interact::frame_png(&source_id)?;
+    Ok(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    ))
+}
+
+#[tauri::command]
+fn obs_interact_mouse(
+    source_id: String,
+    kind: String,
+    x: f64,
+    y: f64,
+    button: Option<String>,
+    buttons: Option<i64>,
+    click_count: Option<i64>,
+    delta_x: Option<f64>,
+    delta_y: Option<f64>,
+) -> Result<(), String> {
+    sources::browser_interact::dispatch_mouse(
+        &source_id,
+        &kind,
+        x,
+        y,
+        button.as_deref().unwrap_or("left"),
+        buttons.unwrap_or(0),
+        click_count.unwrap_or(0),
+        delta_x.unwrap_or(0.0),
+        delta_y.unwrap_or(0.0),
+    )
+}
+
+#[tauri::command]
+fn obs_interact_key(
+    source_id: String,
+    kind: String,
+    key: String,
+    code: String,
+    key_code: i64,
+    text: Option<String>,
+) -> Result<(), String> {
+    sources::browser_interact::dispatch_key(
+        &source_id,
+        &kind,
+        &key,
+        &code,
+        key_code,
+        text.as_deref().unwrap_or(""),
+    )
+}
+
+#[tauri::command]
+fn obs_interact_reapply(source_id: String) -> Result<(), String> {
+    sources::browser_interact::reapply_code(&source_id)
+}
+
+#[tauri::command]
+fn obs_interact_close(source_id: String) {
+    sources::browser_interact::close_session(&source_id);
+}
+
+#[tauri::command]
 fn obs_open_source_interaction(app: tauri::AppHandle, state: tauri::State<ObsState>, id: String) -> Result<String, String> {
     sources::source_ops::open_source_interaction(app, state, id)
 }
@@ -846,6 +910,11 @@ pub fn run() {
             obs_list_scenes,
             obs_set_current_scene,
             obs_set_program_transition,
+            obs_interact_frame,
+            obs_interact_mouse,
+            obs_interact_key,
+            obs_interact_reapply,
+            obs_interact_close,
             obs_create_scene,
             obs_rename_scene,
             obs_remove_scene,

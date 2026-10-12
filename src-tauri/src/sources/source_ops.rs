@@ -973,19 +973,21 @@ pub(crate) fn open_source_interaction(
 	let scene = crate::current_scene(&runtime)?;
 	let item = crate::resolve_scene_item(scene, id.trim())
 		.ok_or_else(|| format!("unknown source id: {id}"))?;
-	let (url, custom_css, custom_js, user_agent) = unsafe {
+	let (url, custom_css, custom_js, user_agent, width, height) = unsafe {
 		let source = revo_lib::obs::obs_sceneitem_get_source(item);
 		if source.is_null() {
 			return Err("source not available".to_string());
 		}
 		let type_ptr = revo_lib::obs::obs_source_get_id(source);
 		let source_type = if type_ptr.is_null() {
-			std::ffi::CStr::from_bytes_with_nul(b"\0").map_or("".to_string(), |c| c.to_string_lossy().into_owned())
+			String::new()
 		} else {
 			std::ffi::CStr::from_ptr(type_ptr).to_string_lossy().into_owned()
 		};
 		if source_type != "browser_source" {
-			return Err(format!("interaction is only available for browser sources (this is {source_type})"));
+			return Err(format!(
+				"interaction is only available for browser sources (this is {source_type})"
+			));
 		}
 		let settings = revo_lib::obs::obs_source_get_settings(source);
 		let read = |key: &std::ffi::CStr| -> String {
@@ -1000,63 +1002,76 @@ pub(crate) fn open_source_interaction(
 				}
 			}
 		};
+		let read_int = |key: &std::ffi::CStr| -> i64 {
+			if settings.is_null() {
+				0
+			} else {
+				revo_lib::obs::obs_data_get_int(settings, key.as_ptr())
+			}
+		};
 		let values = (
 			read(c"url"),
 			read(c"custom_css"),
 			read(c"custom_js"),
 			read(c"user_agent"),
+			read_int(c"width"),
+			read_int(c"height"),
 		);
 		if !settings.is_null() {
 			revo_lib::obs::obs_data_release(settings);
 		}
 		values
 	};
+	drop(runtime);
 
 	let url = url.trim().to_string();
 	if !url.starts_with("http://") && !url.starts_with("https://") {
 		return Err("browser source needs an http(s) URL before interaction is available".to_string());
 	}
 
-	// CSS + JS run in the page context of the live Interact window (main frame).
-	let mut injector = String::from("(function(){function apply(){");
-	if !custom_css.trim().is_empty() {
-		let css = serde_json::to_string(&custom_css).map_err(|_| "css encode".to_string())?;
-		injector.push_str(&format!(
-			"if(document.querySelector('style[data-revo-custom]')===null){{var s=document.createElement('style');s.setAttribute('data-revo-custom','1');s.textContent={css};(document.head||document.documentElement).appendChild(s);}}"
-		));
-	}
-	if !custom_js.trim().is_empty() {
-		let js = serde_json::to_string(&custom_js).map_err(|_| "js encode".to_string())?;
-		injector.push_str(&format!(
-			"try{{new Function({js})()}}catch(e){{console.error('[RevoStream custom JS]',e)}}"
-		));
-	}
-	injector.push_str("}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',apply);window.addEventListener('load',apply);}else{apply();}window.__revoReapply=apply;})();");
+	let viewport_width = if width > 0 { width as u32 } else { 1280 };
+	let viewport_height = if height > 0 { height as u32 } else { 720 };
+	super::browser_interact::ensure_session(
+		id.trim(),
+		&url,
+		&user_agent,
+		&custom_css,
+		&custom_js,
+		(viewport_width, viewport_height),
+	)?;
 
-	let label = format!("interact-{}", id.trim().replace([' ', '#', '/', ':'], "_"));
-	let parsed: tauri::Url = url
-		.parse()
-		.map_err(|e| format!("invalid source URL: {e}"))?;
-	let window_label = label.clone();
-	let builder = tauri::WebviewWindowBuilder::new(
-		&app,
-		&window_label,
-		tauri::WebviewUrl::External(parsed.clone()),
-	)
-	.title(format!("Interact - {id}"))
-	.inner_size(1024.0, 700.0)
-	.min_inner_size(480.0, 320.0);
-	let builder = if !user_agent.trim().is_empty() {
-		builder.user_agent(user_agent.trim())
-	} else {
-		builder
-	};
-	let builder = builder.initialization_script(&injector);
+	let window_label = format!("interact-{}", id.trim().replace([' ', '#', '/', ':'], "_"));
+	let route = format!("interact?id={}", percent_encode_query_value(id.trim()));
 	if let Some(existing) = app.get_webview_window(&window_label) {
-		let _ = existing.close();
-	}
-	builder
+		let _ = existing.set_focus();
+		let _ = existing.eval(&format!("window.location.hash = '' ; window.location.href = window.location.origin + '/{}';", route));
+	} else {
+		tauri::WebviewWindowBuilder::new(
+			&app,
+			&window_label,
+			tauri::WebviewUrl::App(route.into()),
+		)
+		.title(format!("Interact - {id}"))
+		.inner_size(
+			(viewport_width as f64).min(1280.0).max(480.0),
+			((viewport_height as f64) + 90.0).min(800.0).max(360.0),
+		)
 		.build()
 		.map_err(|e| format!("open interact window: {e}"))?;
-	Ok(format!("interaction window ready: {url}"))
+	}
+	Ok(format!("interaction session ready: {url}"))
+}
+
+#[allow(dead_code)]
+fn percent_encode_query_value(value: &str) -> String {
+	let mut out = String::new();
+	for byte in value.bytes() {
+		match byte {
+			b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+				out.push(byte as char);
+			}
+			_ => out.push_str(&format!("%{byte:02X}")),
+		}
+	}
+	out
 }
