@@ -188,6 +188,7 @@
 
     <div class="content-body">
       <div class="section-block">
+        {#if plugins.length}
         <div class="section-title">Plugin profiles</div>
         <div class="field">
           <label for="pluginProfileSelect">Active profile</label>
@@ -204,6 +205,10 @@
             <button type="button" class="ghost" onclick={createProfile}>Create</button>
           </div>
         </div>
+        {:else}
+        <div class="section-title">Plugin profiles</div>
+        <p class="meta">Plugin profiles are available once OBS plugins are detected.</p>
+        {/if}
       </div>
 
       <div class="section-block">
