@@ -4,6 +4,7 @@
   export let newSourceType: string;
   export let sourceTypes: { id: string; label: string }[];
   export let externalSourceTypes: { id: string; label: string }[] = [];
+  export let sourceLabels: Record<string, string> = {};
   export let loading = false;
   export let error = "";
 
@@ -11,25 +12,7 @@
   const close = () => dispatch("close");
   const add = () => dispatch("add");
 
-  const polishSourceLabels: Record<string, string> = {
-    browser_source: "Przeglądarka",
-    image_source: "Obraz",
-    ffmpeg_source: "Media",
-    text_ft2_source: "Tekst",
-    text_ft2_source_v2: "Tekst",
-    color_source: "Kolor",
-    color_source_v2: "Kolor",
-    window_capture: "Przechwytywanie okna",
-    display_capture: "Przechwytywanie ekranu",
-    xcomposite_input: "Przechwytywanie ekranu",
-    pulse_input_capture: "Wejście audio",
-    pulse_output_capture: "Wyjście audio",
-    v4l2_input: "Kamera / urządzenie wideo",
-    video_capture: "Kamera / urządzenie wideo",
-    slideshow: "Pokaz slajdów"
-  };
-
-  const sourceLabel = (type: { id: string; label: string }) => polishSourceLabels[type.id] ?? type.label;
+  const sourceLabel = (type: { id: string; label: string }) => sourceLabels[type.id] ?? type.label;
 
   const iconMap: Record<string, string> = {
     browser_source: `
@@ -99,7 +82,7 @@
             type="button"
             class="source-card"
             onclick={() => handlePick(type.id)}
-            aria-label={`Dodaj ${sourceLabel(type)}`}
+            aria-label={`Add ${sourceLabel(type)}`}
           >
             <div class="icon" aria-hidden="true">
               {@html iconMap[type.id] ?? ''}
@@ -118,7 +101,7 @@
                 type="button"
                 class="source-card external-card"
                 onclick={() => handlePick(type.id)}
-                aria-label={`Dodaj ${sourceLabel(type)}`}
+                aria-label={`Add ${sourceLabel(type)}`}
               >
                 <div class="icon" aria-hidden="true">
                   {@html iconMap[type.id] ?? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a4 4 0 0 1 4 4v1h2a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4h-2v1a4 4 0 0 1-8 0v-1H6a4 4 0 0 1-4-4v-2a4 4 0 0 1 4-4h2V6a4 4 0 0 1 4-4Zm0 2a2 2 0 0 0-2 2v3h4V6a2 2 0 0 0-2-2Zm6 5H6a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2Zm-8 8v1a2 2 0 1 0 4 0v-1h-4Z"/></svg>'}
