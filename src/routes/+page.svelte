@@ -7019,6 +7019,9 @@
       pointer-events: none;
       margin-top: 65px;
     }
+    .global-dialog + .global-dialog {
+      margin-top: 8px;
+    }
     .global-dialog-inner {
       background: linear-gradient(90deg, var(--surface-3) 60%, var(--surface) 100%);
       color: var(--text-strong);
@@ -7548,11 +7551,11 @@
   {#if sceneMenu.open && sceneMenu.scene}
     <div class="context-menu" style={`top:${sceneMenu.y}px; left:${sceneMenu.x}px;`} role="menu">
       <button onclick={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
-      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
         <span class="menu-icon" aria-hidden="true"><Icon name={sceneMenu.scene?.locked ? "unlock" : "lock"} size={13} /></span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
+      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview - Window</button>
     </div>
     <div
