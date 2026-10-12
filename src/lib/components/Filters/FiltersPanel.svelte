@@ -114,14 +114,31 @@
     updateFilter(filterId, { params });
   };
 
+  const filterKindLabels: Record<string, string> = {
+    color_correction: "Color correction",
+    chroma_key: "Chroma key",
+    crop_pad: "Crop/Pad",
+    gain: "Gain",
+    sharpness: "Sharpness",
+    scroll: "Scroll",
+    custom: "Custom"
+  };
+
   const addFilter = () => {
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-    const defaultName = `Filter ${draft.length + 1}`;
+    const baseName = filterKindLabels[newKind] ?? `Filter ${draft.length + 1}`;
+    const existing = new Set(draft.map((f) => f.name.trim().toLowerCase()));
+    let name = baseName;
+    let suffix = 2;
+    while (existing.has(name.trim().toLowerCase())) {
+      name = `${baseName} ${suffix}`;
+      suffix += 1;
+    }
     draft = [
       ...draft,
       {
         id,
-        name: defaultName,
+        name,
         kind: newKind,
         enabled: true,
         locked: false,
