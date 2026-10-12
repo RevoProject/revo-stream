@@ -118,6 +118,7 @@ pub(crate) fn capture_png(
     url: &str,
     width: u32,
     height: u32,
+    user_agent: &str,
     stop: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
     if stop.load(Ordering::Acquire) {
@@ -154,7 +155,11 @@ pub(crate) fn capture_png(
         height.clamp(64, 4096)
     ))
     .arg(format!("--screenshot={}", path.display()))
-    .arg(url)
+    .arg(url);
+    if !user_agent.trim().is_empty() {
+        cmd.arg(format!("--user-agent={}", user_agent.trim()));
+    }
+    cmd
     .stdin(Stdio::null())
     .stdout(Stdio::null())
     .stderr(Stdio::null());
@@ -196,6 +201,9 @@ struct Config {
     url: String,
     width: u32,
     height: u32,
+    user_agent: String,
+    custom_css: String,
+    custom_js: String,
 }
 struct State {
     config: Config,
@@ -235,6 +243,15 @@ pub(crate) fn status(source: *mut obs::obs_source_t) -> Option<String> {
     Some(status)
 }
 
+unsafe fn obs_string(settings: *mut obs::obs_data_t, key: &std::ffi::CStr) -> String {
+    let value = obs::obs_data_get_string(settings, key.as_ptr());
+    if value.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(value).to_string_lossy().into_owned()
+    }
+}
+
 unsafe fn config(settings: *mut obs::obs_data_t) -> Config {
     let url = obs::obs_data_get_string(settings, c"url".as_ptr());
     Config {
@@ -245,6 +262,9 @@ unsafe fn config(settings: *mut obs::obs_data_t) -> Config {
         },
         width: obs::obs_data_get_int(settings, c"width".as_ptr()).clamp(64, 4096) as u32,
         height: obs::obs_data_get_int(settings, c"height".as_ptr()).clamp(64, 4096) as u32,
+        user_agent: obs_string(settings, c"user_agent"),
+        custom_css: obs_string(settings, c"custom_css"),
+        custom_js: obs_string(settings, c"custom_js"),
     }
 }
 
@@ -261,7 +281,13 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
             }
             (state.config.clone(), state.revision)
         };
-        let result = capture_png(&config.url, config.width, config.height, &shared.stop)
+        let result = capture_png(
+            &config.url,
+            config.width,
+            config.height,
+            &config.user_agent,
+            &shared.stop,
+        )
             .and_then(|png| {
                 image::load_from_memory_with_format(&png, image::ImageFormat::Png)
                     .map(|image| image.to_rgba8())
@@ -516,7 +542,7 @@ mod tests {
     #[test]
     fn cancelled_capture_does_not_start_browser() {
         assert_eq!(
-            capture_png("https://example.com", 1280, 720, &AtomicBool::new(true)).unwrap_err(),
+            capture_png("https://example.com", 1280, 720, "", &AtomicBool::new(true)).unwrap_err(),
             "Browser capture cancelled"
         );
     }
@@ -550,7 +576,7 @@ mod tests {
     #[ignore = "requires working Chromium installation and sandbox"]
     fn chromium_renders_actual_page_pixels() {
         let (url, done, server) = serve_page();
-        let result = capture_png(&url, 320, 240, &AtomicBool::new(false));
+        let result = capture_png(&url, 320, 240, "", &AtomicBool::new(false));
         done.store(true, Ordering::Release);
         server.join().unwrap();
         let image = image::load_from_memory(&result.unwrap())

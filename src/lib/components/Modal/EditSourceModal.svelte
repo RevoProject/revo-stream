@@ -686,6 +686,12 @@
             oninput={(e) => updateName((e.currentTarget as HTMLInputElement).value)}
           />
         </div>
+        {#if (editSource?.source_type ?? "").toLowerCase() === "browser_source"}
+          <div class="field">
+            <button type="button" class="ghost" onclick={() => editSource && dispatch("interact")}>Interact (live window)</button>
+            <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;">Opens the source URL in a live window. Custom CSS and JavaScript run in the page context; the custom user agent applies there.</p>
+          </div>
+        {/if}
 
         {#if isTextSource}
           <div class="field-group">

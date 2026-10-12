@@ -88,7 +88,7 @@ pub(crate) fn get_source_size(
 	state: tauri::State<crate::ObsState>,
 	source_id: String,
 ) -> Result<(u32, u32), String> {
-	let mut runtime = state
+	let runtime = state
 		.runtime
 		.lock()
 		.map_err(|_| "state poisoned".to_string())?;

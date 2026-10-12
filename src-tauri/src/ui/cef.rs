@@ -15,6 +15,7 @@ pub(crate) fn dock_render_frame(url: String, width: u32, height: u32) -> Result<
         &url,
         width,
         height,
+        "",
         &std::sync::atomic::AtomicBool::new(false),
     )?;
     Ok(base64::engine::general_purpose::STANDARD.encode(png))

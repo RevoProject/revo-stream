@@ -230,7 +230,10 @@
       { key: "pos_x", label: "Position X", placeholder: "0" },
       { key: "pos_y", label: "Position Y", placeholder: "0" },
       { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
+      { key: "height", label: "Height", placeholder: "360" },
+      { key: "user_agent", label: "Custom user agent (optional)", placeholder: "Leave empty for default" },
+      { key: "custom_css", label: "Custom CSS (Interact window)", placeholder: "body { background: transparent; }" },
+      { key: "custom_js", label: "Custom JavaScript (Interact window)", placeholder: "console.log('custom script');" }
     ],
     image_source: [
       { key: "file", label: "Image path", placeholder: "/path/to/image.png" },
@@ -7592,7 +7595,7 @@
       <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
       <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
       {#if isBrowserSource(sourceMenu.source)}
-        <button disabled title="Chromium snapshots render video only; browser interaction is not supported."><span class="menu-icon" aria-hidden="true">⇄</span>Interact (unavailable)</button>
+        <button onclick={() => sourceMenu.source && openSourceInteraction(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⇄</span>Interact (live)</button>
       {/if}
       <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>

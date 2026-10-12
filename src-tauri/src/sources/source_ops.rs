@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 pub(crate) fn list_external_source_types(
 	state: tauri::State<crate::ObsState>,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
@@ -961,7 +963,100 @@ pub(crate) fn open_source_interaction(
 	state: tauri::State<crate::ObsState>,
 	id: String,
 ) -> Result<String, String> {
-	// A separate webview would not interact with the Chromium snapshot page.
-	let _ = (app, state, id);
-	Err("Browser snapshot sources do not support interaction or shared browser state".into())
+	let mut runtime = state
+		.runtime
+		.lock()
+		.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let item = crate::resolve_scene_item(scene, id.trim())
+		.ok_or_else(|| format!("unknown source id: {id}"))?;
+	let (url, custom_css, custom_js, user_agent) = unsafe {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item);
+		if source.is_null() {
+			return Err("source not available".to_string());
+		}
+		let type_ptr = revo_lib::obs::obs_source_get_id(source);
+		let source_type = if type_ptr.is_null() {
+			std::ffi::CStr::from_bytes_with_nul(b"\0").map_or("".to_string(), |c| c.to_string_lossy().into_owned())
+		} else {
+			std::ffi::CStr::from_ptr(type_ptr).to_string_lossy().into_owned()
+		};
+		if source_type != "browser_source" {
+			return Err(format!("interaction is only available for browser sources (this is {source_type})"));
+		}
+		let settings = revo_lib::obs::obs_source_get_settings(source);
+		let read = |key: &std::ffi::CStr| -> String {
+			if settings.is_null() {
+				String::new()
+			} else {
+				let value = revo_lib::obs::obs_data_get_string(settings, key.as_ptr());
+				if value.is_null() {
+					String::new()
+				} else {
+					std::ffi::CStr::from_ptr(value).to_string_lossy().into_owned()
+				}
+			}
+		};
+		let values = (
+			read(c"url"),
+			read(c"custom_css"),
+			read(c"custom_js"),
+			read(c"user_agent"),
+		);
+		if !settings.is_null() {
+			revo_lib::obs::obs_data_release(settings);
+		}
+		values
+	};
+
+	let url = url.trim().to_string();
+	if !url.starts_with("http://") && !url.starts_with("https://") {
+		return Err("browser source needs an http(s) URL before interaction is available".to_string());
+	}
+
+	// CSS + JS run in the page context of the live Interact window (main frame).
+	let mut injector = String::from("(function(){function apply(){");
+	if !custom_css.trim().is_empty() {
+		let css = serde_json::to_string(&custom_css).map_err(|_| "css encode".to_string())?;
+		injector.push_str(&format!(
+			"if(document.querySelector('style[data-revo-custom]')===null){{var s=document.createElement('style');s.setAttribute('data-revo-custom','1');s.textContent={css};(document.head||document.documentElement).appendChild(s);}}"
+		));
+	}
+	if !custom_js.trim().is_empty() {
+		let js = serde_json::to_string(&custom_js).map_err(|_| "js encode".to_string())?;
+		injector.push_str(&format!(
+			"try{{new Function({js})()}}catch(e){{console.error('[RevoStream custom JS]',e)}}"
+		));
+	}
+	injector.push_str("}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',apply);window.addEventListener('load',apply);}else{apply();}window.__revoReapply=apply;})();");
+
+	let label = format!("interact-{}", id.trim().replace([' ', '#', '/', ':'], "_"));
+	let parsed: tauri::Url = url
+		.parse()
+		.map_err(|e| format!("invalid source URL: {e}"))?;
+	let window_label = label.clone();
+	let builder = tauri::WebviewWindowBuilder::new(
+		&app,
+		&window_label,
+		tauri::WebviewUrl::External(parsed.clone()),
+	)
+	.title(format!("Interact - {id}"))
+	.inner_size(1024.0, 700.0)
+	.min_inner_size(480.0, 320.0);
+	let builder = if !user_agent.trim().is_empty() {
+		builder.user_agent(user_agent.trim())
+	} else {
+		builder
+	};
+	let builder = builder.initialization_script(&injector);
+	if let Some(existing) = app.get_webview_window(&window_label) {
+		let _ = existing.close();
+	}
+	builder
+		.build()
+		.map_err(|e| format!("open interact window: {e}"))?;
+	Ok(format!("interaction window ready: {url}"))
 }
