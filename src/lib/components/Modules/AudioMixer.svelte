@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../UI/Icon.svelte";
   import type { DemoSource } from "../../types";
 
   type AudioMixerItemState = {
@@ -113,7 +114,7 @@
                     aria-label={audioMixerMuted[source.id] ? "Unmute" : "Mute"}
                     onclick={() => void toggleAudioMixerMute(source.id)}
                   >
-                    {audioMixerMuted[source.id] ? "🔇" : "🔊"}
+                    <Icon name={audioMixerMuted[source.id] ? "volume-x" : "volume"} size={14} />
                   </button>
                   <button class="mini" onclick={(e) => openAudioMixerContextMenu(e, source.id)} oncontextmenu={(e) => openAudioMixerContextMenu(e, source.id)}>⋯</button>
                 </div>
@@ -160,7 +161,7 @@
                   {/if}
                 </div>
 
-                <button class="audio-mixer-lock-btn" aria-label={state.locked ? "Unlock volume" : "Lock volume"} title={state.locked ? "Unlock volume" : "Lock volume"} onclick={() => void toggleAudioMixerLock(source.id)}>{state.locked ? "🔒" : "🔓"}</button>
+                <button class="audio-mixer-lock-btn" aria-label={state.locked ? "Unlock volume" : "Lock volume"} title={state.locked ? "Unlock volume" : "Lock volume"} onclick={() => void toggleAudioMixerLock(source.id)}><Icon name={state.locked ? "lock" : "unlock"} size={13} /></button>
               </div>
             </article>
           {/each}

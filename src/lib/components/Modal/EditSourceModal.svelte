@@ -35,6 +35,7 @@
   export let allowDraggablePopups = false;
 
   import FiltersPanel from "../Filters/FiltersPanel.svelte";
+  import Icon from "../UI/Icon.svelte";
 
   type SourceTab = "General" | "Filters" | "Other";
   let activeTab: SourceTab = "General";
@@ -706,7 +707,7 @@
                     placeholder="/path/to/file.txt"
                     oninput={(e) => updateParam(textFileKey, (e.currentTarget as HTMLInputElement).value)}
                   />
-                  <button type="button" class="ghost picker-btn" onclick={chooseTextFile} aria-label="Select text file">📄</button>
+                  <button type="button" class="ghost picker-btn" onclick={chooseTextFile} aria-label="Select text file"><Icon name="file-text" size={14} /></button>
                 </div>
               </div>
             {/if}
@@ -826,7 +827,7 @@
                     placeholder="/path/to/video.mp4"
                     oninput={(e) => updateParam(mediaLocalFileKey, (e.currentTarget as HTMLInputElement).value)}
                   />
-                  <button type="button" class="ghost picker-btn" onclick={() => chooseMediaFile()} aria-label="Select media file">📂</button>
+                  <button type="button" class="ghost picker-btn" onclick={() => chooseMediaFile()} aria-label="Select media file"><Icon name="folder" size={14} /></button>
                 </div>
               </div>
             {:else}
@@ -859,7 +860,7 @@
               {/each}
             </div>
             <div class="slideshow-actions">
-              <button type="button" class="ghost" onclick={() => addSlideshowFile()}>📁 Add file</button>
+              <button type="button" class="ghost" onclick={() => addSlideshowFile()}><Icon name="folder" size={14} /> Add file</button>
             </div>
           </div>
         {/if}
@@ -965,7 +966,7 @@
                   class="file-picker-btn"
                   title="Browse files"
                   onclick={() => chooseMediaFile(field.key)}
-                >📁</button>
+                ><Icon name="folder" size={14} /></button>
               </div>
             {:else}
               <input

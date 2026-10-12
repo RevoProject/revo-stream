@@ -1,6 +1,7 @@
 
 
 <script lang="ts">
+  import Icon from "../UI/Icon.svelte";
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import {
@@ -2201,7 +2202,7 @@
                       <div class="theme-card-preview">{theme.id} - {theme.version}</div>
                       <div class="theme-card-body">
                         <div class="theme-card-name">{theme.name}</div>
-                        <div class="theme-card-meta">👤 {theme.author}</div>
+                        <div class="theme-card-meta"><Icon name="user" size={12} /> {theme.author}</div>
                       </div>
                     </button>
                   {/each}

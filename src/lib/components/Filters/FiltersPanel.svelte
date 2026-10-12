@@ -1,6 +1,7 @@
 <script lang="ts">
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { createEventDispatcher } from "svelte";
+  import Icon from "../UI/Icon.svelte";
 
   type FilterItem = {
     id: string;
@@ -446,7 +447,7 @@
     }}><span class="menu-icon" aria-hidden="true">✎</span>Rename</button>
     <button onclick={() => {
       if (contextMenu.filterId) toggleFilterLock(contextMenu.filterId);
-    }}><span class="menu-icon" aria-hidden="true">{ctxFilter?.locked ? "🔓" : "🔒"}</span>{ctxFilter?.locked ? "Unlock source" : "Lock source"}</button>
+    }}><span class="menu-icon" aria-hidden="true"><Icon name={ctxFilter?.locked ? "unlock" : "lock"} size={13} /></span>{ctxFilter?.locked ? "Unlock source" : "Lock source"}</button>
   </div>
   <div class="context-overlay" role="button" tabindex="0" onclick={closeContextMenu} onkeydown={(e) => e.key === "Escape" && closeContextMenu()}></div>
 {/if}

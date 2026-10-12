@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../UI/Icon.svelte";
   import { createEventDispatcher } from "svelte";
   import type { SceneInfo } from "../../types";
 
@@ -112,7 +113,7 @@
             >
               {formatSceneName(scene.name)}
               {#if scene.locked}
-                <span class="lock">🔒</span>
+                <span class="lock"><Icon name="lock" size={12} /></span>
               {/if}
             </button>
             <button

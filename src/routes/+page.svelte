@@ -15,6 +15,7 @@
   import AddSourceModal from "../lib/components/Modal/AddSourceModal.svelte";
   import AddSceneModal from "../lib/components/Modal/AddSceneModal.svelte";
   import EditSourceModal from "../lib/components/Modal/EditSourceModal.svelte";
+  import Icon from "../lib/components/UI/Icon.svelte";
   import SourceInfoModal from "../lib/components/Modal/SourceInfoModal.svelte";
   import FiltersModal from "../lib/components/Filters/FiltersModal.svelte";
   import AudioFiltersModal from "../lib/components/Filters/AudioFiltersModal.svelte";
@@ -351,9 +352,9 @@
 
       const id = dialogIdCounter++;
       let icon = "";
-      if (type === "warning") icon = "⚠️";
-      else if (type === "error") icon = "❌";
-      else icon = "ℹ️";
+      if (type === "warning") icon = "warning";
+      else if (type === "error") icon = "error";
+      else icon = "info";
       globalDialogs = [...globalDialogs, { id, type, text: normalizedText, icon, timeout }];
       setTimeout(() => {
         globalDialogs = globalDialogs.filter((d) => d.id !== id);
@@ -6813,7 +6814,7 @@
     {#each globalDialogs as dialog (dialog.id)}
       <div class="global-dialog global-dialog-{dialog.type}">
         <div class="global-dialog-inner">
-          <span class="icon">{dialog.icon}</span>
+          <span class="icon"><Icon name={dialog.icon ?? "info"} size={18} /></span>
           <span data-selectable="true">{dialog.text}</span>
         </div>
       </div>
@@ -7460,7 +7461,7 @@
   {#if sourceMenu.open && sourceMenu.source}
     <div class="context-menu" style={`top:${sourceMenu.y}px; left:${sourceMenu.x}px;`} role="menu">
       <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
-      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true">🗑</span>Remove</button>
+      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       {#if isBrowserSource(sourceMenu.source)}
         <button disabled title="Chromium snapshots render video only; browser interaction is not supported."><span class="menu-icon" aria-hidden="true">⇄</span>Interact (unavailable)</button>
@@ -7468,7 +7469,7 @@
       <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">ⓘ</span>Information</button>
       <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
       <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
-        <span class="menu-icon" aria-hidden="true">{sourceMenu.source?.locked ? "🔓" : "🔒"}</span>{sourceMenu.source?.locked ? "Unlock" : "Lock"}
+        <span class="menu-icon" aria-hidden="true"><Icon name={sourceMenu.source?.locked ? "unlock" : "lock"} size={13} /></span>{sourceMenu.source?.locked ? "Unlock" : "Lock"}
       </button>
     </div>
     <div
@@ -7483,10 +7484,10 @@
   {#if sceneMenu.open && sceneMenu.scene}
     <div class="context-menu" style={`top:${sceneMenu.y}px; left:${sceneMenu.x}px;`} role="menu">
       <button onclick={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
-      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true">🗑</span>Remove</button>
+      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
-        <span class="menu-icon" aria-hidden="true">{sceneMenu.scene?.locked ? "🔓" : "🔒"}</span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
+        <span class="menu-icon" aria-hidden="true"><Icon name={sceneMenu.scene?.locked ? "unlock" : "lock"} size={13} /></span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
       <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview - Window</button>
     </div>
