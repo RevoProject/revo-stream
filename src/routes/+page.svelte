@@ -7459,18 +7459,16 @@
 
   {#if sourceMenu.open && sourceMenu.source}
     <div class="context-menu" style={`top:${sourceMenu.y}px; left:${sourceMenu.x}px;`} role="menu">
-      <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}>Clone</button>
-      <button onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}>Remove</button>
-      <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}>Filters</button>
+      <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
+      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true">🗑</span>Remove</button>
+      <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       {#if isBrowserSource(sourceMenu.source)}
-        <button disabled title="Chromium snapshots render video only; browser interaction is not supported.">Interact (unavailable)</button>
-      {:else if isTextSource(sourceMenu.source)}
-        <button onclick={() => sourceMenu.source && openTextEdit(sourceMenu.source)}>Text Edit</button>
+        <button disabled title="Chromium snapshots render video only; browser interaction is not supported."><span class="menu-icon" aria-hidden="true">⇄</span>Interact (unavailable)</button>
       {/if}
-      <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}>Information</button>
-      <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}>Edit</button>
+      <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">ⓘ</span>Information</button>
+      <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
       <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
-        {sourceMenu.source?.locked ? "Unlock" : "Lock"}
+        <span class="menu-icon" aria-hidden="true">{sourceMenu.source?.locked ? "🔓" : "🔒"}</span>{sourceMenu.source?.locked ? "Unlock" : "Lock"}
       </button>
     </div>
     <div
@@ -7484,13 +7482,13 @@
 
   {#if sceneMenu.open && sceneMenu.scene}
     <div class="context-menu" style={`top:${sceneMenu.y}px; left:${sceneMenu.x}px;`} role="menu">
-      <button onclick={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}>Clone</button>
-      <button onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}>Remove</button>
-      <button onclick={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}>Filters</button>
+      <button onclick={() => sceneMenu.scene && cloneScene(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
+      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true">🗑</span>Remove</button>
+      <button onclick={() => sceneMenu.scene && openSceneFilters(sceneMenu.scene)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
-        {sceneMenu.scene?.locked ? "Unlock" : "Lock"}
+        <span class="menu-icon" aria-hidden="true">{sceneMenu.scene?.locked ? "🔓" : "🔒"}</span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
-      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}>Scene preview - Window</button>
+      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview - Window</button>
     </div>
     <div
       class="context-overlay"
@@ -8298,6 +8296,29 @@
 
   :global(.context-menu button:hover) {
     background: var(--surface-3);
+  }
+
+  :global(.context-menu button) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  :global(.context-menu .menu-icon) {
+    display: inline-grid;
+    place-items: center;
+    width: 1.15rem;
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+    line-height: 1;
+  }
+
+  :global(.context-menu .menu-icon.danger) {
+    color: var(--danger, #ef4444);
+  }
+
+  :global(.context-menu button.danger-text) {
+    color: var(--danger, #ef4444);
   }
 
   :global(.context-menu button.disabled) {
