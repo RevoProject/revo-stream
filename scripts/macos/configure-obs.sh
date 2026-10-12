@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OBS_SRC="$RUNNER_TEMP/obs-studio"
+OBS_BUILD="$RUNNER_TEMP/obs-build"
+rm -rf "$OBS_BUILD"
+cmake \
+  -S "$OBS_SRC" \
+  -B "$OBS_BUILD" \
+  --preset macos \
+  -DCMAKE_OSX_ARCHITECTURES="${REVO_CMAKE_ARCH}" \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+  -DENABLE_BROWSER=OFF \
+  -DENABLE_SCRIPTING=OFF \
+  -DENABLE_FRONTEND=OFF

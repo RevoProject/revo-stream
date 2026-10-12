@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OBS_INSTALL="${1:?Usage: prepare-linux-runtime.sh OBS_INSTALL [RESOURCE_ROOT]}"
+OBS_INSTALL="${1:?Usage: prepare-runtime.sh OBS_INSTALL [RESOURCE_ROOT]}"
 ROOT="${2:-src-tauri/resources/revo-root}"
 
 test -f "$OBS_INSTALL/lib/libobs.so"
