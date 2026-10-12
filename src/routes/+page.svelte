@@ -7511,16 +7511,16 @@
   {#if sourceMenu.open && sourceMenu.source}
     <div class="context-menu" style={`top:${sourceMenu.y}px; left:${sourceMenu.x}px;`} role="menu">
       <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
-      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
-      <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
+      <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
       {#if isBrowserSource(sourceMenu.source)}
         <button disabled title="Chromium snapshots render video only; browser interaction is not supported."><span class="menu-icon" aria-hidden="true">⇄</span>Interact (unavailable)</button>
       {/if}
-      <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">ⓘ</span>Information</button>
-      <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
+      <button onclick={() => sourceMenu.source && openSourceFilters(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">◈</span>Filters</button>
       <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
         <span class="menu-icon" aria-hidden="true"><Icon name={sourceMenu.source?.locked ? "unlock" : "lock"} size={13} /></span>{sourceMenu.source?.locked ? "Unlock" : "Lock"}
       </button>
+      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
+      <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">ⓘ</span>Information</button>
     </div>
     <div
       class="context-overlay"
