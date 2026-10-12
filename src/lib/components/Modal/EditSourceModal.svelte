@@ -34,6 +34,9 @@
   export let windowMode = false;
   export let allowDraggablePopups = false;
 
+  type SourceTab = "General" | "Filters" | "Other";
+  let activeTab: SourceTab = "General";
+
   const dispatch = createEventDispatcher();
   let newParamKey = "";
   let newParamValue = "";
@@ -81,6 +84,7 @@
 
   const close = () => dispatch("close");
   const save = () => dispatch("save");
+  const openFilters = () => dispatch("openFilters");
 
   const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -509,6 +513,27 @@
         </button>
       </header>
       <div class="modal-body">
+        <nav class="source-tabs" aria-label="Source editor sections">
+          {#each ["General", "Filters", "Other"] as tab}
+            <button
+              type="button"
+              class:active={activeTab === tab}
+              aria-selected={activeTab === tab}
+              role="tab"
+              onclick={() => (activeTab = tab as SourceTab)}
+            >{tab}</button>
+          {/each}
+        </nav>
+
+        {#if activeTab === "Filters"}
+          <section class="tab-empty-state" aria-labelledby="filters-tab-title">
+            <div class="tab-empty-icon" aria-hidden="true">◇</div>
+            <h3 id="filters-tab-title">Source filters</h3>
+            <p>Manage visual filters without leaving the source editor.</p>
+            <button type="button" class="primary" onclick={openFilters}>Open Filters</button>
+          </section>
+        {:else}
+        {#if activeTab === "General"}
         <div class="field">
           <label for="editName">Name</label>
           <input
@@ -676,7 +701,7 @@
                     placeholder="/path/to/video.mp4"
                     oninput={(e) => updateParam(mediaLocalFileKey, (e.currentTarget as HTMLInputElement).value)}
                   />
-                  <button type="button" class="ghost picker-btn" onclick={chooseMediaFile} aria-label="Select media file">📂</button>
+                  <button type="button" class="ghost picker-btn" onclick={() => chooseMediaFile()} aria-label="Select media file">📂</button>
                 </div>
               </div>
             {:else}
@@ -849,6 +874,22 @@
           </div>
         {/if}
 
+        {#if isTextSource}
+          <div class="field field-inline">
+            <label class="checkbox-inline" for="autoresize-font-width">
+              <input
+                id="autoresize-font-width"
+                type="checkbox"
+                checked={autoresizeFontWidth}
+                onchange={(e) => setAutoresizeFontWidth((e.currentTarget as HTMLInputElement).checked)}
+              />
+              <span>Autoresize font width to text length</span>
+            </label>
+          </div>
+        {/if}
+        {/if}
+
+        {#if activeTab === "Other"}
         {#if visibleSourcePropertyEntries.length > 0}
           <div class="field-group">
             <h3>Source settings</h3>
@@ -962,20 +1003,6 @@
           </div>
         {/if}
 
-        {#if isTextSource}
-          <div class="field field-inline">
-            <label class="checkbox-inline" for="autoresize-font-width">
-              <input
-                id="autoresize-font-width"
-                type="checkbox"
-                checked={autoresizeFontWidth}
-                onchange={(e) => setAutoresizeFontWidth((e.currentTarget as HTMLInputElement).checked)}
-              />
-              <span>Autoresize font width to text length</span>
-            </label>
-          </div>
-        {/if}
-
         <div class="field-group">
           <h3>Additional settings</h3>
           {#if visibleExtraParamEntries.length === 0}
@@ -1083,6 +1110,8 @@
           </div>
         </div>
 
+        {/if}
+        {/if}
       </div>
       <footer class="modal-actions">
         <button class="ghost" onclick={close}>Cancel</button>
@@ -1168,6 +1197,57 @@
     overflow-y: auto;
     min-height: 0;
     padding-right: 0.25rem;
+  }
+
+  .source-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--surface-2);
+  }
+
+  .source-tabs button {
+    min-height: 2.25rem;
+    border: 0;
+    border-radius: 0.55rem;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 650;
+  }
+
+  .source-tabs button.active {
+    background: var(--accent);
+    color: var(--text-on-accent, #fff);
+  }
+
+  .tab-empty-state {
+    display: grid;
+    justify-items: center;
+    gap: 0.7rem;
+    min-height: 15rem;
+    align-content: center;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .tab-empty-state h3,
+  .tab-empty-state p {
+    margin: 0;
+  }
+
+  .tab-empty-icon {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: var(--accent);
+    font-size: 1.6rem;
   }
 
   .modal.window-mode .modal-body {
