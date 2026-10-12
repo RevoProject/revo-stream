@@ -2747,6 +2747,7 @@
 
   .modal {
     width: min(920px, 96vw);
+    max-height: 96vh;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -2763,7 +2764,7 @@
   .settings-grid {
     display: grid;
     grid-template-columns: 200px 1fr;
-    min-height: 480px;
+    min-height: 0;
   }
 
   /* RevoFuture-only settings chrome (hidden in RevoClassic) */
@@ -2893,9 +2894,9 @@
     padding-top: 12px;
     padding-bottom: 20px;
     overflow: auto;
-    height: 530px;
+    height: clamp(320px, calc(100vh - 210px), 530px);
     min-height: 0;
-    max-height: 530px;
+    max-height: calc(100vh - 210px);
     display: grid;
     align-content: start;
     grid-auto-rows: max-content;
