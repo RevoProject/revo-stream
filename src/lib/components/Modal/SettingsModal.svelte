@@ -1750,7 +1750,7 @@
 
                   {#if recordingAdvanced}
                     <div class="section-block">
-                      <div class="section-title">Advanced</div>
+                      <div class="section-title">Advanced encoder settings</div>
                       <div class="field">
                         <label for="recordingVideoEncoder">Video Encoder</label>
                         <select id="recordingVideoEncoder" bind:value={recordingVideoEncoder}>
