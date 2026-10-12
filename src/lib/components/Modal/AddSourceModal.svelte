@@ -12,7 +12,11 @@
   const close = () => dispatch("close");
   const add = () => dispatch("add");
 
-  const sourceLabel = (type: { id: string; label: string }) => sourceLabels[type.id] ?? type.label;
+  const sourceLabel = (type: { id: string; label: string }) => {
+    if (sourceLabels[type.id]) return sourceLabels[type.id];
+    if (type.id === "browser_source") return "Browser";
+    return type.label;
+  };
 
   const iconMap: Record<string, string> = {
     browser_source: `

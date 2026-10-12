@@ -105,6 +105,7 @@
     }
   }
 
+  let sourceTypeLabel = "";
   let wasOpen = false;
   $: {
     const isOpen = Boolean(editSource);
@@ -115,10 +116,15 @@
     wasOpen = isOpen;
   }
 
-  $: sourceTypeLabel = (editType || editSource?.source_type || "source")
-    .split("_")
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(" ");
+  $: {
+    const rawType = editType || editSource?.source_type || "source";
+    sourceTypeLabel = rawType === "browser_source"
+      ? "Browser"
+      : rawType
+          .split("_")
+          .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+          .join(" ");
+  }
   let newParamKey = "";
   let newParamValue = "";
   let modalEl: HTMLDivElement | null = null;
