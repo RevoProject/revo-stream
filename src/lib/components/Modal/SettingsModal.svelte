@@ -285,6 +285,7 @@
 
     const root = document.documentElement;
     root.style.zoom = `${Number(accessibilityUiScale) / 100}`;
+    root.style.setProperty("--ui-scale", String(Number(accessibilityUiScale) / 100));
 
     const fontScale = Math.max(0.8, Number(accessibilityFontSize) / 100);
     root.style.setProperty("--a11y-font-scale", String(fontScale));
@@ -310,6 +311,7 @@
 
     const root = document.documentElement;
     root.style.zoom = accessibilitySnapshot.zoom;
+    root.style.setProperty("--ui-scale", accessibilitySnapshot.zoom || "1");
     root.style.setProperty("--a11y-font-scale", accessibilitySnapshot.fontScaleVar);
     root.style.setProperty("--a11y-font-family", accessibilitySnapshot.fontFamilyVar);
     root.style.setProperty("--a11y-color-filter", accessibilitySnapshot.colorFilterVar);

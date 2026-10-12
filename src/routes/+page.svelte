@@ -7697,6 +7697,7 @@
     --preview-bg: var(--surface);
     --scene-active-text: var(--text);
     --a11y-font-scale: 1;
+    --ui-scale: 1;
     --a11y-font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
     --a11y-color-filter: none;
   }
@@ -7710,6 +7711,12 @@
   :global(html) {
     filter: var(--a11y-color-filter);
     font-size: calc(16px * var(--a11y-font-scale));
+    overflow-x: hidden;
+  }
+
+  :global(html[data-theme="RevoFuture"] body) {
+    width: calc(100% / var(--ui-scale));
+    min-width: calc(100% / var(--ui-scale));
   }
 
   :global(body) {

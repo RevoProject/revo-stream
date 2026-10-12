@@ -730,6 +730,60 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
 }
 
+:root[data-theme="RevoFuture"] .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+:root[data-theme="RevoFuture"] .modal-header h2,
+:root[data-theme="RevoFuture"] .modal-header h3 {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme="RevoFuture"] .modal-body {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+:root[data-theme="RevoFuture"] .modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-height: 64px;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+:root[data-theme="RevoFuture"] .field-group,
+:root[data-theme="RevoFuture"] .source-card {
+  border-color: var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+:root[data-theme="RevoFuture"] .field-group {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface-elevated);
+}
+
+:root[data-theme="RevoFuture"] .field-group h3 {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 :root[data-theme="RevoFuture"] .modal-actions,
 :root[data-theme="RevoFuture"] .modal .field > .services-meta {
   border-color: var(--color-border-subtle);
