@@ -1,10 +1,10 @@
 pub(crate) fn list_pulse_devices(kind: &str) -> Result<Vec<crate::AudioDevice>, String> {
-	// OBS pulse input/output sources expect Pulse SOURCE names (device_id),
-	// where desktop audio is typically exposed as "*.monitor" sources.
-	let list_cmd = vec!["list", "short", "sources"];
-
+	// OBS pulse sources expect Pulse SOURCE names (device_id); the full
+	// `pactl list sources` output also carries a human Description we use
+	// as the friendly label (short names look like
+	// `alsa_input.usb-Logitech_c340s...`).
 	let output = std::process::Command::new("pactl")
-		.args(list_cmd)
+		.args(["list", "sources"])
 		.output()
 		.map_err(|e| format!("failed to run pactl: {e}"))?;
 
@@ -14,34 +14,48 @@ pub(crate) fn list_pulse_devices(kind: &str) -> Result<Vec<crate::AudioDevice>, 
 
 	let text = String::from_utf8_lossy(&output.stdout);
 	let mut devices = Vec::new();
+	let mut current_name: Option<String> = None;
+	let mut current_description: Option<String> = None;
+
+	let flush = |current_name: &mut Option<String>,
+	             current_description: &mut Option<String>,
+	             devices: &mut Vec<crate::AudioDevice>| {
+		if let Some(name) = current_name.take() {
+			let friendly = current_description
+				.take()
+				.map(|d| d.trim().to_string())
+				.filter(|d| !d.is_empty());
+			devices.push(crate::AudioDevice {
+				id: name.clone(),
+				name: friendly.unwrap_or(name),
+			});
+		}
+	};
+
 	for line in text.lines() {
-		let cols: Vec<&str> = line.split('\t').collect();
-		if cols.len() < 2 {
+		let trimmed = line.trim();
+		if trimmed.starts_with("Source #") {
+			flush(&mut current_name, &mut current_description, &mut devices);
 			continue;
 		}
-		let name = cols[1].trim().to_string();
-		if name.is_empty() {
+		if let Some(value) = trimmed.strip_prefix("Name: ") {
+			current_name = Some(value.trim().to_string());
 			continue;
 		}
-
-		let is_monitor = name.ends_with(".monitor");
-		if kind == "output" {
-			// Desktop/output capture should list monitor sources only.
-			if !is_monitor {
-				continue;
-			}
-		} else {
-			// Mic/input capture should avoid monitor loopback sources.
-			if is_monitor {
-				continue;
-			}
+		if let Some(value) = trimmed.strip_prefix("Description: ") {
+			current_description = Some(value.trim().to_string());
 		}
-
-		devices.push(crate::AudioDevice {
-			id: name.clone(),
-			name,
-		});
 	}
+	flush(&mut current_name, &mut current_description, &mut devices);
+
+	devices.retain(|device| {
+		let is_monitor = device.id.ends_with(".monitor");
+		if kind == "output" {
+			is_monitor
+		} else {
+			!is_monitor
+		}
+	});
 
 	Ok(devices)
 }

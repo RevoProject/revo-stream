@@ -388,14 +388,6 @@
       videoDownscaleFilterOptions = mapLibobsOptions(payload?.video_downscale_filters, defaultVideoDownscaleFilterOptions);
       videoCommonFpsOptions = mapLibobsOptions(payload?.video_common_fps, defaultVideoCommonFpsOptions);
 
-      const [inputDevices, outputDevices] = await Promise.all([
-        invoke<AudioDeviceOption[]>("obs_list_pulse_devices", { kind: "input" }),
-        invoke<AudioDeviceOption[]>("obs_list_pulse_devices", { kind: "output" })
-      ]);
-
-      audioDesktopDeviceOptions = mapAudioDevicesToOptions(outputDevices ?? [], true);
-      audioMicDeviceOptions = mapAudioDevicesToOptions(inputDevices ?? [], true);
-      audioMonitoringDeviceOptions = mapAudioDevicesToOptions(outputDevices ?? [], true);
     } catch {
       streamingAudioEncoderOptions = [...defaultStreamingAudioEncoderOptions];
       streamingVideoEncoderOptions = [...defaultStreamingVideoEncoderOptions];
@@ -412,6 +404,21 @@
       audioMonitoringDeviceOptions = [...defaultMonitoringDeviceOptions];
     }
 
+    // Device discovery does not need a running OBS backend (pactl/arecord only),
+    // so keep it independent from the encoder options request.
+    try {
+      const [inputDevices, outputDevices] = await Promise.all([
+        invoke<AudioDeviceOption[]>("obs_list_pulse_devices", { kind: "input" }),
+        invoke<AudioDeviceOption[]>("obs_list_pulse_devices", { kind: "output" })
+      ]);
+
+      audioDesktopDeviceOptions = mapAudioDevicesToOptions(outputDevices ?? [], true);
+      audioMicDeviceOptions = mapAudioDevicesToOptions(inputDevices ?? [], true);
+      audioMonitoringDeviceOptions = mapAudioDevicesToOptions(outputDevices ?? [], false);
+    } catch {
+      // keep defaults when device discovery is unavailable
+    }
+
     streamingAudioEncoderOptions = ensureValueExists(streamingAudioEncoderOptions, streamingAudioEncoder);
     streamingVideoEncoderOptions = ensureValueExists(streamingVideoEncoderOptions, streamingVideoEncoder);
     recordingAudioEncoderOptions = ensureValueExists(recordingAudioEncoderOptions, recordingAudioEncoder);
@@ -426,6 +433,15 @@
     audioDesktopDeviceOptions = ensureValueExists(audioDesktopDeviceOptions, audioDesktopDevice);
     audioMicDeviceOptions = ensureValueExists(audioMicDeviceOptions, audioMicDevice);
     audioMonitoringDeviceOptions = ensureValueExists(audioMonitoringDeviceOptions, audioMonitoringDevice);
+    if (audioMonitoringDevice === "default") {
+      const detectedMonitor = audioMonitoringDeviceOptions.find(
+        (option) => option.value !== "default" && option.value !== "disabled"
+      );
+      if (detectedMonitor) {
+        audioMonitoringDevice = detectedMonitor.value;
+        audioMonitoringDeviceOptions = ensureValueExists(audioMonitoringDeviceOptions, audioMonitoringDevice);
+      }
+    }
   };
 
   let lastIncomingProfileSignature = "";
