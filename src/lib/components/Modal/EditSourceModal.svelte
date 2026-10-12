@@ -1325,7 +1325,7 @@
     grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 1rem;
     padding: 1.25rem;
-    max-height: min(820px, 94vh);
+    max-height: min(820px, calc(94vh / var(--ui-scale, 1)));
   }
 
   .modal.window-mode {

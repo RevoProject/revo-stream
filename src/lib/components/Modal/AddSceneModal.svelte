@@ -57,7 +57,7 @@
     display: grid;
     place-items: center;
     z-index: 50;
-    padding: 1.25rem;
+    padding: 0.75rem;
   }
 
   .modal {
@@ -67,8 +67,8 @@
     border-radius: 16px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     display: grid;
-    gap: 1rem;
-    padding: 1.25rem;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
   }
 
   h2 {
@@ -84,8 +84,8 @@
   input {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 0.65rem 0.85rem;
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
     color: var(--text);
   }
 
@@ -124,8 +124,8 @@
 
   .template-btn {
     border: 1px dashed var(--border-strong, var(--border));
-    border-radius: 12px;
-    padding: 0.6rem 0.8rem;
+    border-radius: 10px;
+    padding: 0.4rem 0.6rem;
     background: var(--surface);
     color: var(--text-muted);
     font-weight: 600;
@@ -133,8 +133,8 @@
 
   button {
     border: none;
-    border-radius: 14px;
-    padding: 0.7rem 1.2rem;
+    border-radius: 10px;
+    padding: 0.45rem 0.9rem;
     font-weight: 600;
     cursor: pointer;
   }
