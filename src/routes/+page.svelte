@@ -1417,6 +1417,8 @@
     let openAdditionalSettingsInWindows = false;
     let allowDraggablePopups = false;
     let realtimeRefreshSources = false;
+    let autoSaveAfterEdits = true;
+    let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
     let obsPluginsPath = "";
     let editorPreviewCard = false;
     let auxWindowMode: "plugins" | "edit-source" | "audio-mixer" | "audio-advanced" | "audio-filters" | null = null;
@@ -2662,6 +2664,7 @@
       }
       openAdditionalSettingsInWindows = Boolean(general.openAdditionalSettingsInWindows);
       editorPreviewCard = Boolean(general.editorPreviewCard);
+      autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
       allowDraggablePopups = Boolean(general.allowDraggablePopups);
       quickColorHistoryLimit = Math.max(1, Math.min(15, Number(general.quickColorHistoryLimit) || 5));
       realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
@@ -3126,6 +3129,7 @@
     quickColorHistoryLimit = Math.max(1, Math.min(15, Number(general.quickColorHistoryLimit) || 5));
     realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
     editorPreviewCard = Boolean(general.editorPreviewCard);
+    autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
     const a11y = (mergedProfile?.accessibility as AccessibilityUiProfile | undefined) ?? {};
     accessibilityHighContrast = Boolean(a11y.accessibilityHighContrast);
     accessibilityReduceMotion = Boolean(a11y.accessibilityReduceMotion);
@@ -3537,6 +3541,7 @@
     }
     const mergedProfile = mergeTransitionsIntoProfile(currentUiProfile);
     currentUiProfile = mergedProfile;
+    scheduleAutosaveCollection();
     void applyProgramTransition();
     if (tauriAvailable) {
       try {
@@ -4400,6 +4405,7 @@
   };
 
   const removeScene = async (scene: SceneInfo) => {
+    scheduleAutosaveCollection();
     if (scenes.length <= 1) {
       showCannotRemoveLastSceneDialog();
       closeSceneMenu();
@@ -4897,6 +4903,7 @@
   };
 
   const saveEditSource = async () => {
+    scheduleAutosaveCollection();
     if (!editSource) return;
 
     if (isRealtimeSourceRefreshEnabled()) {
@@ -6379,6 +6386,18 @@
     await rollbackSourceFilters();
   };
 
+  const scheduleAutosaveCollection = (delay = 900) => {
+    if (!autoSaveAfterEdits) return;
+    if (!backendEnabled || !isObsRunning) return;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null;
+      void invoke<string>("obs_autosave_collection")
+        .then((savedPath) => console.info("[autosave] scene collection saved:", savedPath))
+        .catch((err) => console.warn("[autosave] failed:", err));
+    }, delay);
+  };
+
   const commitSourceFilters = async (filtersInput?: FilterItem[]) => {
     const filters = cloneFilterList(filtersInput ?? filtersDraft);
     if (filtersTargetType === "source") {
@@ -6403,6 +6422,7 @@
     filtersSnapshotBeforeOpen = null;
     routeFiltersViaEditor = false;
     showFiltersModal = false;
+    scheduleAutosaveCollection();
     showGlobalDialog("Filters saved", "info", 1500);
   };
 
@@ -6439,6 +6459,7 @@
   };
 
   const cloneSource = async (source: DemoSource) => {
+    scheduleAutosaveCollection();
     const nameSet = new Set(sourcesList.map((s) => s.name));
     const idSet = new Set(sourcesList.map((s) => s.id));
     const newName = getUniqueName(source.name, nameSet);
@@ -6694,6 +6715,7 @@
   };
 
   const cloneScene = async (scene: SceneInfo) => {
+    scheduleAutosaveCollection();
     const nameSet = new Set(scenes.map((s) => s.name));
     const newName = getUniqueName(scene.name, nameSet);
     if (backendEnabled) {

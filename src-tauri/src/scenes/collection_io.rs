@@ -189,16 +189,7 @@ unsafe fn apply_imported_filters_to_source(
 	}
 }
 
-pub(crate) fn export_scene_collection(
-	state: tauri::State<crate::ObsState>,
-) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
+pub(crate) fn build_collection_json(runtime: &crate::ObsRuntime) -> Result<String, String> {
 	let mut scenes_json = Vec::new();
 
 	let names: Vec<String> = if runtime.scene_order.is_empty() {
@@ -296,6 +287,39 @@ pub(crate) fn export_scene_collection(
 		"scenes": scenes_json
 	});
 	serde_json::to_string_pretty(&doc).map_err(|e| format!("export failed: {e}"))
+}
+
+pub(crate) fn export_scene_collection(
+	state: tauri::State<crate::ObsState>,
+) -> Result<String, String> {
+	let runtime = state
+		.runtime
+		.lock()
+		.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	build_collection_json(&runtime)
+}
+
+pub(crate) fn autosave_scene_collection(
+	state: tauri::State<crate::ObsState>,
+) -> Result<String, String> {
+	let json = {
+		let runtime = state
+			.runtime
+			.lock()
+			.map_err(|_| "state poisoned".to_string())?;
+		if !runtime.initialized {
+			return Err("OBS not initialized".to_string());
+		}
+		build_collection_json(&runtime)?
+	};
+	let dir = crate::settings::core::runtime_data_dir()?.join("scenes");
+	std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create scenes dir: {e}"))?;
+	let file = dir.join("collection.json");
+	std::fs::write(&file, json).map_err(|e| format!("failed to write collection: {e}"))?;
+	Ok(file.to_string_lossy().to_string())
 }
 
 pub(crate) fn export_scene_collection_obs(

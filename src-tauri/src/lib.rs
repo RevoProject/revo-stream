@@ -349,6 +349,11 @@ fn obs_export_scene_collection(state: tauri::State<ObsState>) -> Result<String, 
 }
 
 #[tauri::command]
+fn obs_autosave_collection(state: tauri::State<ObsState>) -> Result<String, String> {
+    scenes::collection_io::autosave_scene_collection(state)
+}
+
+#[tauri::command]
 fn obs_export_scene_collection_obs(state: tauri::State<ObsState>) -> Result<String, String> {
     scenes::collection_io::export_scene_collection_obs(state)
 }
@@ -846,6 +851,7 @@ pub fn run() {
             obs_remove_scene,
             obs_set_scene_lock,
             obs_export_scene_collection,
+            obs_autosave_collection,
             obs_export_scene_collection_to_file,
             obs_export_scene_collection_obs,
             obs_export_scene_collection_obs_to_file,

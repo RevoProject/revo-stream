@@ -625,6 +625,7 @@
       plannerUndoRedoLimit,
       realtimeRefreshSources,
       editorPreviewCard,
+      autoSaveAfterEdits,
       uiLanguage
     },
     output: {
@@ -1103,6 +1104,7 @@
     plannerUndoRedoLimit = readInt(general, "plannerUndoRedoLimit", 5, 1, 50);
     realtimeRefreshSources = readBool(general, "realtimeRefreshSources", false);
     editorPreviewCard = readBool(general, "editorPreviewCard", false);
+    autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
     uiLanguage = readString(general, "uiLanguage", "en");
 
     outputTab = readString(output, "outputTab", "Streaming") as "Streaming" | "Recording" | "Audio";
@@ -1254,6 +1256,7 @@
   let plannerUndoRedoLimit = 5;
   let realtimeRefreshSources = false;
   let editorPreviewCard = false;
+  let autoSaveAfterEdits = true;
 
   $: if (openAdditionalSettingsInWindows) {
     allowDraggablePopups = false;
@@ -2737,6 +2740,18 @@
                       id="editorPreviewCard"
                       type="checkbox"
                       bind:checked={editorPreviewCard}
+                    />
+                    <span class="slider"></span>
+                  </span>
+                </label>
+
+                <label class="toggle-row" for="autoSaveAfterEdits">
+                  <span>Automatically save after edit sources</span>
+                  <span class="toggle">
+                    <input
+                      id="autoSaveAfterEdits"
+                      type="checkbox"
+                      bind:checked={autoSaveAfterEdits}
                     />
                     <span class="slider"></span>
                   </span>
