@@ -661,8 +661,70 @@ fn obs_take_screenshot(
     runtime::preview::take_screenshot(state, width, height, source_id)
 }
 
+fn parse_cli_paths(args: impl IntoIterator<Item = String>) -> Result<Vec<(&'static str, String)>, String> {
+    let args: Vec<String> = args.into_iter().collect();
+    let mut paths = Vec::new();
+    let mut index = 1;
+    while index < args.len() {
+        let argument = &args[index];
+        let (name, inline_value) = argument
+            .split_once('=')
+            .map_or((argument.as_str(), None), |(name, value)| (name, Some(value)));
+        let variable = match name {
+            "--revo-root" => "REVO_ROOT",
+            "--obs-path" => "REVO_OBS_PATH",
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        let value = if let Some(value) = inline_value {
+            value.to_string()
+        } else {
+            index += 1;
+            args.get(index)
+                .filter(|value| !value.starts_with('-'))
+                .cloned()
+                .ok_or_else(|| format!("{name} requires a path"))?
+        };
+        if value.trim().is_empty() {
+            return Err(format!("{name} requires a non-empty path"));
+        }
+        paths.push((variable, value));
+        index += 1;
+    }
+    Ok(paths)
+}
+
+fn configure_cli_paths() -> Result<(), String> {
+    for (variable, value) in parse_cli_paths(std::env::args())? {
+        std::env::set_var(variable, value);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod cli_path_tests {
+    use super::parse_cli_paths;
+
+    #[test]
+    fn cli_flags_accept_equals_and_separate_values() {
+        let values = parse_cli_paths([
+            "revo-ui".into(),
+            "--revo-root".into(),
+            "/tmp/revo".into(),
+            "--obs-path=/opt/obs".into(),
+        ])
+        .unwrap();
+        assert_eq!(values, vec![("REVO_ROOT", "/tmp/revo".into()), ("REVO_OBS_PATH", "/opt/obs".into())]);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Err(error) = configure_cli_paths() {
+        eprintln!("[startup] {error}");
+    }
     tauri::Builder::default()
         .setup(|app| {
             use tauri::Manager;

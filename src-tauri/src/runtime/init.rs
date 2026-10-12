@@ -30,6 +30,53 @@ fn obs_env_path(path: &std::path::Path) -> String {
 		.unwrap_or_else(|_| path.to_string_lossy().into_owned())
 }
 
+fn resolve_obs_dir(root: &std::path::Path) -> Result<std::path::PathBuf, String> {
+	let Some(raw) = std::env::var_os("REVO_OBS_PATH") else {
+		return Ok(root.join("core"));
+	};
+	let supplied = std::path::PathBuf::from(raw);
+	let candidate = if supplied.is_file() {
+		supplied
+			.parent()
+			.and_then(std::path::Path::parent)
+			.map(std::path::Path::to_path_buf)
+		.ok_or_else(|| "--obs-path must point to libobs or its installation directory".to_string())?
+	} else if supplied.is_dir() {
+		if supplied.join("libobs.so").is_file() || supplied.join("obs.dll").is_file() {
+			if supplied.file_name().and_then(|name| name.to_str()) == Some("lib") {
+				supplied.parent().unwrap_or(&supplied).to_path_buf()
+			} else {
+				supplied
+			}
+		} else if supplied.join("lib/libobs.so").is_file() || supplied.join("lib/obs.dll").is_file() {
+			supplied.join("lib").parent().unwrap_or(&supplied).to_path_buf()
+		} else {
+			return Err(format!(
+				"--obs-path does not contain libobs.so or obs.dll: {}",
+				supplied.display()
+			));
+		}
+	} else {
+		return Err(format!("--obs-path does not exist: {}", supplied.display()));
+	};
+
+	let mut paths = Vec::new();
+	if let Some(existing) = std::env::var_os(if cfg!(windows) { "PATH" } else { "LD_LIBRARY_PATH" }) {
+		paths.extend(std::env::split_paths(&existing));
+	}
+	if !paths.iter().any(|path| path == &candidate) {
+		paths.insert(0, candidate.clone());
+	}
+	let joined = std::env::join_paths(paths).map_err(|error| format!("invalid OBS library path: {error}"))?;
+	if cfg!(windows) {
+		std::env::set_var("PATH", joined);
+	} else {
+		std::env::set_var("LD_LIBRARY_PATH", joined);
+	}
+	eprintln!("[obs] using manual libobs path: {}", candidate.display());
+	Ok(candidate)
+}
+
 #[cfg(test)]
 mod obs_path_tests {
 	use super::obs_path;
@@ -128,7 +175,7 @@ pub(crate) fn start(
 	} else {
 		root.clone()
 	};
-	let core_dir = root.join("core");
+	let core_dir = resolve_obs_dir(&root)?;
 	let data_ffmpeg_bin = data_dir.join("bin");
 	let core_ffmpeg_bin = core_dir.join("bin");
 	let ffmpeg_bin = if data_ffmpeg_bin.is_dir() {
