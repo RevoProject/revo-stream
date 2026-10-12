@@ -41,6 +41,14 @@
   let activeTab: SourceTab = "General";
   export let initialTab: SourceTab = "General";
   export let showPreview = false;
+  export let editDirty = false;
+  const requestClose = () => {
+    if (editDirty) {
+      dispatch("requestClose");
+    } else {
+      close();
+    }
+  };
   export let filters: { id: string; name: string; kind: string; enabled: boolean; locked?: boolean; params: Record<string, string> }[] = [];
   let filtersPanel: FiltersPanel;
   let editorFiltersActive = false;
@@ -586,14 +594,15 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => { if (editSource && e.key === "Escape") requestClose(); }} />
 {#if editSource}
   <div
     class="modal-backdrop"
     class:window-mode={windowMode}
     role="button"
     tabindex="0"
-    onclick={close}
-    onkeydown={(e) => (e.key === "Escape" ? close() : null)}
+    onclick={requestClose}
+    onkeydown={(e) => e.key === "Escape" && requestClose()}
   >
     <div
       class="modal"
@@ -620,7 +629,7 @@
             <p class="source-subtitle">{sourceTypeLabel} · {editName || editSource.name}</p>
           </div>
         </div>
-        <button class="titlebar-close" aria-label="Close edit source" onclick={close}>
+        <button class="titlebar-close" aria-label="Close edit source" onclick={requestClose}>
           ✕
         </button>
       </header>
@@ -1260,7 +1269,7 @@
         {/if}
       </div>
       <footer class="modal-actions">
-        <button class="ghost" onclick={close}>Cancel</button>
+        <button class="ghost" onclick={requestClose}>Cancel</button>
         <button class="primary" onclick={save}>Save</button>
       </footer>
     </div>

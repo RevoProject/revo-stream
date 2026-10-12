@@ -1421,6 +1421,8 @@
     let auxWindowSourceId = "";
     const auxWindowPendingLabels = new Set<string>();
     let editOriginalSnapshot: { id: string; name: string; source_type: string; params: Record<string, string> } | null = null;
+    let editDirty = false;
+    let showEditSourceCloseConfirm = false;
     let editRealtimeTimer: ReturnType<typeof setTimeout> | null = null;
     let editRealtimeInFlight = false;
     let editRealtimeQueued = false;
@@ -4905,6 +4907,35 @@
     editSource = null;
   };
 
+  const isEditSourceDirty = () => {
+    if (!editSource || !editOriginalSnapshot) return false;
+    if (editName !== editOriginalSnapshot.name) return true;
+    const snapshot = editOriginalSnapshot.params ?? {};
+    const keys = new Set([...Object.keys(snapshot), ...Object.keys(editParams)]);
+    for (const key of keys) {
+      if ((snapshot[key] ?? "") !== (editParams[key] ?? "")) return true;
+    }
+    return false;
+  };
+  $: editDirty = Boolean(editSource) && isEditSourceDirty();
+
+  const requestEditSourceClose = () => {
+    if (editDirty) {
+      showEditSourceCloseConfirm = true;
+    } else {
+      void handleEditSourceClose();
+    }
+  };
+
+  const answerEditSourceCloseConfirm = async (accepted: boolean) => {
+    showEditSourceCloseConfirm = false;
+    if (accepted) {
+      await saveEditSource();
+    } else {
+      await handleEditSourceClose();
+    }
+  };
+
   const handleEditSourceClose = async () => {
     if (routeFiltersViaEditor) {
       await rollbackSourceFilters();
@@ -6853,6 +6884,16 @@
   cancelLabel="No, I will stay"
 />
 
+<StreamConfirmModal
+  open={showEditSourceCloseConfirm}
+  onAnswer={(accepted) => void answerEditSourceCloseConfirm(accepted)}
+  title="Save source changes?"
+  message="This source has unsaved changes. Save them before closing the editor?"
+  ariaLabel="Save source changes"
+  confirmLabel="Save and close"
+  cancelLabel="Close without saving"
+/>
+
 {#if showKeyboardShortcutsHelp}
   <div
     class="modal-backdrop"
@@ -6926,6 +6967,8 @@
         {fontOptions}
         initialTab={editSourceInitialTab}
         showPreview={editorPreviewCard}
+        editDirty={editDirty}
+        on:requestClose={requestEditSourceClose}
         filters={filtersDraft}
         on:close={handleEditSourceClose}
         on:save={saveEditSource}
@@ -7220,6 +7263,8 @@
       {fontOptions}
       initialTab={editSourceInitialTab}
       showPreview={editorPreviewCard}
+      editDirty={editDirty}
+      on:requestClose={requestEditSourceClose}
       filters={filtersDraft}
       on:close={handleEditSourceClose}
       on:save={saveEditSource}
