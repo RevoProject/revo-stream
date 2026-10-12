@@ -33,6 +33,7 @@
 
   type PersistedSettings = {
     root_dir?: string | null;
+    obs_plugins_path?: string | null;
     record_path?: string;
     stream_url?: string;
     stream_key?: string;
@@ -1416,6 +1417,7 @@
     let openAdditionalSettingsInWindows = false;
     let allowDraggablePopups = false;
     let realtimeRefreshSources = false;
+    let obsPluginsPath = "";
     let editorPreviewCard = false;
     let auxWindowMode: "plugins" | "edit-source" | "audio-mixer" | "audio-advanced" | "audio-filters" | null = null;
     let auxWindowSourceId = "";
@@ -2633,6 +2635,7 @@
 
     const applyLoadedSettings = (settings: PersistedSettings) => {
       rootDir = settings.root_dir ?? rootDir;
+      if (typeof settings.obs_plugins_path === "string") obsPluginsPath = settings.obs_plugins_path;
       if (typeof settings.record_path === "string") recordPath = settings.record_path;
       if (typeof settings.stream_url === "string") streamUrl = settings.stream_url;
       if (typeof settings.stream_key === "string") streamKey = settings.stream_key;
@@ -2672,6 +2675,7 @@
 
     const captureCurrentSettingsSnapshot = (): PersistedSettings => ({
       root_dir: rootDir,
+      obs_plugins_path: obsPluginsPath || null,
       record_path: recordPath,
       stream_url: streamUrl,
       stream_key: streamKey,
@@ -3130,6 +3134,7 @@
         await invoke<string>("settings_save", {
           settings: {
             root_dir: rootArg,
+            obs_plugins_path: obsPluginsPath.trim().length ? obsPluginsPath.trim() : null,
             record_path: recordPath,
             stream_url: streamUrl,
             stream_key: streamKey,
@@ -3500,6 +3505,7 @@
         await invoke<string>("settings_save", {
           settings: {
             root_dir: rootArg,
+            obs_plugins_path: obsPluginsPath.trim().length ? obsPluginsPath.trim() : null,
             record_path: recordPath,
             stream_url: streamUrl,
             stream_key: streamKey,
@@ -7140,6 +7146,7 @@
       {demoMode}
       {isObsRunning}
       {version}
+      bind:obsPluginsPath
       bind:recordPath
       bind:streamUrl
       bind:streamKey

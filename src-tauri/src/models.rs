@@ -125,6 +125,8 @@ pub(crate) struct AppSettings {
 	#[serde(default)]
 	pub(crate) autorescale_inputs: Option<bool>,
 	#[serde(default)]
+	pub(crate) obs_plugins_path: Option<String>,
+	#[serde(default)]
 	pub(crate) ui_profile: Option<JsonValue>,
 	#[serde(default = "crate::settings::core::default_active_profile")]
 	pub(crate) active_profile: Option<String>,

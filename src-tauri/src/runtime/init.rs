@@ -217,6 +217,21 @@ pub(crate) fn start(
 	} else {
 		runtime_plugins_dir.join("%module%")
 	};
+	let configured_plugins_dir = crate::settings::core::settings_get()
+		.ok()
+		.and_then(|s| s.obs_plugins_path)
+		.map(|raw| raw.trim().to_string())
+		.filter(|raw| !raw.is_empty())
+		.map(std::path::PathBuf::from)
+		.filter(|p| p.is_dir());
+	let custom_plugins_dir = configured_plugins_dir;
+	let custom_plugin_data_dir = custom_plugins_dir.as_ref().and_then(|dir| {
+		if dir.join("data").is_dir() {
+			Some(dir.join("data").join("%module%"))
+		} else {
+			Some(dir.join("%module%"))
+		}
+	});
 	let legacy_runtime_plugin_data_dir = if legacy_runtime_plugins_dir.join("data").is_dir() {
 		legacy_runtime_plugins_dir.join("data").join("%module%")
 	} else {
@@ -333,6 +348,12 @@ pub(crate) fn start(
 				legacy_runtime_data_dir_c.as_ptr(),
 			);
 		}
+
+		if let (Some(custom_dir), Some(custom_data)) = (custom_plugins_dir.as_ref(), custom_plugin_data_dir.as_ref()) {
+			let custom_bin_dir_c = obs_path(custom_dir, true)?;
+			let custom_data_dir_c = obs_path(custom_data, true)?;
+			revo_lib::obs::obs_add_module_path(custom_bin_dir_c.as_ptr(), custom_data_dir_c.as_ptr());
+		}
 	}
 
 	if !reset_video_audio() {
@@ -372,7 +393,11 @@ pub(crate) fn start(
 				.starts_with(runtime_plugins_dir.to_string_lossy().as_ref())
 				|| module
 					.bin_path
-					.starts_with(legacy_runtime_plugins_dir.to_string_lossy().as_ref());
+					.starts_with(legacy_runtime_plugins_dir.to_string_lossy().as_ref())
+				|| custom_plugins_dir
+					.as_ref()
+					.map(|dir| module.bin_path.starts_with(dir.to_string_lossy().as_ref()))
+					.unwrap_or(false);
 			if is_runtime_plugin && !enabled_plugin_modules.contains(&module.name) {
 				continue;
 			}

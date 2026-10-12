@@ -262,6 +262,7 @@ pub(crate) fn default_settings() -> crate::AppSettings {
 		whip_url: default_whip_url(),
 		auto_retry_preview: Some(true),
 		autorescale_inputs: Some(false),
+		obs_plugins_path: None,
 		ui_profile: None,
 		active_profile: default_active_profile(),
 	}

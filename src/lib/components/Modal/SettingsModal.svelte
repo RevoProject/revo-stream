@@ -11,6 +11,7 @@
   } from "../../theme/revoTheme";
 
   export let rootDir: string;
+  export let obsPluginsPath: string;
   export let demoMode: boolean;
   export let recordPath: string;
   export let streamUrl: string;
@@ -457,6 +458,7 @@
   const buildCloseGuardPayload = () => ({
     rootDir,
     demoMode,
+    obsPluginsPath,
     recordPath,
     streamUrl,
     streamKey,
@@ -2523,6 +2525,11 @@
             <div class="field">
               <label for="root">Project root (optional)</label>
               <input id="root" placeholder="/home/user/Projects/revo-rust" bind:value={rootDir} />
+            </div>
+            <div class="field">
+              <label for="obsPluginsPath">OBS Plugins path (optional)</label>
+              <input id="obsPluginsPath" placeholder="/path/to/obs-plugins" bind:value={obsPluginsPath} />
+              <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;">Directory with OBS plugin modules (.dll / .so). Applied when OBS starts.</p>
             </div>
             <div class="field">
               <label for="previewQuality">Preview quality</label>
