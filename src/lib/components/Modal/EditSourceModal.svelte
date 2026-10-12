@@ -34,8 +34,14 @@
   export let windowMode = false;
   export let allowDraggablePopups = false;
 
+  import FiltersPanel from "../Filters/FiltersPanel.svelte";
+
   type SourceTab = "General" | "Filters" | "Other";
   let activeTab: SourceTab = "General";
+  export let initialTab: SourceTab = "General";
+  export let filters: { id: string; name: string; kind: string; enabled: boolean; locked?: boolean; params: Record<string, string> }[] = [];
+  let filtersPanel: FiltersPanel;
+  let editorFiltersActive = false;
 
   const dispatch = createEventDispatcher();
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -89,6 +95,16 @@
     }
   }
 
+  let wasOpen = false;
+  $: {
+    const isOpen = Boolean(editSource);
+    if (isOpen && !wasOpen) {
+      activeTab = initialTab;
+      editorFiltersActive = initialTab === "Filters";
+    }
+    wasOpen = isOpen;
+  }
+
   $: sourceTypeLabel = (editType || editSource?.source_type || "source")
     .split("_")
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
@@ -138,8 +154,12 @@
   const isProtectedTransformKey = (key: string) => protectedTransformKeys.has(normalizeParamKey(key));
 
   const close = () => dispatch("close");
-  const save = () => dispatch("save");
-  const openFilters = () => dispatch("openFilters");
+  const save = () => {
+    if (editorFiltersActive) {
+      filtersPanel?.commitSave();
+    }
+    dispatch("save");
+  };
 
   const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -624,12 +644,17 @@
         </nav>
 
         {#if activeTab === "Filters"}
-          <section class="tab-empty-state" aria-labelledby="filters-tab-title">
-            <div class="tab-empty-icon" aria-hidden="true">◇</div>
-            <h3 id="filters-tab-title">Source filters</h3>
-            <p>Manage visual filters without leaving the source editor.</p>
-            <button type="button" class="primary" onclick={openFilters}>Open Filters</button>
-          </section>
+          <div id="source-panel-filters" role="tabpanel" aria-labelledby="tab-filters">
+            <FiltersPanel
+              bind:this={filtersPanel}
+              active={activeTab === "Filters"}
+              targetType="source"
+              targetId={editSource?.id ?? ""}
+              {filters}
+              on:change={(e) => dispatch("filtersLiveChange", e.detail)}
+              on:save={(e) => dispatch("filtersSave", e.detail)}
+            />
+          </div>
         {:else}
         {#if activeTab === "General"}
 <div class="editor-grid" id="source-panel-general" role="tabpanel" aria-labelledby="tab-general">
@@ -1504,31 +1529,8 @@
     }
   }
 
-  .tab-empty-state {
-    display: grid;
-    justify-items: center;
-    gap: 0.7rem;
-    min-height: 15rem;
-    align-content: center;
-    text-align: center;
-    color: var(--text-muted);
-  }
 
-  .tab-empty-state h3,
-  .tab-empty-state p {
-    margin: 0;
-  }
 
-  .tab-empty-icon {
-    display: grid;
-    place-items: center;
-    width: 3rem;
-    height: 3rem;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    color: var(--accent);
-    font-size: 1.6rem;
-  }
 
   .modal.window-mode .modal-body {
     overflow-y: auto;

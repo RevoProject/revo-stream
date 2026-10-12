@@ -1278,6 +1278,8 @@
     let filtersTargetLabel = "";
     let filtersDraft: FilterItem[] = [];
     let filtersSnapshotBeforeOpen: FilterItem[] | null = null;
+    let editSourceInitialTab: "General" | "Filters" | "Other" = "General";
+    let routeFiltersViaEditor = false;
     let sourceFiltersLiveTimer: ReturnType<typeof setTimeout> | null = null;
     let sourceFiltersLiveInFlight = false;
     let sourceFiltersLiveQueued: { sourceId: string; filters: FilterItem[] } | null = null;
@@ -4719,6 +4721,7 @@
     const isText = source.source_type?.toLowerCase().includes("text_ft2");
     if (isText) loadSystemFonts();
     editSource = source;
+    editSourceInitialTab = "General";
     editName = source.name;
     editType = source.source_type;
     editParams = {};
@@ -4895,6 +4898,13 @@
     }
     showEditSource = false;
     editSource = null;
+  };
+
+  const handleEditSourceClose = async () => {
+    if (routeFiltersViaEditor) {
+      await rollbackSourceFilters();
+    }
+    await cancelEditSource();
   };
 
   const cancelEditSource = async () => {
@@ -5083,13 +5093,16 @@
     }
   };
 
-  const openSourceFilters = (source: DemoSource) => {
+  const openSourceFilters = async (source: DemoSource) => {
     filtersTargetType = "source";
     filtersTargetId = source.id;
     filtersTargetLabel = source.name;
     filtersDraft = cloneFilterList(sourceFiltersMap[source.id] ?? []);
     filtersSnapshotBeforeOpen = cloneFilterList(sourceFiltersMap[source.id] ?? []);
-    showFiltersModal = true;
+    editSourceInitialTab = "Filters";
+    routeFiltersViaEditor = true;
+    closeSourceMenu();
+    await openEditSource(source);
     closeSourceMenu();
   };
 
@@ -6282,27 +6295,11 @@
   };
 
   const closeFiltersModal = async () => {
-    if (sourceFiltersLiveTimer) {
-      clearTimeout(sourceFiltersLiveTimer);
-      sourceFiltersLiveTimer = null;
-    }
-    sourceFiltersLiveQueued = null;
-
-    if (filtersTargetType === "source" && backendEnabled && filtersSnapshotBeforeOpen) {
-      try {
-        await applySourceFiltersToBackend(filtersTargetId, filtersSnapshotBeforeOpen);
-      } catch (err) {
-        showGlobalDialog(String(err), "error");
-      }
-      sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: cloneFilterList(filtersSnapshotBeforeOpen) };
-    }
-
-    filtersSnapshotBeforeOpen = null;
-    showFiltersModal = false;
+    await rollbackSourceFilters();
   };
 
-  const saveFiltersModal = async (event: CustomEvent<{ filters: FilterItem[] }>) => {
-    const filters = cloneFilterList(event.detail?.filters ?? []);
+  const commitSourceFilters = async (filtersInput?: FilterItem[]) => {
+    const filters = cloneFilterList(filtersInput ?? filtersDraft);
     if (filtersTargetType === "source") {
       sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: filters };
       if (backendEnabled) {
@@ -6323,8 +6320,34 @@
     }
     sourceFiltersLiveQueued = null;
     filtersSnapshotBeforeOpen = null;
+    routeFiltersViaEditor = false;
     showFiltersModal = false;
     showGlobalDialog("Filters saved", "info", 1500);
+  };
+
+  const saveFiltersModal = async (event: CustomEvent<{ filters: FilterItem[] }>) => {
+    await commitSourceFilters(event.detail?.filters ?? []);
+  };
+
+  const rollbackSourceFilters = async () => {
+    if (sourceFiltersLiveTimer) {
+      clearTimeout(sourceFiltersLiveTimer);
+      sourceFiltersLiveTimer = null;
+    }
+    sourceFiltersLiveQueued = null;
+
+    if (filtersTargetType === "source" && backendEnabled && filtersSnapshotBeforeOpen) {
+      try {
+        await applySourceFiltersToBackend(filtersTargetId, filtersSnapshotBeforeOpen);
+      } catch (err) {
+        showGlobalDialog(String(err), "error");
+      }
+      sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: cloneFilterList(filtersSnapshotBeforeOpen) };
+    }
+
+    filtersSnapshotBeforeOpen = null;
+    routeFiltersViaEditor = false;
+    showFiltersModal = false;
   };
 
   const getUniqueName = (base: string, existing: Set<string>) => {
@@ -6897,9 +6920,13 @@
         sourcePropertyEntries={sourcePropertyEntries}
         {extraParamEntries}
         {fontOptions}
-        on:close={cancelEditSource}
+        initialTab={editSourceInitialTab}
+        filters={filtersDraft}
+        on:close={handleEditSourceClose}
         on:save={saveEditSource}
         on:openFilters={() => editSource && openSourceFilters(editSource)}
+        on:filtersLiveChange={handleFiltersLiveChange}
+        on:filtersSave={(e) => void commitSourceFilters(e.detail?.filters ?? [])}
         on:updateName={(e) => updateEditNameValue(e.detail.value)}
         on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
         on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -7186,9 +7213,13 @@
       sourcePropertyEntries={sourcePropertyEntries}
       {extraParamEntries}
       {fontOptions}
-      on:close={cancelEditSource}
+      initialTab={editSourceInitialTab}
+      filters={filtersDraft}
+      on:close={handleEditSourceClose}
       on:save={saveEditSource}
       on:openFilters={() => editSource && openSourceFilters(editSource)}
+      on:filtersLiveChange={handleFiltersLiveChange}
+      on:filtersSave={(e) => void commitSourceFilters(e.detail?.filters ?? [])}
       on:updateName={(e) => updateEditNameValue(e.detail.value)}
       on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
       on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
