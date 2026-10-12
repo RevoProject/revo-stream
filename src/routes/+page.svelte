@@ -591,6 +591,7 @@
         root.style.setProperty("--a11y-color-filter", "none");
       }
 
+      root.classList.toggle("ui-density-smaller", uiDensityMode === "smaller");
       root.classList.toggle("a11y-high-contrast", Boolean(a11y.accessibilityHighContrast));
       root.classList.toggle("a11y-reduce-motion", Boolean(a11y.accessibilityReduceMotion));
       root.classList.toggle("a11y-strong-focus", a11y.accessibilityFocusIndicators !== false);
@@ -1421,6 +1422,7 @@
     let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
     let obsPluginsPath = "";
     let editorPreviewCard = false;
+    let uiDensityMode: "normal" | "smaller" = "normal";
     let auxWindowMode: "plugins" | "edit-source" | "audio-mixer" | "audio-advanced" | "audio-filters" | null = null;
     let auxWindowSourceId = "";
     const auxWindowPendingLabels = new Set<string>();
@@ -2665,6 +2667,7 @@
       openAdditionalSettingsInWindows = Boolean(general.openAdditionalSettingsInWindows);
       editorPreviewCard = Boolean(general.editorPreviewCard);
       autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
+      uiDensityMode = general.uiDensityMode === "smaller" ? "smaller" : "normal";
       allowDraggablePopups = Boolean(general.allowDraggablePopups);
       quickColorHistoryLimit = Math.max(1, Math.min(15, Number(general.quickColorHistoryLimit) || 5));
       realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
@@ -3130,6 +3133,7 @@
     realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
     editorPreviewCard = Boolean(general.editorPreviewCard);
     autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
+    uiDensityMode = general.uiDensityMode === "smaller" ? "smaller" : "normal";
     const a11y = (mergedProfile?.accessibility as AccessibilityUiProfile | undefined) ?? {};
     accessibilityHighContrast = Boolean(a11y.accessibilityHighContrast);
     accessibilityReduceMotion = Boolean(a11y.accessibilityReduceMotion);
@@ -7864,6 +7868,7 @@
     --preview-bg: var(--surface);
     --scene-active-text: var(--text);
     --a11y-font-scale: 1;
+    --ui-density: 1;
     --ui-scale: 1;
     --a11y-font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
     --a11y-color-filter: none;
@@ -7877,8 +7882,12 @@
 
   :global(html) {
     filter: var(--a11y-color-filter);
-    font-size: calc(16px * var(--a11y-font-scale));
+    font-size: calc(16px * var(--a11y-font-scale) * var(--ui-density, 1));
     overflow-x: hidden;
+  }
+
+  :global(html.ui-density-smaller) {
+    --ui-density: 0.88;
   }
 
   :global(html[data-theme="RevoFuture"] body) {

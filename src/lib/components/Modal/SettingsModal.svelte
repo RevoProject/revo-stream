@@ -643,6 +643,7 @@
       realtimeRefreshSources,
       editorPreviewCard,
       autoSaveAfterEdits,
+      uiDensityMode,
       uiLanguage
     },
     output: {
@@ -1121,6 +1122,7 @@
     plannerUndoRedoLimit = readInt(general, "plannerUndoRedoLimit", 5, 1, 50);
     realtimeRefreshSources = readBool(general, "realtimeRefreshSources", false);
     editorPreviewCard = readBool(general, "editorPreviewCard", false);
+    uiDensityMode = String(general.uiDensityMode ?? "normal") === "smaller" ? "smaller" : "normal";
     autoSaveAfterEdits = general.autoSaveAfterEdits !== false;
     uiLanguage = readString(general, "uiLanguage", "en");
 
@@ -1273,6 +1275,7 @@
   let plannerUndoRedoLimit = 5;
   let realtimeRefreshSources = false;
   let editorPreviewCard = false;
+  let uiDensityMode: "normal" | "smaller" = "normal";
   let autoSaveAfterEdits = true;
 
   $: if (openAdditionalSettingsInWindows) {
@@ -2750,6 +2753,14 @@
                     step="1"
                     bind:value={quickColorHistoryLimit}
                   />
+                </div>
+
+                <div class="field">
+                  <label for="uiDensityMode">Interface size</label>
+                  <select id="uiDensityMode" bind:value={uiDensityMode}>
+                    <option value="normal">Normal</option>
+                    <option value="smaller">Smaller</option>
+                  </select>
                 </div>
 
                 <label class="toggle-row" for="editorPreviewCard">
