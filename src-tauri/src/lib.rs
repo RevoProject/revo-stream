@@ -652,6 +652,14 @@ fn obs_get_audio_levels() -> Result<HashMap<String, f64>, String> {
 }
 
 #[tauri::command]
+fn obs_get_source_size(
+    state: tauri::State<ObsState>,
+    source_id: String,
+) -> Result<(u32, u32), String> {
+    runtime::preview::get_source_size(state, source_id)
+}
+
+#[tauri::command]
 fn obs_take_screenshot(
     state: tauri::State<ObsState>,
     width: Option<u32>,
@@ -854,6 +862,7 @@ pub fn run() {
             obs_start_streaming,
             obs_stop_streaming,
             obs_set_encoder_preference,
+            obs_get_source_size,
             obs_take_screenshot,
             obs_get_audio_levels,
             obs_reorder_scene,

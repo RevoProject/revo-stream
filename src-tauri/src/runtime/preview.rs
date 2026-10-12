@@ -84,6 +84,34 @@ pub(crate) fn get_current_scene_resolution(
 	}))
 }
 
+pub(crate) fn get_source_size(
+	state: tauri::State<crate::ObsState>,
+	source_id: String,
+) -> Result<(u32, u32), String> {
+	let mut runtime = state
+		.runtime
+		.lock()
+		.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let item = crate::resolve_scene_item(scene, source_id.trim())
+		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
+	unsafe {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item);
+		if source.is_null() {
+			return Err("source not available".to_string());
+		}
+		let width = revo_lib::obs::obs_source_get_width(source);
+		let height = revo_lib::obs::obs_source_get_height(source);
+		if width == 0 || height == 0 {
+			return Err("source has no base size yet".to_string());
+		}
+		Ok((width.max(1), height.max(1)))
+	}
+}
+
 pub(crate) fn take_screenshot(
 	state: tauri::State<crate::ObsState>,
 	width: Option<u32>,

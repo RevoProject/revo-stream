@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import type { DemoSource } from "../../types";
 
   export let sources: DemoSource[] = [];
@@ -35,6 +36,24 @@
   const MIN_SIZE = 16;
   const PROVISIONAL_SIZE = MIN_SIZE * 4;
   const PROVISIONAL_BASE = MIN_SIZE * 4;
+  let sourceBaseSizes: Record<string, { width: number; height: number }> = {};
+  let pendingBaseSizeIds = new Set<string>();
+  let baseSizesVersion = 0;
+
+  const ensureSourceBaseSize = (source: DemoSource) => {
+    if (sourceBaseSizes[source.id] || pendingBaseSizeIds.has(source.id)) return;
+    pendingBaseSizeIds.add(source.id);
+    void invoke<{ width: number; height: number }>("obs_get_source_size", { sourceId: source.id })
+      .then((size) => {
+        sourceBaseSizes = { ...sourceBaseSizes, [source.id]: size };
+        pendingBaseSizeIds.delete(source.id);
+        baseSizesVersion += 1;
+        syncTransformsFromSources();
+      })
+      .catch(() => {
+        pendingBaseSizeIds.delete(source.id);
+      });
+  };
   const SNAP_THRESHOLD = 10;
   const GRID_SIZE = 20;
 
@@ -216,8 +235,19 @@
       const hasScaleY = params.scale_y != null && String(params.scale_y).trim() !== "";
       const scaleX = hasScaleX ? parseNumber(params.scale_x, 1) : 1;
       const scaleY = hasScaleY ? parseNumber(params.scale_y, 1) : 1;
-      w = scaleX > 0 ? scaleX * PROVISIONAL_BASE : PROVISIONAL_SIZE;
-      h = scaleY > 0 ? scaleY * PROVISIONAL_BASE : PROVISIONAL_SIZE;
+      const base = sourceBaseSizes[source.id];
+      if (base && scaleX > 0 && scaleY > 0) {
+        const cropLeft = parseNumber(params.crop_left, 0);
+        const cropRight = parseNumber(params.crop_right, 0);
+        const cropTop = parseNumber(params.crop_top, 0);
+        const cropBottom = parseNumber(params.crop_bottom, 0);
+        w = Math.max(MIN_SIZE, Math.round(base.width * scaleX) - cropLeft - cropRight);
+        h = Math.max(MIN_SIZE, Math.round(base.height * scaleY) - cropTop - cropBottom);
+      } else {
+        ensureSourceBaseSize(source);
+        w = scaleX > 0 ? scaleX * PROVISIONAL_BASE : PROVISIONAL_SIZE;
+        h = scaleY > 0 ? scaleY * PROVISIONAL_BASE : PROVISIONAL_SIZE;
+      }
     }
     return clampTransform({
       x: parseNumber(params.pos_x, 100),
@@ -249,8 +279,9 @@
       const provisional =
         existing.w <= PROVISIONAL_SIZE ||
         existing.h <= PROVISIONAL_SIZE ||
-        params.dims_ready === "0";
-      if (provisional && dimsReady && itemW > 0 && itemH > 0) {
+        params.dims_ready === "0" ||
+        Boolean(sourceBaseSizes[s.id]);
+      if ((provisional && dimsReady && itemW > 0 && itemH > 0) || (provisional && sourceBaseSizes[s.id])) {
         const rebuilt = buildInitialTransform(s);
         if (!transformEqual(existing, rebuilt)) {
           next[s.id] = rebuilt;
@@ -763,7 +794,7 @@
     };
   });
 
-  $: sources, syncTransformsFromSources();
+  $: [sources, baseSizesVersion], syncTransformsFromSources();
   $: sceneResolution, requestAnimationFrame(updateSceneScale);
   $: showPropertiesPopup, tick().then(() => updateSceneScale());
   $: if (showPropertiesPopup && activeId && activeTransform) {
