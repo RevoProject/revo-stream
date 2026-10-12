@@ -4,6 +4,8 @@
   export let newSourceType: string;
   export let sourceTypes: { id: string; label: string }[];
   export let externalSourceTypes: { id: string; label: string }[] = [];
+  export let loading = false;
+  export let error = "";
 
   const dispatch = createEventDispatcher();
   const close = () => dispatch("close");
@@ -84,8 +86,12 @@
       <h2>Add Source</h2>
     </header>
     <div class="modal-body">
-      {#if !sourceTypes.length && !externalSourceTypes.length}
-        <p role="status">No source types are available. Check OBS initialization and plugin loading.</p>
+      {#if loading}
+        <p class="source-status" role="status">Ładowanie dostępnych źródeł...</p>
+      {:else if error}
+        <p class="source-status source-status-error" role="alert">{error}</p>
+      {:else if !sourceTypes.length && !externalSourceTypes.length}
+        <p class="source-status" role="status">Brak dostępnych źródeł. Sprawdź inicjalizację OBS i ładowanie pluginów.</p>
       {/if}
       <div class="source-grid builtin-grid" role="list">
         {#each sourceTypes as type}
@@ -193,6 +199,20 @@
     color: var(--text);
     cursor: pointer;
     transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .source-status {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .source-status-error {
+    border-color: var(--danger, #ef4444);
+    color: var(--danger, #ef4444);
   }
 
   .external-grid {

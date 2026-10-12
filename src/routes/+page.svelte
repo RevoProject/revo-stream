@@ -1201,6 +1201,8 @@
     let newSourceType = sourceTypes[0].id;
     let availableSourceTypes: SourceTypeItem[] = sourceTypes;
     let externalSourceTypes: SourceTypeItem[] = [];
+    let sourceTypesLoading = false;
+    let sourceTypesError = "";
 
     let showSettings = false;
     let autorescaleInputs = false;
@@ -4407,6 +4409,8 @@
   const openAddSourceModal = async () => {
     externalSourceTypes = [];
     availableSourceTypes = sourceTypes;
+    sourceTypesLoading = backendEnabled && isObsRunning;
+    sourceTypesError = "";
 
     if (backendEnabled && isObsRunning) {
       availableSourceTypes = [];
@@ -4430,7 +4434,12 @@
         });
       } catch (err) {
         console.error("[sources] external source types load error", err);
+        sourceTypesError = "Nie udało się pobrać typów źródeł.";
+      } finally {
+        sourceTypesLoading = false;
       }
+    } else {
+      sourceTypesLoading = false;
     }
 
     if (![...availableSourceTypes, ...externalSourceTypes].some((t) => t.id === newSourceType)) {
@@ -7146,6 +7155,8 @@
       bind:newSourceType
       sourceTypes={availableSourceTypes}
       {externalSourceTypes}
+      loading={sourceTypesLoading}
+      error={sourceTypesError}
       on:close={() => (showAddSource = false)}
       on:add={addSource}
     />
