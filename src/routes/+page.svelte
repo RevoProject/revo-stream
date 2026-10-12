@@ -6897,12 +6897,9 @@
         sourcePropertyEntries={sourcePropertyEntries}
         {extraParamEntries}
         {fontOptions}
-        previewUrl={previewUrl || null}
-        previewLoading={previewInFlight}
         on:close={cancelEditSource}
         on:save={saveEditSource}
         on:openFilters={() => editSource && openSourceFilters(editSource)}
-        on:refreshPreview={requestPreviewUpdate}
         on:updateName={(e) => updateEditNameValue(e.detail.value)}
         on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
         on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -7189,12 +7186,9 @@
       sourcePropertyEntries={sourcePropertyEntries}
       {extraParamEntries}
       {fontOptions}
-      previewUrl={previewUrl || null}
-      previewLoading={previewInFlight}
       on:close={cancelEditSource}
       on:save={saveEditSource}
       on:openFilters={() => editSource && openSourceFilters(editSource)}
-      on:refreshPreview={requestPreviewUpdate}
       on:updateName={(e) => updateEditNameValue(e.detail.value)}
       on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
       on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -7420,8 +7414,8 @@
     <div class="context-menu" style={`top:${previewMenu.y}px; left:${previewMenu.x}px;`} role="menu">
       <button onclick={() => void refreshRenderFrame()}>Refresh render</button>
       <button onclick={() => void openGraphicPlannerFromPreviewMenu()}>Graphic planner</button>
-      <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Open preview in Window</button>
-      <button onclick={() => { closePreviewMenu(); void openScenePreviewInWindow(); }}>Open current scene preview in Window</button>
+      <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Preview - Window</button>
+      <button onclick={() => { closePreviewMenu(); void openScenePreviewInWindow(); }}>Scene preview - Window</button>
     </div>
     <div
       class="context-overlay"
@@ -7465,7 +7459,7 @@
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
         {sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
-      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}>Open current scene preview in Window</button>
+      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}>Scene preview - Window</button>
     </div>
     <div
       class="context-overlay"

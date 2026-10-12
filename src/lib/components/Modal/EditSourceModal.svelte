@@ -38,10 +38,56 @@
   let activeTab: SourceTab = "General";
 
   const dispatch = createEventDispatcher();
-  export let previewUrl: string | null = null;
-  export let previewLoading = false;
-  export let previewError: string | null = null;
-  const refreshPreview = () => dispatch("refreshPreview");
+  import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+  import { onMount } from "svelte";
+
+  let previewUrl: string | null = null;
+  let previewLoading = false;
+  let previewError: string | null = null;
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const refreshPreview = async () => {
+    if (!editSource) return;
+    previewLoading = true;
+    previewError = null;
+    try {
+      const image = await invoke<string>("obs_take_screenshot", {
+        width: 640,
+        height: 360,
+        sourceId: editSource.id
+      });
+      if (typeof image === "string" && image.trim()) {
+        previewUrl = image.startsWith("data:image")
+          ? image
+          : `${convertFileSrc(image)}?t=${Date.now()}`;
+      }
+    } catch (err) {
+      previewError = "Source preview unavailable.";
+    } finally {
+      previewLoading = false;
+    }
+  };
+
+  const stopPreviewTimer = () => {
+    if (previewTimer) {
+      clearInterval(previewTimer);
+      previewTimer = null;
+    }
+  };
+
+  onMount(() => {
+    void refreshPreview();
+    previewTimer = setInterval(() => { void refreshPreview(); }, 2500);
+    return stopPreviewTimer;
+  });
+  let lastPreviewSourceId = "";
+  $: {
+    const id = editSource?.id ?? "";
+    if (id && id !== lastPreviewSourceId) {
+      lastPreviewSourceId = id;
+      void refreshPreview();
+    }
+  }
 
   $: sourceTypeLabel = (editType || editSource?.source_type || "source")
     .split("_")
@@ -547,11 +593,11 @@
         <div class="modal-title-row">
           <div class="source-type-icon" aria-hidden="true">▣</div>
           <div>
-            <h2>Edit Source</h2>
+            <h2><span class="title-pencil" aria-hidden="true">✎</span> Edit Source</h2>
             <p class="source-subtitle">{sourceTypeLabel} · {editName || editSource.name}</p>
           </div>
         </div>
-        <button class="icon" aria-label="Close edit source" onclick={close}>
+        <button class="titlebar-close" aria-label="Close edit source" onclick={close}>
           ✕
         </button>
       </header>
@@ -1307,6 +1353,36 @@
   .tab-icon {
     font-size: 1rem;
     line-height: 1;
+  }
+
+  .title-pencil {
+    color: var(--accent, #4c8dff);
+    margin-right: 0.35rem;
+    font-size: 0.95em;
+  }
+
+  .titlebar-close {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    background: var(--surface-3, rgba(128, 128, 128, 0.14));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 1rem;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .titlebar-close:hover {
+    background: var(--surface-4, rgba(128, 128, 128, 0.24));
+    border-color: var(--text-muted);
+    color: var(--text);
   }
 
   .source-type-icon {
