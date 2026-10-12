@@ -138,6 +138,8 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      min-width: 0;
+      max-width: 100%;
       height: 100%;
     }
 
@@ -178,11 +180,16 @@
       align-items: start;
       overflow: auto;
       min-height: 0;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
       flex: 1 1 auto;
     }
 
     .scene-item {
       width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       display: flex;
       align-items: center;
     }
@@ -212,6 +219,8 @@
 
     .scene-rename {
       width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       padding: 0.4rem 0.6rem;
       border-radius: 0.4rem;
       border: 1px solid var(--border-strong);
