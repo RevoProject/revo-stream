@@ -2653,6 +2653,13 @@
 
       currentUiProfile = settings.ui_profile ?? null;
       const general = (settings.ui_profile?.general as Record<string, unknown> | undefined) ?? {};
+      // DEMO mode must never come back enabled on startup, even briefly.
+      if (demoMode) {
+        demoMode = false;
+        scenes = [];
+        sourcesList = [];
+        void requestPreviewUpdate();
+      }
       openAdditionalSettingsInWindows = Boolean(general.openAdditionalSettingsInWindows);
       editorPreviewCard = Boolean(general.editorPreviewCard);
       allowDraggablePopups = Boolean(general.allowDraggablePopups);
