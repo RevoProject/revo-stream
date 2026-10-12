@@ -41,8 +41,19 @@ pub(crate) fn set_current_scene_internal(
 
 	unsafe {
 		if !runtime.transition_source.is_null() {
-			// Transition source zarzadza showing/dec_showing wewnetrznie
-			revo_lib::obs::obs_transition_set(runtime.transition_source, next.scene_source);
+			if runtime.program_transition_kind != "cut" && runtime.program_transition_duration_ms > 0 {
+				// Animated program transition: play from current scene to the
+				// newly selected one; the transition source keeps showing frames.
+				revo_lib::obs::obs_transition_start(
+					runtime.transition_source,
+					revo_lib::obs::obs_transition_mode_OBS_TRANSITION_MODE_AUTO,
+					runtime.program_transition_duration_ms,
+					next.scene_source,
+				);
+			} else {
+				// Transition source zarzadza showing/dec_showing wewnetrznie
+				revo_lib::obs::obs_transition_set(runtime.transition_source, next.scene_source);
+			}
 		} else {
 			revo_lib::obs::obs_set_output_source(0, next.scene_source);
 			revo_lib::obs::obs_source_inc_showing(next.scene_source);

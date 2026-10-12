@@ -130,6 +130,19 @@
                 </select>
               </div>
 
+              <label class="toggle-row transition-program-toggle" for="transitionShowInProgram">
+                <span>Show in Program</span>
+                <span class="toggle">
+                  <input
+                    id="transitionShowInProgram"
+                    type="checkbox"
+                    checked={(selectedTransitionItem.params.show_in_program ?? "false") === "true"}
+                    onchange={(e) => updateTransitionParam(selectedTransitionItem.id, "show_in_program", (e.currentTarget as HTMLInputElement).checked ? "true" : "false")}
+                  />
+                  <span class="slider"></span>
+                </span>
+              </label>
+
               {#if selectedTransitionItem.kind === "fade" || selectedTransitionItem.kind === "swipe" || selectedTransitionItem.kind === "slide" || selectedTransitionItem.kind === "fade_to_color" || selectedTransitionItem.kind === "luma_wipe"}
                 <div class="field">
                   <label for="transitionDuration">Duration (ms)</label>
@@ -271,6 +284,57 @@
 {/if}
 
 <style>
+  .transition-program-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .transition-program-toggle .toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex: 0 0 auto;
+  }
+
+  .transition-program-toggle .toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .transition-program-toggle .slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--surface-3, rgba(128, 128, 128, 0.3));
+    border: 1px solid var(--border);
+    transition: background-color 0.15s ease;
+  }
+
+  .transition-program-toggle .slider::before {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 2px;
+    border-radius: 50%;
+    background: var(--text-muted, #ccc);
+    transition: transform 0.15s ease, background-color 0.15s ease;
+  }
+
+  .transition-program-toggle .toggle input:checked + .slider {
+    background: var(--accent, #4c8dff);
+  }
+
+  .transition-program-toggle .toggle input:checked + .slider::before {
+    transform: translateX(17px);
+    background: #fff;
+  }
+
   .modal-backdrop {
     position: fixed;
     inset: 0;

@@ -45,6 +45,8 @@ struct ObsRuntime {
     scene_resolution: String,
     planner_init: Option<PlannerInit>,
     transition_source: *mut obs::obs_source,
+    program_transition_kind: String,
+    program_transition_duration_ms: u32,
 }
 
 impl Default for ObsRuntime {
@@ -70,6 +72,8 @@ impl Default for ObsRuntime {
             scene_resolution: "1920x1080".to_string(),
             planner_init: None,
             transition_source: std::ptr::null_mut(),
+            program_transition_kind: "cut".to_string(),
+            program_transition_duration_ms: 300,
         }
     }
 }
@@ -171,6 +175,15 @@ fn set_current_scene_internal(runtime: &mut ObsRuntime, name: &str) -> Result<()
 #[tauri::command]
 fn obs_list_scenes(state: tauri::State<ObsState>) -> Result<Vec<SceneInfo>, String> {
     scenes::scene_ops::list_scenes(state)
+}
+
+#[tauri::command]
+fn obs_set_program_transition(
+    state: tauri::State<ObsState>,
+    kind: String,
+    duration_ms: Option<u32>,
+) -> Result<String, String> {
+    scenes::scene_ops::set_program_transition(state, kind, duration_ms)
 }
 
 #[tauri::command]
@@ -827,6 +840,7 @@ pub fn run() {
             obs_version,
             obs_list_scenes,
             obs_set_current_scene,
+            obs_set_program_transition,
             obs_create_scene,
             obs_rename_scene,
             obs_remove_scene,

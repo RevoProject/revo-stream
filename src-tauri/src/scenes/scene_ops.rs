@@ -34,6 +34,79 @@ pub(crate) fn list_scenes(
 	Ok(list)
 }
 
+const PROGRAM_TRANSITION_TYPES: &[(&str, &str)] = &[
+    ("cut", "cut_transition"),
+    ("fade", "fade_transition"),
+    ("swipe", "swipe_transition"),
+    ("slide", "slide_transition"),
+    ("fade_to_color", "fade_to_color_transition"),
+    ("luma_wipe", "luma_wipe_transition"),
+    ("stinger", "stinger_transition"),
+];
+
+pub(crate) fn set_program_transition(
+    state: tauri::State<crate::ObsState>,
+    kind: String,
+    duration_ms: Option<u32>,
+) -> Result<String, String> {
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    let trimmed = kind.trim();
+    let duration = duration_ms.unwrap_or(300).max(50).min(20_000);
+    let type_id = PROGRAM_TRANSITION_TYPES
+        .iter()
+        .find(|(key, _)| *key == trimmed)
+        .map(|(_, type_id)| *type_id)
+        .ok_or_else(|| format!("unknown transition kind: {trimmed}"))?;
+
+    unsafe {
+        let needs_new = runtime.transition_source.is_null()
+            || runtime.program_transition_kind != trimmed;
+        if needs_new {
+            if !runtime.transition_source.is_null() {
+                revo_lib::obs::obs_set_output_source(0, std::ptr::null_mut());
+                revo_lib::obs::obs_source_release(runtime.transition_source);
+                runtime.transition_source = std::ptr::null_mut();
+            }
+            let type_c = std::ffi::CString::new(type_id)
+                .map_err(|_| "transition type invalid".to_string())?;
+            let name_c = std::ffi::CString::new("revo_program_transition")
+                .map_err(|_| "transition name invalid".to_string())?;
+            let transition = revo_lib::obs::obs_source_create(
+                type_c.as_ptr(),
+                name_c.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            if transition.is_null() {
+                return Err(format!("failed to create transition source: {type_id}"));
+            }
+            revo_lib::obs::obs_set_output_source(0, transition);
+            runtime.transition_source = transition;
+        }
+
+        if let Some(current) = runtime.current_scene.as_deref() {
+            if let Some(current_state) = runtime.scenes.get(current) {
+                if !current_state.scene_source.is_null() {
+                    revo_lib::obs::obs_transition_set(
+                        runtime.transition_source,
+                        current_state.scene_source,
+                    );
+                }
+            }
+        }
+    }
+
+    runtime.program_transition_kind = trimmed.to_string();
+    runtime.program_transition_duration_ms = duration;
+    Ok(format!("program transition: {trimmed} ({duration}ms)"))
+}
+
 pub(crate) fn set_current_scene(
 	state: tauri::State<crate::ObsState>,
 	name: String,

@@ -3323,6 +3323,34 @@
     }
   };
 
+  const programTransitionTypeMap: Record<string, string> = {
+    cut: "cut_transition",
+    fade: "fade_transition",
+    swipe: "swipe_transition",
+    slide: "slide_transition",
+    fade_to_color: "fade_to_color_transition",
+    luma_wipe: "luma_wipe_transition",
+    stinger: "stinger_transition"
+  };
+
+  const applyProgramTransition = async () => {
+    if (!tauriAvailable || !isObsRunning) return;
+    const active = getActiveTransition();
+    if (!active) return;
+    if ((active.params?.show_in_program ?? "false") !== "true") return;
+    const kind = programTransitionTypeMap[active.kind];
+    if (!kind) return;
+    const duration = Number(active.params?.duration_ms ?? 300);
+    try {
+      await invoke<string>("obs_set_program_transition", {
+        kind: active.kind,
+        durationMs: Number.isFinite(duration) ? Math.max(50, Math.min(20000, Math.round(duration))) : 300
+      });
+    } catch (err) {
+      showGlobalDialog(`Program transition unavailable: ${String(err)}`, "warning", 2200);
+    }
+  };
+
   const transitionKinds = [
     { value: "cut", label: "Cut" },
     { value: "fade", label: "Fade" },
@@ -3339,6 +3367,9 @@
         ? { ...t, params: { ...(t.params ?? {}), [key]: value } }
         : t
     );
+    if (id === activeTransitionId && (key === "show_in_program" || key === "duration_ms")) {
+      void applyProgramTransition();
+    }
   };
 
   const updateTransitionName = (id: string, value: string) => {
@@ -3506,6 +3537,7 @@
     }
     const mergedProfile = mergeTransitionsIntoProfile(currentUiProfile);
     currentUiProfile = mergedProfile;
+    void applyProgramTransition();
     if (tauriAvailable) {
       try {
         const rootArg = rootDir.trim().length ? rootDir.trim() : null;
@@ -3887,6 +3919,7 @@
       const startMsg = await invoke<string>("obs_start", { root_dir: rootArg });
       if (!silent) {
         showGlobalDialog(startMsg, "info");
+        void applyProgramTransition();
       }
       isObsRunning = true;
       await loadVersion();
@@ -7231,7 +7264,10 @@
     {pickStingerMediaFile}
     {pickStingerSequenceFolder}
     setTransitionsSelectedId={(id) => (transitionsSelectedId = id)}
-    setActiveTransitionId={(id) => (activeTransitionId = id)}
+    setActiveTransitionId={(id) => {
+      activeTransitionId = id;
+      void applyProgramTransition();
+    }}
     setTransitionNewKind={(kind) => (transitionNewKind = kind)}
     setTransitionNewName={(name) => (transitionNewName = name)}
     {handleBackdropKey}
