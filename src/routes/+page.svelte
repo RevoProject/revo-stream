@@ -1416,6 +1416,7 @@
     let openAdditionalSettingsInWindows = false;
     let allowDraggablePopups = false;
     let realtimeRefreshSources = false;
+    let editorPreviewCard = false;
     let auxWindowMode: "plugins" | "edit-source" | "audio-mixer" | "audio-advanced" | "audio-filters" | null = null;
     let auxWindowSourceId = "";
     const auxWindowPendingLabels = new Set<string>();
@@ -2648,6 +2649,7 @@
       currentUiProfile = settings.ui_profile ?? null;
       const general = (settings.ui_profile?.general as Record<string, unknown> | undefined) ?? {};
       openAdditionalSettingsInWindows = Boolean(general.openAdditionalSettingsInWindows);
+      editorPreviewCard = Boolean(general.editorPreviewCard);
       allowDraggablePopups = Boolean(general.allowDraggablePopups);
       quickColorHistoryLimit = Math.max(1, Math.min(15, Number(general.quickColorHistoryLimit) || 5));
       realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
@@ -3110,6 +3112,7 @@
     allowDraggablePopups = Boolean(general.allowDraggablePopups);
     quickColorHistoryLimit = Math.max(1, Math.min(15, Number(general.quickColorHistoryLimit) || 5));
     realtimeRefreshSources = Boolean(general.realtimeRefreshSources);
+    editorPreviewCard = Boolean(general.editorPreviewCard);
     const a11y = (mergedProfile?.accessibility as AccessibilityUiProfile | undefined) ?? {};
     accessibilityHighContrast = Boolean(a11y.accessibilityHighContrast);
     accessibilityReduceMotion = Boolean(a11y.accessibilityReduceMotion);
@@ -6922,6 +6925,7 @@
         {extraParamEntries}
         {fontOptions}
         initialTab={editSourceInitialTab}
+        showPreview={editorPreviewCard}
         filters={filtersDraft}
         on:close={handleEditSourceClose}
         on:save={saveEditSource}
@@ -7215,6 +7219,7 @@
       {extraParamEntries}
       {fontOptions}
       initialTab={editSourceInitialTab}
+      showPreview={editorPreviewCard}
       filters={filtersDraft}
       on:close={handleEditSourceClose}
       on:save={saveEditSource}

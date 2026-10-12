@@ -40,6 +40,7 @@
   type SourceTab = "General" | "Filters" | "Other";
   let activeTab: SourceTab = "General";
   export let initialTab: SourceTab = "General";
+  export let showPreview = false;
   export let filters: { id: string; name: string; kind: string; enabled: boolean; locked?: boolean; params: Record<string, string> }[] = [];
   let filtersPanel: FiltersPanel;
   let editorFiltersActive = false;
@@ -597,6 +598,7 @@
     <div
       class="modal"
       class:window-mode={windowMode}
+      class:with-preview={showPreview}
       class:draggable-popup={allowDraggablePopups && !windowMode}
       bind:this={modalEl}
       role="dialog"
@@ -658,7 +660,7 @@
           </div>
         {:else}
         {#if activeTab === "General"}
-<div class="editor-grid" id="source-panel-general" role="tabpanel" aria-labelledby="tab-general">
+<div class="editor-grid" class:with-preview={showPreview} id="source-panel-general" role="tabpanel" aria-labelledby="tab-general">
 <div class="editor-column">
         <div class="field">
           <label for="editName">Name</label>
@@ -1018,6 +1020,7 @@
         {/if}
         </div>
 
+  {#if showPreview}
   <aside class="editor-card preview-card">
     <div class="card-heading"><span class="card-icon" aria-hidden="true">◉</span><div><h3>Preview</h3><p>{previewLoading ? "Updating preview..." : previewError || "Live source preview"}</p></div></div>
     <div class="preview-frame">
@@ -1028,6 +1031,7 @@
     </div>
     <button type="button" class="ghost preview-refresh" onclick={refreshPreview} disabled={previewLoading}>↻ Refresh Preview</button>
   </aside>
+  {/if}
 </div>
         {/if}
 
@@ -1293,6 +1297,10 @@
       transition: width 0.2s ease;
     }
   .modal {
+    width: min(640px, 95vw);
+  }
+
+  .modal.with-preview {
     width: min(1060px, 95vw);
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -1435,9 +1443,13 @@
 
   .editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     align-items: start;
+  }
+
+  .editor-grid.with-preview {
+    grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
   }
 
   .editor-column {

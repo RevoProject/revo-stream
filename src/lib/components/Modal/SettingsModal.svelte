@@ -554,6 +554,7 @@
       quickColorHistoryLimit,
       plannerUndoRedoLimit,
       realtimeRefreshSources,
+      editorPreviewCard,
       uiLanguage
     },
     output: {
@@ -1027,6 +1028,7 @@
     quickColorHistoryLimit = readInt(general, "quickColorHistoryLimit", 5, 1, 15);
     plannerUndoRedoLimit = readInt(general, "plannerUndoRedoLimit", 5, 1, 50);
     realtimeRefreshSources = readBool(general, "realtimeRefreshSources", false);
+    editorPreviewCard = readBool(general, "editorPreviewCard", false);
     uiLanguage = readString(general, "uiLanguage", "en");
 
     outputTab = readString(output, "outputTab", "Streaming") as "Streaming" | "Recording" | "Audio";
@@ -1177,6 +1179,7 @@
   let quickColorHistoryLimit = 5;
   let plannerUndoRedoLimit = 5;
   let realtimeRefreshSources = false;
+  let editorPreviewCard = false;
 
   $: if (openAdditionalSettingsInWindows) {
     allowDraggablePopups = false;
@@ -2625,6 +2628,18 @@
                     bind:value={quickColorHistoryLimit}
                   />
                 </div>
+
+                <label class="toggle-row" for="editorPreviewCard">
+                  <span>Show preview card in source editor</span>
+                  <span class="toggle">
+                    <input
+                      id="editorPreviewCard"
+                      type="checkbox"
+                      bind:checked={editorPreviewCard}
+                    />
+                    <span class="slider"></span>
+                  </span>
+                </label>
 
                 <label class="toggle-row" for="realtimeRefreshSources">
                   <span>Realtime refresh sources while editing</span>
