@@ -6897,9 +6897,12 @@
         sourcePropertyEntries={sourcePropertyEntries}
         {extraParamEntries}
         {fontOptions}
+        previewUrl={previewUrl || null}
+        previewLoading={previewInFlight}
         on:close={cancelEditSource}
         on:save={saveEditSource}
         on:openFilters={() => editSource && openSourceFilters(editSource)}
+        on:refreshPreview={requestPreviewUpdate}
         on:updateName={(e) => updateEditNameValue(e.detail.value)}
         on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
         on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}
@@ -7186,9 +7189,12 @@
       sourcePropertyEntries={sourcePropertyEntries}
       {extraParamEntries}
       {fontOptions}
+      previewUrl={previewUrl || null}
+      previewLoading={previewInFlight}
       on:close={cancelEditSource}
       on:save={saveEditSource}
       on:openFilters={() => editSource && openSourceFilters(editSource)}
+      on:refreshPreview={requestPreviewUpdate}
       on:updateName={(e) => updateEditNameValue(e.detail.value)}
       on:updateParam={(e) => updateParamValue(e.detail.key, e.detail.value)}
       on:renameParam={(e) => renameParamKey(e.detail.oldKey, e.detail.newKey)}

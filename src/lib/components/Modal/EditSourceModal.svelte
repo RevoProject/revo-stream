@@ -38,6 +38,15 @@
   let activeTab: SourceTab = "General";
 
   const dispatch = createEventDispatcher();
+  export let previewUrl: string | null = null;
+  export let previewLoading = false;
+  export let previewError: string | null = null;
+  const refreshPreview = () => dispatch("refreshPreview");
+
+  $: sourceTypeLabel = (editType || editSource?.source_type || "source")
+    .split("_")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
   let newParamKey = "";
   let newParamValue = "";
   let modalEl: HTMLDivElement | null = null;
@@ -506,22 +515,35 @@
     >
       <header class="modal-header">
         <div class="modal-title-row">
-          <h2>Editing Source: {editName || editSource.name}</h2>
+          <div class="source-type-icon" aria-hidden="true">▣</div>
+          <div>
+            <h2>Edit Source</h2>
+            <p class="source-subtitle">{sourceTypeLabel} · {editName || editSource.name}</p>
+          </div>
         </div>
         <button class="icon" aria-label="Close edit source" onclick={close}>
           ✕
         </button>
       </header>
       <div class="modal-body">
-        <nav class="source-tabs" aria-label="Source editor sections">
-          {#each ["General", "Filters", "Other"] as tab}
+        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+    <nav class="source-tabs" aria-label="Source editor sections" role="tablist">
+          {#each (["General", "Filters", "Other"] as const) as tab}
             <button
               type="button"
               class:active={activeTab === tab}
               aria-selected={activeTab === tab}
+              aria-controls={`source-panel-${tab.toLowerCase()}`}
               role="tab"
+              tabindex={activeTab === tab ? 0 : -1}
+              onkeydown={(event) => {
+                const tabs: SourceTab[] = ["General", "Filters", "Other"];
+                const index = tabs.indexOf(tab);
+                if (event.key === "ArrowRight" || event.key === "ArrowDown") activeTab = tabs[(index + 1) % 3];
+                if (event.key === "ArrowLeft" || event.key === "ArrowUp") activeTab = tabs[(index + 2) % 3];
+              }}
               onclick={() => (activeTab = tab as SourceTab)}
-            >{tab}</button>
+            ><span class="tab-icon" aria-hidden="true">{tab === "General" ? "⚙" : tab === "Filters" ? "◈" : "•••"}</span>{tab}</button>
           {/each}
         </nav>
 
@@ -534,6 +556,8 @@
           </section>
         {:else}
         {#if activeTab === "General"}
+<div class="editor-grid" id="source-panel-general" role="tabpanel" aria-labelledby="tab-general">
+<div class="editor-column">
         <div class="field">
           <label for="editName">Name</label>
           <input
@@ -806,15 +830,10 @@
                 value={editParams.device && String(editParams.device).trim().length ? editParams.device : (audioDevices[0]?.id ?? "")}
                 onchange={(e) => updateParam("device", (e.currentTarget as HTMLSelectElement).value)}
               >
-                {#if !audioDevices.length}
-                  <option value="" disabled>Brak dostępnych urządzeń</option>
-                {/if}
-                {#if audioDevices.length}
-                  <option value={audioDevices[0]?.id ?? ""}>Domyślne</option>
-                  {#each audioDevices as dev}
-                    <option value={dev.id}>{dev.name}</option>
-                  {/each}
-                {/if}
+                <option value={audioDevices[0]?.id ?? ""}>Default</option>
+                {#each audioDevices as dev}
+                  <option value={dev.id}>{dev.name}</option>
+                {/each}
               </select>
             {:else if hasPropertyOptions(field.key)}
               <select
@@ -892,6 +911,19 @@
             </label>
           </div>
         {/if}
+        </div>
+
+  <aside class="editor-card preview-card">
+    <div class="card-heading"><span class="card-icon" aria-hidden="true">◉</span><div><h3>Preview</h3><p>{previewLoading ? "Updating preview..." : previewError || "Live source preview"}</p></div></div>
+    <div class="preview-frame">
+      {#if previewLoading}<span class="preview-message">Loading preview...</span>
+      {:else if previewError}<span class="preview-message error">{previewError}</span>
+      {:else if previewUrl}<img src={previewUrl} alt={`Preview of ${editName || editSource.name}`} />
+      {:else}<span class="preview-message">Preview unavailable</span>{/if}
+    </div>
+    <button type="button" class="ghost preview-refresh" onclick={refreshPreview} disabled={previewLoading}>↻ Refresh Preview</button>
+  </aside>
+</div>
         {/if}
 
         {#if activeTab === "Other"}
@@ -1156,7 +1188,7 @@
       transition: width 0.2s ease;
     }
   .modal {
-    width: min(620px, 95vw);
+    width: min(1060px, 95vw);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 16px;
@@ -1207,26 +1239,160 @@
   .source-tabs {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.35rem;
+    gap: 0.25rem;
     margin-bottom: 1rem;
-    padding: 0.25rem;
-    border: 1px solid var(--border);
-    border-radius: 0.75rem;
-    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    background: transparent;
   }
 
   .source-tabs button {
-    min-height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-height: 2.5rem;
+    padding: 0 1rem;
     border: 0;
-    border-radius: 0.55rem;
+    border-bottom: 2px solid transparent;
+    border-radius: 0.5rem 0.5rem 0 0;
     background: transparent;
     color: var(--text-muted);
     font-weight: 650;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .source-tabs button:hover {
+    color: var(--text);
   }
 
   .source-tabs button.active {
-    background: var(--accent);
-    color: var(--text-on-accent, #fff);
+    border-bottom-color: var(--accent);
+    background: transparent;
+    color: var(--accent, #4c8dff);
+  }
+
+  .tab-icon {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .source-type-icon {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    background: var(--surface-3, rgba(128, 128, 128, 0.12));
+    color: var(--accent, #4c8dff);
+    font-size: 1.1rem;
+    flex: 0 0 auto;
+  }
+
+  .source-subtitle {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .editor-column {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .editor-card {
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    background: var(--surface-2);
+    padding: 1rem;
+    display: grid;
+    gap: 0.85rem;
+    min-width: 0;
+  }
+
+  .card-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  .card-heading .card-icon {
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    color: var(--accent, #4c8dff);
+    flex: 0 0 auto;
+  }
+
+  .card-heading h3 {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .card-heading p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  .preview-card {
+    position: sticky;
+    top: 0;
+  }
+
+  .preview-frame {
+    display: grid;
+    place-items: center;
+    min-height: 180px;
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    background: #0b0e14;
+    overflow: hidden;
+  }
+
+  .preview-frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .preview-message {
+    padding: 1rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
+  .preview-message.error {
+    color: var(--danger, #ef4444);
+  }
+
+  .preview-refresh {
+    justify-self: start;
+  }
+
+  @media (max-width: 900px) {
+    .editor-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .preview-card {
+      position: static;
+    }
   }
 
   .tab-empty-state {
