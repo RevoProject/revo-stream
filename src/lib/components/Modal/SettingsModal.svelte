@@ -2,6 +2,7 @@
 
 <script lang="ts">
   import Icon from "../UI/Icon.svelte";
+  import StreamConfirmModal from "../QuickModal/StreamConfirmModal.svelte";
   import { createEventDispatcher, onDestroy, onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import {
@@ -471,6 +472,57 @@
   let unsavedFocusYes = false;
   let wasUnsavedDialogOpen = false;
 
+  const toggleStreamKeyReveal = () => {
+    if (streamKeyRevealTimer) {
+      clearTimeout(streamKeyRevealTimer);
+      streamKeyRevealTimer = null;
+    }
+    showStreamKey = true;
+    streamKeyRevealTimer = setTimeout(() => {
+      showStreamKey = false;
+      streamKeyRevealTimer = null;
+    }, 5000);
+  };
+
+  const copyStreamKey = async () => {
+    try {
+      await navigator.clipboard.writeText(streamKey);
+    } catch {
+      // clipboard may be unavailable; ignore
+    }
+  };
+
+  const beginStreamKeyAction = async (action: "copy" | "reveal") => {
+    if (!showStreamKeyRiskConfirm && !showStreamKey) {
+      streamKeyCopyPending = action === "copy";
+      showStreamKeyRiskConfirm = true;
+      return;
+    }
+    if (action === "copy") {
+      await copyStreamKey();
+    } else {
+      toggleStreamKeyReveal();
+    }
+  };
+
+  const answerStreamKeyRiskConfirm = async (accepted: boolean) => {
+    showStreamKeyRiskConfirm = false;
+    if (!accepted) {
+      streamKeyCopyPending = false;
+      return;
+    }
+    const action = streamKeyCopyPending ? "copy" : "reveal";
+    streamKeyCopyPending = false;
+    await beginStreamKeyAction(action);
+  };
+
+  onDestroy(() => {
+    if (streamKeyRevealTimer) {
+      clearTimeout(streamKeyRevealTimer);
+      streamKeyRevealTimer = null;
+    }
+  });
+
   const buildCloseGuardPayload = () => ({
     rootDir,
     demoMode,
@@ -769,6 +821,10 @@
   let audioChannels = "stereo";
   let audioDesktopDevice = "disabled";
   let audioMicDevice = "disabled";
+  let showStreamKey = false;
+  let streamKeyRevealTimer: ReturnType<typeof setTimeout> | null = null;
+  let showStreamKeyRiskConfirm = false;
+  let streamKeyCopyPending = false;
   let audioMonitoringDevice = "default";
   let audioMonitoringLowLatency = false;
 
@@ -1994,7 +2050,29 @@
               <label for="stream">URL</label>
               <input id="stream" placeholder="rtmp://server/live" bind:value={streamUrl} />
               <label for="streamKey">Key</label>
-              <input id="streamKey" placeholder="key" bind:value={streamKey} />
+              <div class="key-input-row">
+                <input
+                  id="streamKey"
+                  placeholder="key"
+                  type={showStreamKey ? "text" : "password"}
+                  autocomplete="off"
+                  bind:value={streamKey}
+                />
+                <button
+                  type="button"
+                  class="ghost key-action"
+                  title="Copy key to clipboard"
+                  aria-label="Copy stream key"
+                  onclick={() => void beginStreamKeyAction("copy")}
+                ><Icon name="copy" size={14} /></button>
+                <button
+                  type="button"
+                  class="ghost key-action"
+                  title={showStreamKey ? "Hide key" : "Show key for 5 seconds"}
+                  aria-label={showStreamKey ? "Hide stream key" : "Show stream key for 5 seconds"}
+                  onclick={() => void beginStreamKeyAction("reveal")}
+                ><Icon name={showStreamKey ? "eye" : "eye"} size={14} /></button>
+              </div>
               <span>Supports protocol rtmp, rtmps, srt, rist, whip, webrtc</span>
             </div>
           {:else if active === 'Audio'}
@@ -2750,6 +2828,16 @@
   </div>
 {/if}
 
+<StreamConfirmModal
+  open={showStreamKeyRiskConfirm}
+  onAnswer={(accepted: boolean) => void answerStreamKeyRiskConfirm(accepted)}
+  title="Sensitive stream key"
+  message="Your stream key is sensitive data. Anyone with this key can stream to your channel and it could be misused for malicious purposes. Copying or revealing it is done at your own risk."
+  ariaLabel="Sensitive stream key"
+  confirmLabel="I accept the risk"
+  cancelLabel="Cancel"
+/>
+
 <style>
   .modal-backdrop {
     position: fixed;
@@ -2771,6 +2859,26 @@
     display: block;
     padding: 0;
     overflow: hidden;
+  }
+
+  .key-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .key-input-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .key-action {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    flex: 0 0 auto;
   }
 
   .modal.draggable-popup {
