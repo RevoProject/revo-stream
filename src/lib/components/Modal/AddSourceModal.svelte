@@ -9,6 +9,26 @@
   const close = () => dispatch("close");
   const add = () => dispatch("add");
 
+  const polishSourceLabels: Record<string, string> = {
+    browser_source: "Przeglądarka",
+    image_source: "Obraz",
+    ffmpeg_source: "Media",
+    text_ft2_source: "Tekst",
+    text_ft2_source_v2: "Tekst",
+    color_source: "Kolor",
+    color_source_v2: "Kolor",
+    window_capture: "Przechwytywanie okna",
+    display_capture: "Przechwytywanie ekranu",
+    xcomposite_input: "Przechwytywanie ekranu",
+    pulse_input_capture: "Wejście audio",
+    pulse_output_capture: "Wyjście audio",
+    v4l2_input: "Kamera / urządzenie wideo",
+    video_capture: "Kamera / urządzenie wideo",
+    slideshow: "Pokaz slajdów"
+  };
+
+  const sourceLabel = (type: { id: string; label: string }) => polishSourceLabels[type.id] ?? type.label;
+
   const iconMap: Record<string, string> = {
     browser_source: `
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm7.7 9h-3.2a15.7 15.7 0 0 0-1.2-5.1 8 8 0 0 1 4.4 5.1Zm-5.3 0H9.6A13.7 13.7 0 0 1 12 4.6 13.7 13.7 0 0 1 14.4 11Zm-6.8 2h6.8A13.7 13.7 0 0 1 12 19.4 13.7 13.7 0 0 1 9.6 13Zm6.8 0h4.8a13.7 13.7 0 0 1-2.4 6.4 13.7 13.7 0 0 1-2.4-6.4Zm-6.9-2H4.3a8 8 0 0 1 4.4-5.1A15.7 15.7 0 0 0 7.5 11Zm0 2a15.7 15.7 0 0 0 1.2 5.1 8 8 0 0 1-4.4-5.1h3.2Z"/></svg>
@@ -73,12 +93,12 @@
             type="button"
             class="source-card"
             onclick={() => handlePick(type.id)}
-            aria-label={`Add ${type.label}`}
+            aria-label={`Dodaj ${sourceLabel(type)}`}
           >
             <div class="icon" aria-hidden="true">
               {@html iconMap[type.id] ?? ''}
             </div>
-            <div class="label">{type.label}</div>
+            <div class="label">{sourceLabel(type)}</div>
           </button>
         {/each}
       </div>
@@ -92,12 +112,12 @@
                 type="button"
                 class="source-card external-card"
                 onclick={() => handlePick(type.id)}
-                aria-label={`Add ${type.label}`}
+                aria-label={`Dodaj ${sourceLabel(type)}`}
               >
                 <div class="icon" aria-hidden="true">
                   {@html iconMap[type.id] ?? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a4 4 0 0 1 4 4v1h2a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4h-2v1a4 4 0 0 1-8 0v-1H6a4 4 0 0 1-4-4v-2a4 4 0 0 1 4-4h2V6a4 4 0 0 1 4-4Zm0 2a2 2 0 0 0-2 2v3h4V6a2 2 0 0 0-2-2Zm6 5H6a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2Zm-8 8v1a2 2 0 1 0 4 0v-1h-4Z"/></svg>'}
                 </div>
-                <div class="label">{type.label}</div>
+                <div class="label">{sourceLabel(type)}</div>
               </button>
             {/each}
           </div>

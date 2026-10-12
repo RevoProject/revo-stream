@@ -806,10 +806,15 @@
                 value={editParams.device && String(editParams.device).trim().length ? editParams.device : (audioDevices[0]?.id ?? "")}
                 onchange={(e) => updateParam("device", (e.currentTarget as HTMLSelectElement).value)}
               >
-                <option value={audioDevices[0]?.id ?? ""}>Default</option>
-                {#each audioDevices as dev}
-                  <option value={dev.id}>{dev.name}</option>
-                {/each}
+                {#if !audioDevices.length}
+                  <option value="" disabled>Brak dostępnych urządzeń</option>
+                {/if}
+                {#if audioDevices.length}
+                  <option value={audioDevices[0]?.id ?? ""}>Domyślne</option>
+                  {#each audioDevices as dev}
+                    <option value={dev.id}>{dev.name}</option>
+                  {/each}
+                {/if}
               </select>
             {:else if hasPropertyOptions(field.key)}
               <select
