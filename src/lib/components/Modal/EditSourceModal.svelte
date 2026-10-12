@@ -341,6 +341,36 @@
   $: isAudioSource = editType === "pulse_input_capture" || editType === "pulse_output_capture";
   $: isTextSource = editType === "text_ft2_source" || editType === "text_ft2_source_v2";
   $: isMediaSource = editType === "ffmpeg_source";
+
+  type ParamSchemaField = { key: string; label: string; placeholder: string };
+  const paramRowPairs: [string, string][] = [
+    ["pos_x", "pos_y"],
+    ["width", "height"],
+    ["item_width", "item_height"]
+  ];
+  const groupParamRows = (fields: ParamSchemaField[]): ParamSchemaField[][] => {
+    const rows: ParamSchemaField[][] = [];
+    let index = 0;
+    while (index < fields.length) {
+      const field = fields[index];
+      const next = fields[index + 1];
+      const pair = next && paramRowPairs.find(([a, b]) => field.key === a && next.key === b);
+      if (pair) {
+        rows.push([field, next]);
+        index += 2;
+      } else {
+        rows.push([field]);
+        index += 1;
+      }
+    }
+    return rows;
+  };
+  $: visibleSchemaFields = (sourceParamSchemas[editType] ?? []).filter(
+    (field) =>
+      !(isTextSource && isManagedTextKey(field.key)) &&
+      !(isMediaSource && isManagedMediaKey(field.key))
+  );
+  $: paramFieldRows = groupParamRows(visibleSchemaFields);
   $: isSlideshowSource = editType === "slideshow";
   $: slideshowFiles = isSlideshowSource
     ? (() => {
@@ -763,14 +793,16 @@
           </div>
         {/if}
 
-        {#each (sourceParamSchemas[editType] ?? []) as field}
-          {#if !(isTextSource && isManagedTextKey(field.key)) && !(isMediaSource && isManagedMediaKey(field.key))}
-          <div class="field">
-            <label for={`param-${field.key}`}>{field.label}</label>
-            {#if field.key === "color"}
+        {#each paramFieldRows as row}
+          <div class="field-row" class:two-col={row.length === 2}>
+            {#each row as field}
+            <div class="field">
+              <label for={`param-${field.key}`}>{field.label}</label>
+              {#if field.key === "color"}
               <div class="color-input">
                 <input
                   id={`param-${field.key}`}
+                  class="compact"
                   type="text"
                   value={editParams[field.key] ?? ""}
                   placeholder={field.placeholder}
@@ -874,7 +906,8 @@
               />
             {/if}
           </div>
-          {/if}
+            {/each}
+          </div>
         {/each}
 
         {#if isAudioSource}
@@ -1511,6 +1544,20 @@
 
   .slider-input .slider-value {
     text-align: right;
+  }
+
+  .field-row {
+    display: grid;
+    gap: 0.85rem;
+    min-width: 0;
+  }
+
+  .field-row.two-col {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  input.compact {
+    max-width: 130px;
   }
 
   .param-value {
