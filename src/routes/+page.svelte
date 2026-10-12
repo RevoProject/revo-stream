@@ -4711,8 +4711,9 @@
     }
   };
 
-  const openEditSource = async (source: DemoSource) => {
+  const openEditSource = async (source: DemoSource, initialTab: "General" | "Filters" | "Other" = "General") => {
     if (openAdditionalSettingsInWindows && auxWindowMode !== "edit-source") {
+      editSourceInitialTab = initialTab;
       await openAuxSettingsWindow("edit-source", source.id);
       closeSourceMenu();
       return;
@@ -4721,7 +4722,7 @@
     const isText = source.source_type?.toLowerCase().includes("text_ft2");
     if (isText) loadSystemFonts();
     editSource = source;
-    editSourceInitialTab = "General";
+    editSourceInitialTab = initialTab;
     editName = source.name;
     editType = source.source_type;
     editParams = {};
@@ -5099,10 +5100,9 @@
     filtersTargetLabel = source.name;
     filtersDraft = cloneFilterList(sourceFiltersMap[source.id] ?? []);
     filtersSnapshotBeforeOpen = cloneFilterList(sourceFiltersMap[source.id] ?? []);
-    editSourceInitialTab = "Filters";
     routeFiltersViaEditor = true;
     closeSourceMenu();
-    await openEditSource(source);
+    await openEditSource(source, "Filters");
     closeSourceMenu();
   };
 
