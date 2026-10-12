@@ -472,16 +472,33 @@
   let unsavedFocusYes = false;
   let wasUnsavedDialogOpen = false;
 
-  const toggleStreamKeyReveal = () => {
+  let streamKeyRevealSeconds = 0;
+
+  const stopStreamKeyReveal = () => {
     if (streamKeyRevealTimer) {
-      clearTimeout(streamKeyRevealTimer);
+      clearInterval(streamKeyRevealTimer);
       streamKeyRevealTimer = null;
     }
+    streamKeyRevealSeconds = 0;
+    showStreamKey = false;
+  };
+
+  const toggleStreamKeyReveal = () => {
+    if (showStreamKey) {
+      stopStreamKeyReveal();
+      return;
+    }
+    if (streamKeyRevealTimer) {
+      clearInterval(streamKeyRevealTimer);
+    }
     showStreamKey = true;
-    streamKeyRevealTimer = setTimeout(() => {
-      showStreamKey = false;
-      streamKeyRevealTimer = null;
-    }, 5000);
+    streamKeyRevealSeconds = 5;
+    streamKeyRevealTimer = setInterval(() => {
+      streamKeyRevealSeconds -= 1;
+      if (streamKeyRevealSeconds <= 0) {
+        stopStreamKeyReveal();
+      }
+    }, 1000);
   };
 
   const copyStreamKey = async () => {
@@ -518,7 +535,7 @@
 
   onDestroy(() => {
     if (streamKeyRevealTimer) {
-      clearTimeout(streamKeyRevealTimer);
+      clearInterval(streamKeyRevealTimer);
       streamKeyRevealTimer = null;
     }
   });
@@ -2061,22 +2078,24 @@
                   autocomplete="off"
                   bind:value={streamKey}
                 />
-                <button
-                  type="button"
-                  class="ghost key-action"
-                  title="Copy key to clipboard"
-                  aria-label="Copy stream key"
-                  onclick={() => void beginStreamKeyAction("copy")}
-                ><Icon name="copy" size={14} /></button>
-                <button
-                  type="button"
-                  class="ghost key-action"
-                  title={showStreamKey ? "Hide key" : "Show key for 5 seconds"}
-                  aria-label={showStreamKey ? "Hide stream key" : "Show stream key for 5 seconds"}
-                  onclick={() => void beginStreamKeyAction("reveal")}
-                ><Icon name={showStreamKey ? "eye" : "eye"} size={14} /></button>
+                <div class="key-input-actions">
+                  <button
+                    type="button"
+                    class="key-action"
+                    title="Copy key to clipboard"
+                    aria-label="Copy stream key"
+                    onclick={() => void beginStreamKeyAction("copy")}
+                  ><Icon name="copy" size={14} /></button>
+                  <button
+                    type="button"
+                    class="key-action"
+                    title={showStreamKey ? "Hide key" : "Show key for 5 seconds"}
+                    aria-label={showStreamKey ? "Hide stream key" : "Show stream key for 5 seconds"}
+                    onclick={() => void beginStreamKeyAction("reveal")}
+                  ><Icon name={showStreamKey ? "eye" : "eye"} size={14} /></button>
+                </div>
               </div>
-              <span>Supports protocol rtmp, rtmps, srt, rist, whip, webrtc</span>
+              <span>Supports protocol rtmp, rtmps, srt, rist, whip, webrtc{#if showStreamKey} (Show in {streamKeyRevealSeconds} {streamKeyRevealSeconds === 1 ? "sec" : "secs"}){/if}</span>
             </div>
           {:else if active === 'Audio'}
             <div class="section-block">
@@ -2877,23 +2896,44 @@
   }
 
   .key-input-row {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 0.4rem;
   }
 
   .key-input-row input {
     flex: 1 1 auto;
     min-width: 0;
+    padding-right: 76px;
+  }
+
+  .key-input-actions {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    z-index: 1;
   }
 
   .key-action {
     display: inline-grid;
     place-items: center;
-    width: 36px;
-    height: 36px;
+    width: 30px;
+    height: 28px;
     padding: 0;
-    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .key-action:hover {
+    background: var(--surface-3, rgba(128, 128, 128, 0.18));
+    color: var(--text);
   }
 
   .modal.draggable-popup {
