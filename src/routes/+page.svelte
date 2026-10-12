@@ -84,6 +84,7 @@
     id: string;
     label: string;
   };
+  type AudioDevice = { id: string; name: string };
 
   type SourcePropertyOption = {
     value: string;

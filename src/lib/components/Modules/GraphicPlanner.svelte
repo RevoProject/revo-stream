@@ -157,6 +157,20 @@
     return { width: +m[1], height: +m[2] };
   };
 
+  const defaultTransform = (): Transform => ({
+    x: 0,
+    y: 0,
+    w: PROVISIONAL_SIZE,
+    h: PROVISIONAL_SIZE,
+    rot: 0,
+    cropL: 0,
+    cropR: 0,
+    cropT: 0,
+    cropB: 0
+  });
+
+  const clampRange = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
   const clampTransform = (transform: Transform) => {
     const { width, height } = getSceneSize();
     let w = Math.max(MIN_SIZE, Math.min(width, transform.w));
@@ -566,6 +580,7 @@
       cropT: isFinite(patch.cropT ?? prev.cropT) ? (patch.cropT ?? prev.cropT) : prev.cropT,
       cropB: isFinite(patch.cropB ?? prev.cropB) ? (patch.cropB ?? prev.cropB) : prev.cropB,
     };
+    const sceneSize = getSceneSize();
     next.w = clampRange(next.w, MIN_SIZE, sceneSize.width * 2);
     next.h = clampRange(next.h, MIN_SIZE, sceneSize.height * 2);
     next.x = clampRange(next.x, -99999, 99999);
