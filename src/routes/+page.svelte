@@ -3938,6 +3938,10 @@
       showGlobalDialog("Backend unavailable (not running in Tauri)", "error");
       return;
     }
+    const wasInitializing = appInitializing;
+    appInitializing = true;
+    appInitializationError = "";
+    appInitializationMessage = "Starting revo-lib (powered by libobs)...";
     busy = true;
     // message = "";
     try {
@@ -3976,8 +3980,11 @@
       }
     } catch (err) {
       showGlobalDialog(String(err), "error");
+      appInitializationError = String(err);
+      appInitializationMessage = "revo-lib startup failed";
     } finally {
       busy = false;
+      if (!wasInitializing && !appInitializationError) appInitializing = false;
     }
   };
   const stopObsInternal = async (silent = false) => {
@@ -6937,7 +6944,12 @@
 {#if appInitializing}
   <div class="startup-screen" role="status" aria-live="polite" aria-busy="true">
     <div class="startup-card">
-      <div class="startup-logo" aria-hidden="true">R</div>
+      <div class="startup-logo" aria-hidden="true">
+        <svg viewBox="0 0 40 40" focusable="false">
+          <path fill="currentColor" d="M7 7h15.5C30.5 7 35 11.2 35 17.3c0 5-3.1 8.5-8.1 9.5L35 33H25.8l-7.3-8.1H14V33H7V7Zm7 6v5.9h7.7c2.5 0 4-1.1 4-3s-1.5-2.9-4-2.9H14Z"></path>
+          <path fill="currentColor" opacity=".72" d="M4 5h5v30H4z"></path>
+        </svg>
+      </div>
       <div class="startup-brand">RevoStream</div>
       <div class="startup-message">{appInitializationError || appInitializationMessage}</div>
       {#if appInitializationError}
@@ -8693,13 +8705,14 @@
   .startup-logo {
     display: grid;
     place-items: center;
-    width: 3.5rem;
-    height: 3.5rem;
-    border: 2px solid var(--accent, #6ea8ff);
-    border-radius: 1rem;
+    width: 4rem;
+    height: 4rem;
     color: var(--accent, #6ea8ff);
-    font-size: 2rem;
-    font-weight: 800;
+  }
+
+  .startup-logo svg {
+    width: 100%;
+    height: 100%;
   }
 
   .startup-brand {
