@@ -35,6 +35,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Record build metadata
+        shell: bash
+        run: |
+          {
+            echo "### Linux x64 build metadata"
+            echo ""
+            echo "- Commit: `${{ github.sha }}`"
+            echo "- Ref: `${{ github.ref_name }}`"
+            echo "- Run: `${{ github.run_id }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -90,6 +100,16 @@ jobs:
       # ----------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Record build metadata
+        shell: bash
+        run: |
+          {
+            echo "### Windows x64 build metadata"
+            echo ""
+            echo "- Commit: `${{ github.sha }}`"
+            echo "- Ref: `${{ github.ref_name }}`"
+            echo "- Run: `${{ github.run_id }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -213,6 +233,16 @@ jobs:
       # ----------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Record build metadata
+        shell: bash
+        run: |
+          {
+            echo "### macOS ${{ matrix.arch }} build metadata"
+            echo ""
+            echo "- Commit: `${{ github.sha }}`"
+            echo "- Ref: `${{ github.ref_name }}`"
+            echo "- Run: `${{ github.run_id }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -492,16 +522,26 @@ jobs:
         id: devtag
         shell: bash
         run: |
+          set -euo pipefail
           TAG="build-$(date -u +%Y%m%d-%H%M)"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} already exists in history — refusing to overwrite. Re-run in the next minute for a fresh tag."
+            exit 1
+          fi
+          REMOTE_TAG_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | cut -f1 || true)"
+          if [ -n "${REMOTE_TAG_SHA}" ]; then
+            echo "::error::Tag ${TAG} already exists on the remote (created by another run) — refusing to overwrite."
+            exit 1
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Dev release tag: ${TAG}"
+          echo "Dev release tag: ${TAG} (will point to commit ${{ github.sha }})"
       - name: Build release notes
         env:
           DEV_TAG: ${{ steps.devtag.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' --match 'build-*' 2>/dev/null || true)"
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' --match '*.*.*' --match 'build-*' 2>/dev/null || true)"
           if [ -n "${LAST_TAG}" ]; then
             COMMIT_LIST="$(git log --pretty=format:'- %s' "${LAST_TAG}..HEAD" || true)"
           else
@@ -513,6 +553,8 @@ jobs:
             echo "This is an automated developer build of RevoStream. It may be unstable and **should not be used in production**."
             echo ""
             echo "- Build tag: \`${DEV_TAG}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Workflow run: \`${{ github.run_id }}\`"
             if [ -n "${LAST_TAG}" ]; then
               echo "- Changes since: \`${LAST_TAG}\`"
             else
@@ -534,6 +576,7 @@ jobs:
         with:
           tag_name: ${{ steps.devtag.outputs.tag }}
           name: ${{ steps.devtag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           prerelease: true
           make_latest: "false"
           fail_on_unmatched_files: true
@@ -549,3 +592,19 @@ jobs:
             release/windows/**/*.zip
             release/macos-arm64/**/*.dmg
             release/macos-x64/**/*.dmg
+      - name: Write dev release summary
+        env:
+          DEV_TAG: ${{ steps.devtag.outputs.tag }}
+        shell: bash
+        run: |
+          {
+            echo "### Dev release published"
+            echo ""
+            echo "- Tag: \`${DEV_TAG}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "Published files:"
+            echo '```'
+            find release -type f -print | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
