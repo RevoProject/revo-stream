@@ -250,7 +250,7 @@
 
   .external-card .label {
     font-size: 0.86rem;
-    text-align: left;
+    text-align: center;
     line-height: 1.2;
   }
 
@@ -287,7 +287,9 @@
   .label {
     font-size: 0.95rem;
     text-align: center;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .modal-actions {
