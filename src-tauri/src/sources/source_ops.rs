@@ -1,5 +1,11 @@
 use tauri::Manager;
 
+const OBS_SOURCE_CAP_DISABLED: u32 = 1 << 10;
+
+fn should_expose_source_type(output_flags: u32, debug_build: bool) -> bool {
+	debug_build || output_flags & OBS_SOURCE_CAP_DISABLED == 0
+}
+
 pub(crate) fn list_external_source_types(
 	state: tauri::State<crate::ObsState>,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
@@ -28,6 +34,11 @@ pub(crate) fn list_external_source_types(
 			if !id_ptr.is_null() {
 				let id = std::ffi::CStr::from_ptr(id_ptr).to_string_lossy().to_string();
 				if !id.trim().is_empty() {
+					let output_flags = revo_lib::obs::obs_get_source_output_flags(id_ptr);
+					if !should_expose_source_type(output_flags, cfg!(debug_assertions)) {
+						idx += 1;
+						continue;
+					}
 					if id == "browser_source" && crate::sources::browser::chromium_binary().is_none() {
 						idx += 1;
 						continue;
@@ -52,6 +63,18 @@ pub(crate) fn list_external_source_types(
 	out.sort_by(|a, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
 	out.dedup_by(|a, b| a.id == b.id);
 	Ok(out)
+}
+
+#[cfg(test)]
+mod source_type_visibility_tests {
+	use super::{should_expose_source_type, OBS_SOURCE_CAP_DISABLED};
+
+	#[test]
+	fn internal_source_types_are_debug_only() {
+		assert!(should_expose_source_type(OBS_SOURCE_CAP_DISABLED, true));
+		assert!(!should_expose_source_type(OBS_SOURCE_CAP_DISABLED, false));
+		assert!(should_expose_source_type(0, false));
+	}
 }
 
 pub(crate) fn list_sources(
