@@ -183,12 +183,22 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.05rem 0.85rem;
+    min-width: 0;
     display: grid;
     gap: 0.5rem;
     place-items: center;
     color: var(--text);
     cursor: pointer;
     transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .source-card .label {
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .source-status {
