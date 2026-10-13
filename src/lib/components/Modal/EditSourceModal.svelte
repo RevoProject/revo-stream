@@ -40,6 +40,7 @@
   type SourceTab = "General" | "Filters" | "Other";
   let activeTab: SourceTab = "General";
   export let initialTab: SourceTab = "General";
+  export let filtersTitle = "";
   export let showPreview = false;
   export let editDirty = false;
   const requestClose = () => {
@@ -668,6 +669,7 @@
               active={activeTab === "Filters"}
               targetType="source"
               targetId={editSource?.id ?? ""}
+              title={filtersTitle}
               {filters}
               on:change={(e) => dispatch("filtersLiveChange", e.detail)}
               on:save={(e) => dispatch("filtersSave", e.detail)}

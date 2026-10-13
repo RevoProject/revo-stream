@@ -25,6 +25,7 @@
   export let active = false;
   export let targetType: "source" | "scene" = "source";
   export let targetId = "";
+  export let title = "";
   export let filters: FilterItem[] = [];
 
   const dispatch = createEventDispatcher();
@@ -305,6 +306,10 @@
   }
 </script>
 
+{#if title}
+  <h3 class="filters-panel-title">{title}</h3>
+{/if}
+
 <div class="filters-shell">
   <aside class="filters-sidebar">
     <div class="filters-sidebar-list">
@@ -453,6 +458,13 @@
 {/if}
 
 <style>
+  .filters-panel-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
   .filters-shell {
     display: grid;
     grid-template-columns: 260px minmax(0, 1fr);

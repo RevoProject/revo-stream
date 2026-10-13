@@ -1290,6 +1290,7 @@
     let filtersTargetLabel = "";
     let filtersDraft: FilterItem[] = [];
     let filtersSnapshotBeforeOpen: FilterItem[] | null = null;
+    let filtersSourceCategory: "graphic" | "image" | "video" = "graphic";
     let editSourceInitialTab: "General" | "Filters" | "Other" = "General";
     let routeFiltersViaEditor = false;
     let sourceFiltersLiveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -5233,7 +5234,40 @@
     }
   };
 
+  const isImageSourceLike = (type: string) => {
+    const t = (type ?? "").toLowerCase();
+    return t === "image_source" || t === "slideshow" || t.startsWith("color_source") || t.includes("image");
+  };
+
+  const isVideoSourceLike = (type: string) => {
+    const t = (type ?? "").toLowerCase();
+    return (
+      t === "ffmpeg_source" ||
+      t === "window_capture" ||
+      t === "xcomposite_input" ||
+      t.startsWith("xshm") ||
+      t.includes("monitor_capture") ||
+      t.includes("video_capture") ||
+      t.includes("v4l2") ||
+      t.includes("game_capture")
+    );
+  };
+
+  const sourceFiltersTitle = () =>
+    filtersSourceCategory === "image"
+      ? "Image Filters"
+      : filtersSourceCategory === "video"
+        ? "Video Filters"
+        : "Graphic Filters";
+
   const openSourceFilters = async (source: DemoSource) => {
+    closeSourceMenu();
+    if (isAudioDeviceSourceType(source.source_type ?? "")) {
+      await openAudioMixerFilters(source.id);
+      return;
+    }
+    const type = (source.source_type ?? "").toLowerCase();
+    filtersSourceCategory = isImageSourceLike(type) ? "image" : isVideoSourceLike(type) ? "video" : "graphic";
     filtersTargetType = "source";
     filtersTargetId = source.id;
     filtersTargetLabel = source.name;
@@ -7107,6 +7141,7 @@
         initialTab={editSourceInitialTab}
         showPreview={editorPreviewCard}
         editDirty={editDirty}
+        filtersTitle={sourceFiltersTitle()}
         on:requestClose={requestEditSourceClose}
         filters={filtersDraft}
         on:close={handleEditSourceClose}
@@ -7413,6 +7448,7 @@
       initialTab={editSourceInitialTab}
       showPreview={editorPreviewCard}
       editDirty={editDirty}
+      filtersTitle={sourceFiltersTitle()}
       on:requestClose={requestEditSourceClose}
       filters={filtersDraft}
       on:close={handleEditSourceClose}
@@ -7433,6 +7469,7 @@
   <FiltersModal
     open={showFiltersModal}
     targetType={filtersTargetType}
+    sourceCategory={filtersSourceCategory}
     targetId={filtersTargetId}
     targetLabel={filtersTargetLabel}
     filters={filtersDraft}

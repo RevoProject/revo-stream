@@ -13,9 +13,17 @@
 
   export let open = false;
   export let targetType: "source" | "scene" = "source";
+  export let sourceCategory: "graphic" | "image" | "video" = "graphic";
   export let targetId = "";
   export let targetLabel = "";
   export let filters: FilterItem[] = [];
+
+  const sourceFiltersTitle = () => {
+    if (targetType !== "source") return "Scene Filters";
+    if (sourceCategory === "image") return "Image Filters";
+    if (sourceCategory === "video") return "Video Filters";
+    return "Graphic Filters";
+  };
 
   const dispatch = createEventDispatcher<{
     close: void;
@@ -33,7 +41,7 @@
   <div class="modal-backdrop" role="button" tabindex="0" onclick={close} onkeydown={(e) => e.key === "Escape" && close()}>
     <div class="modal" role="dialog" aria-modal="true" tabindex="0" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <header class="filters-header">
-        <h2>{targetType === "source" ? "Graphic Filters" : "Scene Filters"}</h2>
+        <h2>{sourceFiltersTitle()}</h2>
         <button class="close-x" onclick={close} aria-label="Close filters">✕</button>
       </header>
       <p class="muted">{targetLabel}</p>
