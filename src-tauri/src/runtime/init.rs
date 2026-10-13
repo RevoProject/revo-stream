@@ -370,6 +370,7 @@ pub(crate) fn start(
 
 	unsafe {
 		let mut candidates: Vec<ModuleCandidate> = Vec::new();
+		let mut loaded_module_paths = std::collections::HashSet::new();
 		revo_lib::obs::obs_find_modules2(
 			Some(collect_module_candidate),
 			&mut candidates as *mut _ as *mut std::os::raw::c_void,
@@ -384,6 +385,15 @@ pub(crate) fn start(
 		];
 
 		for module in candidates {
+			let module_path = std::path::Path::new(&module.bin_path);
+			let module_key = std::fs::canonicalize(module_path)
+				.unwrap_or_else(|_| module_path.to_path_buf())
+				.to_string_lossy()
+				.to_string();
+			if !loaded_module_paths.insert(module_key.clone()) {
+				eprintln!("[plugins] skipped duplicate module path {} ({module_key})", module.name);
+				continue;
+			}
 			let normalized_name = module.name.to_lowercase();
 
 			let blocked = blocked_modules
