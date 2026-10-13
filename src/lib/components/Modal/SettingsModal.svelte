@@ -2896,12 +2896,16 @@
 
   .modal {
     width: min(920px, 96vw);
-    max-height: 96vh;
+    box-sizing: border-box;
+    height: min(860px, calc(100dvh - 2.5rem));
+    max-height: calc(100dvh - 2.5rem);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-    display: block;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    min-height: 0;
     padding: 0;
     overflow: hidden;
   }
@@ -2955,6 +2959,7 @@
     display: grid;
     grid-template-columns: 200px 1fr;
     min-height: 0;
+    overflow: hidden;
   }
 
   /* RevoFuture-only settings chrome (hidden in RevoClassic) */
@@ -3084,9 +3089,9 @@
     padding-top: 12px;
     padding-bottom: 20px;
     overflow: auto;
-    height: clamp(320px, calc(100vh - 210px), 530px);
+    height: auto;
     min-height: 0;
-    max-height: calc(100vh - 210px);
+    max-height: none;
     display: grid;
     align-content: start;
     grid-auto-rows: max-content;
