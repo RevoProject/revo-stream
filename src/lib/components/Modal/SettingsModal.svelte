@@ -13,6 +13,9 @@
 
   export let rootDir: string;
   export let obsPluginsPath: string;
+  export let obsVstEnabled: boolean;
+  export let obsWebsocketEnabled: boolean;
+  export let obsWebsocketPassword: string;
   export let demoMode: boolean;
   export let recordPath: string;
   export let streamUrl: string;
@@ -544,6 +547,9 @@
     rootDir,
     demoMode,
     obsPluginsPath,
+    obsVstEnabled,
+    obsWebsocketEnabled,
+    obsWebsocketPassword,
     recordPath,
     streamUrl,
     streamKey,
@@ -2649,6 +2655,24 @@
               <label for="obsPluginsPath">OBS Plugins path (optional)</label>
               <input id="obsPluginsPath" placeholder="/path/to/obs-plugins" bind:value={obsPluginsPath} />
               <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;">Directory with OBS plugin modules (.dll / .so). Applied when OBS starts.</p>
+            </div>
+            <div class="field">
+              <label class="checkbox" for="obsVstEnabled">
+                <input id="obsVstEnabled" type="checkbox" bind:checked={obsVstEnabled} />
+                Load obs-vst module (VST 2.x audio filter)
+              </label>
+              <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;">Optional. VST plugin path is chosen per audio filter instance. Applied when OBS starts.</p>
+            </div>
+            <div class="field">
+              <label class="checkbox" for="obsWebsocketEnabled">
+                <input id="obsWebsocketEnabled" type="checkbox" bind:checked={obsWebsocketEnabled} />
+                Load obs-websocket module (remote control API)
+              </label>
+            </div>
+            <div class="field">
+              <label for="obsWebsocketPassword">obs-websocket password</label>
+              <input id="obsWebsocketPassword" type="password" placeholder="empty = no auth required" bind:value={obsWebsocketPassword} />
+              <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;">Port 4455. Written to the OBS config when OBS starts; restart OBS to apply changes.</p>
             </div>
             <div class="field">
               <label for="previewQuality">Preview quality</label>

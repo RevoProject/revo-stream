@@ -170,6 +170,22 @@ pub(crate) fn normalize_settings(settings: &mut crate::AppSettings) {
 
 	settings.auto_retry_preview = Some(settings.auto_retry_preview.unwrap_or(true));
 	settings.autorescale_inputs = Some(settings.autorescale_inputs.unwrap_or(false));
+	settings.obs_vst_enabled = Some(settings.obs_vst_enabled.unwrap_or(false));
+	settings.obs_websocket_enabled = Some(settings.obs_websocket_enabled.unwrap_or(false));
+
+	let websocket_password = settings
+		.obs_websocket_password
+		.as_deref()
+		.unwrap_or("")
+		.trim()
+		.replace(['\r', '\n'], "")
+		.trim()
+		.to_string();
+	settings.obs_websocket_password = if websocket_password.is_empty() {
+		None
+	} else {
+		Some(websocket_password)
+	};
 
 	if settings.ui_profile.as_ref().is_some_and(|v| !v.is_object()) {
 		settings.ui_profile = None;
@@ -237,6 +253,18 @@ pub(crate) fn parse_settings_raw(raw: &str) -> crate::AppSettings {
 		if let Some(v) = obj.get("autorescale_inputs").and_then(|v| v.as_bool()) {
 			settings.autorescale_inputs = Some(v);
 		}
+		if let Some(v) = obj.get("obs_plugins_path").and_then(|v| v.as_str()) {
+			settings.obs_plugins_path = Some(v.to_string());
+		}
+		if let Some(v) = obj.get("obs_vst_enabled").and_then(|v| v.as_bool()) {
+			settings.obs_vst_enabled = Some(v);
+		}
+		if let Some(v) = obj.get("obs_websocket_enabled").and_then(|v| v.as_bool()) {
+			settings.obs_websocket_enabled = Some(v);
+		}
+		if let Some(v) = obj.get("obs_websocket_password").and_then(|v| v.as_str()) {
+			settings.obs_websocket_password = Some(v.to_string());
+		}
 		if let Some(v) = obj.get("ui_profile") {
 			settings.ui_profile = if v.is_object() { Some(v.clone()) } else { None };
 		}
@@ -263,6 +291,9 @@ pub(crate) fn default_settings() -> crate::AppSettings {
 		auto_retry_preview: Some(true),
 		autorescale_inputs: Some(false),
 		obs_plugins_path: None,
+		obs_vst_enabled: Some(false),
+		obs_websocket_enabled: Some(false),
+		obs_websocket_password: None,
 		ui_profile: None,
 		active_profile: default_active_profile(),
 	}

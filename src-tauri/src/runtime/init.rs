@@ -129,6 +129,46 @@ unsafe extern "C" fn collect_module_candidate(
 	});
 }
 
+// obs-websocket reads its settings from the frontend global config
+// (global.ini, section [obs-websocket]). The module loads them when
+// obs_init_module runs, so the file must be updated before module loading.
+// Passwords live in plaintext inside the INI file, same as OBS Studio does.
+fn write_websocket_config(conf_dir: &std::path::Path, password: &str) -> Result<(), String> {
+	let path = conf_dir.join("global.ini");
+	let existing = std::fs::read_to_string(&path).unwrap_or_default();
+
+	let mut out: Vec<String> = Vec::new();
+	let mut in_websocket_section = false;
+	for line in existing.lines() {
+		let trimmed = line.trim();
+		if trimmed.starts_with('[') && trimmed.ends_with(']') {
+			in_websocket_section = trimmed.eq_ignore_ascii_case("[obs-websocket]");
+			if in_websocket_section {
+				continue;
+			}
+		}
+		if !in_websocket_section {
+			out.push(line.to_string());
+		}
+	}
+	while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+		out.pop();
+	}
+
+	let password = password.trim().replace(['\r', '\n'], "");
+	out.push(String::new());
+	out.push("[obs-websocket]".to_string());
+	out.push("ServerEnabled=true".to_string());
+	out.push("ServerPort=4455".to_string());
+	out.push(format!("AuthRequired={}", !password.is_empty()));
+	if !password.is_empty() {
+		out.push(format!("ServerPassword={password}"));
+	}
+
+	std::fs::write(&path, format!("{}\n", out.join("\n")))
+		.map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 pub(crate) fn start(
 	state: tauri::State<crate::ObsState>,
 	root_dir: Option<String>,
@@ -163,6 +203,9 @@ pub(crate) fn start(
 		std::env::set_var("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe");
 	}
 
+	let mut obs_vst_enabled = false;
+	let mut obs_websocket_enabled = false;
+	let mut obs_websocket_password = String::new();
 	if let Ok(settings) = crate::settings::core::settings_get() {
 		let pref = settings
 			.encoder_preference
@@ -175,6 +218,9 @@ pub(crate) fn start(
 			}
 			_ => crate::VideoEncoderPreference::Hardware,
 		};
+		obs_vst_enabled = settings.obs_vst_enabled.unwrap_or(false);
+		obs_websocket_enabled = settings.obs_websocket_enabled.unwrap_or(false);
+		obs_websocket_password = settings.obs_websocket_password.unwrap_or_default();
 	}
 
 	let root = crate::settings::core::resolve_root_dir(root_dir)?;
@@ -314,6 +360,12 @@ pub(crate) fn start(
 		}
 	}
 
+	if obs_websocket_enabled {
+		if let Err(err) = write_websocket_config(&conf_dir, &obs_websocket_password) {
+			eprintln!("[websocket] config write failed: {err}");
+		}
+	}
+
 	unsafe {
 		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         revo_lib::obs::base_set_log_handler(
@@ -378,10 +430,8 @@ pub(crate) fn start(
 
 		let blocked_modules = [
 			"decklink",
-			"obs-websocket",
 			"obs-browser",
 			"frontend-tools",
-			"obs-vst",
 		];
 
 		for module in candidates {
@@ -395,6 +445,15 @@ pub(crate) fn start(
 				continue;
 			}
 			let normalized_name = module.name.to_lowercase();
+
+			if normalized_name.contains("obs-websocket") && !obs_websocket_enabled {
+				eprintln!("[plugins] obs-websocket disabled in settings (enable in Settings -> Other)");
+				continue;
+			}
+			if normalized_name.contains("obs-vst") && !obs_vst_enabled {
+				eprintln!("[plugins] obs-vst disabled in settings (enable in Settings -> Other)");
+				continue;
+			}
 
 			let blocked = blocked_modules
 				.iter()

@@ -127,6 +127,12 @@ pub(crate) struct AppSettings {
 	#[serde(default)]
 	pub(crate) obs_plugins_path: Option<String>,
 	#[serde(default)]
+	pub(crate) obs_vst_enabled: Option<bool>,
+	#[serde(default)]
+	pub(crate) obs_websocket_enabled: Option<bool>,
+	#[serde(default)]
+	pub(crate) obs_websocket_password: Option<String>,
+	#[serde(default)]
 	pub(crate) ui_profile: Option<JsonValue>,
 	#[serde(default = "crate::settings::core::default_active_profile")]
 	pub(crate) active_profile: Option<String>,

@@ -34,6 +34,9 @@
   type PersistedSettings = {
     root_dir?: string | null;
     obs_plugins_path?: string | null;
+    obs_vst_enabled?: boolean | null;
+    obs_websocket_enabled?: boolean | null;
+    obs_websocket_password?: string | null;
     record_path?: string;
     stream_url?: string;
     stream_key?: string;
@@ -1427,6 +1430,9 @@
     let autoSaveAfterEdits = true;
     let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
     let obsPluginsPath = "";
+    let obsVstEnabled = false;
+    let obsWebsocketEnabled = false;
+    let obsWebsocketPassword = "";
     let editorPreviewCard = false;
     let uiDensityMode: "normal" | "smaller" = "normal";
     let auxWindowMode: "plugins" | "edit-source" | "audio-mixer" | "audio-advanced" | "audio-filters" | null = null;
@@ -2646,6 +2652,9 @@
     const applyLoadedSettings = (settings: PersistedSettings) => {
       rootDir = settings.root_dir ?? rootDir;
       if (typeof settings.obs_plugins_path === "string") obsPluginsPath = settings.obs_plugins_path;
+      obsVstEnabled = settings.obs_vst_enabled === true;
+      obsWebsocketEnabled = settings.obs_websocket_enabled === true;
+      if (typeof settings.obs_websocket_password === "string") obsWebsocketPassword = settings.obs_websocket_password;
       if (typeof settings.record_path === "string") recordPath = settings.record_path;
       if (typeof settings.stream_url === "string") streamUrl = settings.stream_url;
       if (typeof settings.stream_key === "string") streamKey = settings.stream_key;
@@ -2695,6 +2704,9 @@
     const captureCurrentSettingsSnapshot = (): PersistedSettings => ({
       root_dir: rootDir,
       obs_plugins_path: obsPluginsPath || null,
+      obs_vst_enabled: obsVstEnabled,
+      obs_websocket_enabled: obsWebsocketEnabled,
+      obs_websocket_password: obsWebsocketPassword || null,
       record_path: recordPath,
       stream_url: streamUrl,
       stream_key: streamKey,
@@ -3169,6 +3181,9 @@
           settings: {
             root_dir: rootArg,
             obs_plugins_path: obsPluginsPath.trim().length ? obsPluginsPath.trim() : null,
+            obs_vst_enabled: obsVstEnabled,
+            obs_websocket_enabled: obsWebsocketEnabled,
+            obs_websocket_password: obsWebsocketPassword.trim().length ? obsWebsocketPassword.trim() : null,
             record_path: recordPath,
             stream_url: streamUrl,
             stream_key: streamKey,
@@ -3573,6 +3588,9 @@
           settings: {
             root_dir: rootArg,
             obs_plugins_path: obsPluginsPath.trim().length ? obsPluginsPath.trim() : null,
+            obs_vst_enabled: obsVstEnabled,
+            obs_websocket_enabled: obsWebsocketEnabled,
+            obs_websocket_password: obsWebsocketPassword.trim().length ? obsWebsocketPassword.trim() : null,
             record_path: recordPath,
             stream_url: streamUrl,
             stream_key: streamKey,
@@ -7265,6 +7283,9 @@
       {isObsRunning}
       {version}
       bind:obsPluginsPath
+      bind:obsVstEnabled
+      bind:obsWebsocketEnabled
+      bind:obsWebsocketPassword
       bind:recordPath
       bind:streamUrl
       bind:streamKey
