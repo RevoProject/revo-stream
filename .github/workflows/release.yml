@@ -4,6 +4,12 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      publish_dev_release:
+        description: "Publish dev release"
+        required: false
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -380,10 +386,11 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
   # ============================================================
-  # RELEASE
+  # RELEASE (tag pushes only)
   # ============================================================
   release:
     name: Create GitHub Release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -434,3 +441,111 @@ jobs:
             release/macos-arm64/**/*.dmg
             release/macos-x64/**/*.dmg
           generate_release_notes: true
+  # ============================================================
+  # DEV RELEASE (manual dispatch, optional, default ON)
+  # Tag format: build-YYYYMMDD-HHMM (UTC, 24h)
+  # ============================================================
+  dev-release:
+    name: Publish dev release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_dev_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    needs:
+      - linux
+      - windows
+      - macos
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: release/windows
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64
+          path: release/linux
+      - name: Download macOS ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64
+          path: release/macos-arm64
+      - name: Download macOS x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x64
+          path: release/macos-x64
+      - name: Show dev release files
+        shell: bash
+        run: |
+          find release \
+            -type f \
+            -print |
+          sort
+      - name: Resolve dev build tag
+        id: devtag
+        shell: bash
+        run: |
+          TAG="build-$(date -u +%Y%m%d-%H%M)"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Dev release tag: ${TAG}"
+      - name: Build release notes
+        env:
+          DEV_TAG: ${{ steps.devtag.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' --match 'build-*' 2>/dev/null || true)"
+          if [ -n "${LAST_TAG}" ]; then
+            COMMIT_LIST="$(git log --pretty=format:'- %s' "${LAST_TAG}..HEAD" || true)"
+          else
+            COMMIT_LIST="$(git log --pretty=format:'- %s' -n 100 || true)"
+          fi
+          {
+            echo "## ⚠️ Development build — not for production use"
+            echo ""
+            echo "This is an automated developer build of RevoStream. It may be unstable and **should not be used in production**."
+            echo ""
+            echo "- Build tag: \`${DEV_TAG}\`"
+            if [ -n "${LAST_TAG}" ]; then
+              echo "- Changes since: \`${LAST_TAG}\`"
+            else
+              echo "- Changes since: no previous release tag found in history"
+            fi
+            echo ""
+            echo "### Commits"
+            echo ""
+            if [ -n "${COMMIT_LIST}" ]; then
+              printf '%s\n' "${COMMIT_LIST}" | head -n 200
+            else
+              echo "_No commits found._"
+            fi
+          } > dev-notes.md
+          echo "--- dev-notes.md ---"
+          cat dev-notes.md
+      - name: Publish dev pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.devtag.outputs.tag }}
+          name: ${{ steps.devtag.outputs.tag }}
+          prerelease: true
+          make_latest: "false"
+          fail_on_unmatched_files: true
+          body_path: dev-notes.md
+          files: |
+            release/linux/**/*.AppImage
+            release/linux/**/*.deb
+            release/linux/**/*.rpm
+            release/linux/**/*-linux-x64-portable.tar.gz
+            release/linux/**/*-linux-x64.run
+            release/linux/**/*-linux-x64-SHA256SUMS.txt
+            release/windows/**/*.msi
+            release/windows/**/*.zip
+            release/macos-arm64/**/*.dmg
+            release/macos-x64/**/*.dmg
