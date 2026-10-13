@@ -2,6 +2,8 @@ name: Release
 on:
   push:
     tags:
+      # Repo tags use plain semver (0.4.0), keep v-prefixed for compatibility.
+      - "*.*.*"
       - "v*.*.*"
   workflow_dispatch:
     inputs:
@@ -13,7 +15,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  # Manual dispatches are globally serialized so dev-release jobs cannot race
+  # on the same-minute tag. Tag pushes keep a per-ref group.
+  group: ${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || format('release-{0}', github.ref) }}
   cancel-in-progress: false
 env:
   PNPM_VERSION: 10
@@ -571,6 +575,16 @@ jobs:
           } > dev-notes.md
           echo "--- dev-notes.md ---"
           cat dev-notes.md
+      - name: Re-verify tag is still free
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.devtag.outputs.tag }}"
+          REMOTE_TAG_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | cut -f1 || true)"
+          if [ -n "${REMOTE_TAG_SHA}" ]; then
+            echo "::error::Tag ${TAG} appeared on the remote while this run was building — refusing to overwrite."
+            exit 1
+          fi
       - name: Publish dev pre-release
         uses: softprops/action-gh-release@v2
         with:
