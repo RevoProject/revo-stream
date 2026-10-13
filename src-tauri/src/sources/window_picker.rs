@@ -1,5 +1,16 @@
 use std::collections::HashSet;
 
+// OBS linux-capture (xcompcap) stores the "capture_window"/"window" setting as a
+// decimal X11 window id string. Values like "Title:Class:Exe" parse to 0 and the
+// plugin logs "XComposite capture disabled." rendering nothing.
+fn window_id_value(raw: &str) -> Option<String> {
+	let hex = raw.trim().trim_start_matches("0x");
+	if hex.is_empty() {
+		return None;
+	}
+	u64::from_str_radix(hex, 16).ok().map(|id| id.to_string())
+}
+
 pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, String> {
 	let mut out: Vec<crate::SourceTypeItem> = Vec::new();
 	let mut seen: HashSet<String> = HashSet::new();
@@ -30,11 +41,13 @@ pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, S
 					})
 					.unwrap_or_else(|| class.to_string());
 
-				let value = if title.is_empty() {
+				let legacy_value = if title.is_empty() {
 					format!("{}:{}", class, exe)
 				} else {
 					format!("{}:{}:{}", title, class, exe)
 				};
+
+				let value = window_id_value(cols[0]).unwrap_or(legacy_value);
 
 				if value.trim().is_empty() || seen.contains(&value) {
 					continue;
@@ -83,7 +96,8 @@ pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, S
 						"UnknownClass"
 					};
 
-					let value = format!("{}:{}", title, class);
+					let xid_token = trimmed.split_whitespace().next().unwrap_or("");
+					let value = window_id_value(xid_token).unwrap_or_else(|| format!("{}:{}", title, class));
 					if seen.contains(&value) {
 						continue;
 					}
@@ -99,4 +113,17 @@ pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, S
 	}
 
 	Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::window_id_value;
+
+	#[test]
+	fn parses_window_xids_as_decimal() {
+		assert_eq!(window_id_value("0x03c00007").as_deref(), Some("62914567"));
+		assert_eq!(window_id_value("0x1").as_deref(), Some("1"));
+		assert_eq!(window_id_value("junk"), None);
+		assert_eq!(window_id_value(""), None);
+	}
 }
