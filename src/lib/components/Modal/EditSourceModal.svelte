@@ -1056,10 +1056,10 @@
 </div>
         {/if}
 
-        {#if activeTab === "Other"}
+        {#if activeTab === "General"}
         {#if visibleSourcePropertyEntries.length > 0}
           <div class="field-group">
-            <h3>Source settings</h3>
+            <h3>Basic source settings</h3>
             {#each visibleSourcePropertyEntries as [key, value]}
               {@const spec = sourcePropertyByKey.get(key)}
               <div class="field" class:field-inline={spec?.kind === "bool"}>
@@ -1169,7 +1169,9 @@
             {/each}
           </div>
         {/if}
+        {/if}
 
+        {#if activeTab === "Other"}
         <div class="field-group">
           <h3>Additional settings</h3>
           {#if visibleExtraParamEntries.length === 0}
