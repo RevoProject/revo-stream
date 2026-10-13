@@ -80,6 +80,9 @@
       {:else if !sourceTypes.length && !externalSourceTypes.length}
         <p class="source-status" role="status">Brak dostępnych źródeł. Sprawdź inicjalizację OBS i ładowanie pluginów.</p>
       {/if}
+      {#if !loading && !error && !sourceTypes.some((type) => ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"].includes(type.id)) && !externalSourceTypes.some((type) => ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"].includes(type.id))}
+        <p class="source-status source-status-warning" role="status">Przechwytywanie ekranu i okien jest niedostępne. Wymagany jest zarejestrowany moduł OBS <code>linux-capture</code> (X11) albo integracja PipeWire/XDG Desktop Portal (Wayland).</p>
+      {/if}
       <div class="source-grid builtin-grid" role="list">
         {#each sourceTypes as type}
           <button
@@ -200,6 +203,11 @@
   .source-status-error {
     border-color: var(--danger, #ef4444);
     color: var(--danger, #ef4444);
+  }
+
+  .source-status-warning {
+    border-color: var(--warning, #f59e0b);
+    color: var(--warning, #f59e0b);
   }
 
   .external-grid {

@@ -148,6 +148,14 @@ pub(crate) fn start(
 	if !has_display {
 		return Err("No display found (DISPLAY/WAYLAND_DISPLAY). Run under a desktop session or set DISPLAY.".to_string());
 	}
+	#[cfg(target_os = "linux")]
+	eprintln!(
+		"[capture] session={} DISPLAY={} WAYLAND_DISPLAY={} XDG_CURRENT_DESKTOP={}",
+		std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".to_string()),
+		std::env::var("DISPLAY").unwrap_or_else(|_| "unset".to_string()),
+		std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "unset".to_string()),
+		std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "unknown".to_string()),
+	);
 
 	#[cfg(target_os = "linux")]
 	if std::env::var_os("REVO_FORCE_SOFTWARE_GL").is_some() {
@@ -371,7 +379,6 @@ pub(crate) fn start(
 			"decklink",
 			"obs-websocket",
 			"obs-browser",
-			"linux-capture",
 			"frontend-tools",
 			"obs-vst",
 		];
@@ -385,6 +392,7 @@ pub(crate) fn start(
 				|| (cfg!(target_os = "linux")
 					&& ["obs-qsv11", "obs-nvenc"].iter().any(|entry| normalized_name.contains(entry)));
 			if blocked {
+				eprintln!("[plugins] skipped blocked module {}", module.name);
 				continue;
 			}
 
@@ -399,6 +407,7 @@ pub(crate) fn start(
 					.map(|dir| module.bin_path.starts_with(dir.to_string_lossy().as_ref()))
 					.unwrap_or(false);
 			if is_runtime_plugin && !enabled_plugin_modules.contains(&module.name) {
+				eprintln!("[plugins] skipped disabled runtime module {}", module.name);
 				continue;
 			}
 
@@ -427,6 +436,34 @@ pub(crate) fn start(
 		}
 
 		revo_lib::obs::obs_post_load_modules();
+		let capture_types = ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"];
+		let mut registered_capture_types = Vec::new();
+		for expected in capture_types {
+			let id = std::ffi::CString::new(expected).unwrap();
+			let mut found = false;
+			let mut index = 0;
+			loop {
+				let mut current: *const std::os::raw::c_char = std::ptr::null();
+				if !revo_lib::obs::obs_enum_input_types(index, &mut current) {
+					break;
+				}
+				if !current.is_null() && std::ffi::CStr::from_ptr(current).to_bytes() == id.as_bytes() {
+					found = true;
+					break;
+				}
+				index += 1;
+			}
+			if found {
+				registered_capture_types.push(expected);
+			} else {
+				eprintln!("[capture] source unavailable: {expected} (required OBS module or portal integration is not registered)");
+			}
+		}
+		eprintln!("[capture] registered source types: {}", if registered_capture_types.is_empty() {
+			"none".to_string()
+		} else {
+			registered_capture_types.join(", ")
+		});
 		if let Err(err) = crate::sources::browser::register() {
 			eprintln!("[browser] source registration unavailable: {err}");
 		}
