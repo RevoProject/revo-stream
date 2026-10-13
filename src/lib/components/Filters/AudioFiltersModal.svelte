@@ -33,7 +33,6 @@
   export let audioFilterNewKind = "noise_suppression";
   export let selectedAudioFilter: FilterItem | null = null;
   export let selectedAudioFilterPresetFields: FilterFieldDef[] = [];
-  export let audioFiltersPreviewUrl = "";
   export let audioFiltersContextMenu: { open: boolean; x: number; y: number; filterId: string | null } = {
     open: false,
     x: 0,
@@ -160,13 +159,6 @@
             <button class="default-settings-btn" onclick={onResetSelectedToDefaults} disabled={!selectedAudioFilter || Boolean(selectedAudioFilter?.locked)}>
               Default filter settings
             </button>
-          </div>
-          <div class="filters-preview-panel">
-            {#if audioFiltersPreviewUrl}
-              <img src={audioFiltersPreviewUrl} alt="Preview source with effects" />
-            {:else}
-              <span>Preview source with effects</span>
-            {/if}
           </div>
 
           {#if selectedAudioFilter}
@@ -415,7 +407,7 @@
 
   .filters-main {
     display: grid;
-    grid-template-rows: auto 210px 1fr;
+    grid-template-rows: auto 1fr;
     gap: 0.75rem;
   }
 
@@ -461,25 +453,6 @@
     background: var(--surface-3);
     color: var(--text);
     padding: 0.45rem 1rem;
-  }
-
-  .filters-preview-panel {
-    border-radius: 14px;
-    background: #050505;
-    border: 1px solid #222;
-    display: grid;
-    place-items: center;
-    color: #d7d7d7;
-    font-size: 1.9rem;
-    text-align: center;
-    padding: 0.8rem;
-  }
-
-  .filters-preview-panel img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: 10px;
   }
 
   .filters-settings-list {
@@ -618,11 +591,7 @@
     }
 
     .filters-main {
-      grid-template-rows: auto 170px 1fr;
-    }
-
-    .filters-preview-panel {
-      font-size: 1.15rem;
+      grid-template-rows: auto 1fr;
     }
   }
 </style>

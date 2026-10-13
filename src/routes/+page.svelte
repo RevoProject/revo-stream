@@ -1386,8 +1386,6 @@
     let audioFiltersContextMenu = { open: false, x: 0, y: 0, filterId: null as string | null };
     let audioFiltersRenamingId: string | null = null;
     let audioFiltersRenameValue = "";
-    let audioFiltersPreviewUrl = "";
-    let audioFiltersPreviewRefreshTimer: ReturnType<typeof setTimeout> | null = null;
     let audioFilterNewKind = "noise_suppression";
     let audioMixerRenameSourceId: string | null = null;
     let audioMixerRenameValue = "";
@@ -1452,11 +1450,6 @@
     $: selectedAudioFilterPresetFields = selectedAudioFilter
       ? (audioFilterPresetFields[selectedAudioFilter.kind] ?? [])
       : [];
-    $: if (showAudioFiltersModal) {
-      audioFiltersDraft;
-      audioFiltersSelectedId;
-      scheduleAudioFiltersPreviewRefresh();
-    }
 
     let sourceMenu = { open: false, x: 0, y: 0, source: null as DemoSource | null };
     let sceneMenu = { open: false, x: 0, y: 0, scene: null as SceneInfo | null };
@@ -6184,10 +6177,8 @@
     audioFiltersContextMenu = { open: false, x: 0, y: 0, filterId: null };
     audioFiltersRenamingId = null;
     audioFiltersRenameValue = "";
-    audioFiltersPreviewUrl = "";
     audioFilterNewKind = "noise_suppression";
     showAudioFiltersModal = true;
-    scheduleAudioFiltersPreviewRefresh();
     closeAudioMixerContextMenu();
   };
 
@@ -6200,11 +6191,6 @@
     audioFiltersContextMenu = { open: false, x: 0, y: 0, filterId: null };
     audioFiltersRenamingId = null;
     audioFiltersRenameValue = "";
-    audioFiltersPreviewUrl = "";
-    if (audioFiltersPreviewRefreshTimer) {
-      clearTimeout(audioFiltersPreviewRefreshTimer);
-      audioFiltersPreviewRefreshTimer = null;
-    }
     audioFiltersDragActive = false;
     audioFiltersDragX = 0;
     audioFiltersDragY = 0;
@@ -6284,7 +6270,6 @@
     ];
     audioFiltersSelectedId = nextId;
     ensureAudioFilterPresetDefaults(nextId);
-    scheduleAudioFiltersPreviewRefresh();
   };
 
   const removeAudioFilter = (id: string) => {
@@ -6293,14 +6278,12 @@
     if (audioFiltersSelectedId === id) {
       audioFiltersSelectedId = next[0]?.id ?? null;
     }
-    scheduleAudioFiltersPreviewRefresh();
     audioFiltersContextMenu = { open: false, x: 0, y: 0, filterId: null };
   };
 
   const updateAudioFilter = (id: string, patch: Partial<FilterItem>) => {
     audioFiltersDraft = audioFiltersDraft.map((f) => (f.id === id && !f.locked ? { ...f, ...patch } : f));
     ensureAudioFilterPresetDefaults(id);
-    scheduleAudioFiltersPreviewRefresh();
   };
 
   const moveAudioFilter = (id: string, direction: "up" | "down") => {
@@ -6314,7 +6297,6 @@
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
     audioFiltersDraft = next;
-    scheduleAudioFiltersPreviewRefresh();
   };
 
   const openAudioFiltersContextMenu = (event: MouseEvent, filterId: string) => {
@@ -6348,7 +6330,6 @@
 
   const toggleAudioFilterLock = (id: string) => {
     audioFiltersDraft = audioFiltersDraft.map((f) => (f.id === id ? { ...f, locked: !f.locked } : f));
-    scheduleAudioFiltersPreviewRefresh();
     closeAudioFiltersContextMenu();
   };
 
@@ -6374,35 +6355,6 @@
       name: `Filter ${index + 1}`,
       params: defaultParams
     });
-    scheduleAudioFiltersPreviewRefresh();
-  };
-
-  const refreshAudioFiltersPreview = async () => {
-    try {
-      const image = await invoke<string>("obs_take_screenshot", {
-        width: 640,
-        height: 360,
-        sourceId: audioFiltersSourceId && audioFiltersSourceId.trim().length ? audioFiltersSourceId : undefined
-      });
-      if (typeof image === "string" && image.trim()) {
-        if (image.startsWith("data:image")) {
-          audioFiltersPreviewUrl = image;
-        } else {
-          audioFiltersPreviewUrl = `${convertFileSrc(image)}?t=${Date.now()}`;
-        }
-      }
-    } catch {
-      // ignore when backend is unavailable
-    }
-  };
-
-  const scheduleAudioFiltersPreviewRefresh = () => {
-    if (!showAudioFiltersModal) return;
-    if (audioFiltersPreviewRefreshTimer) clearTimeout(audioFiltersPreviewRefreshTimer);
-    audioFiltersPreviewRefreshTimer = setTimeout(() => {
-      audioFiltersPreviewRefreshTimer = null;
-      void refreshAudioFiltersPreview();
-    }, 140);
   };
 
   const startAudioMixerRename = (sourceId: string, currentName: string) => {
@@ -7613,7 +7565,6 @@
     {audioFilterNewKind}
     {selectedAudioFilter}
     {selectedAudioFilterPresetFields}
-    {audioFiltersPreviewUrl}
     {audioFiltersContextMenu}
     onClose={() => void closeAudioFiltersModal()}
     onSave={() => void saveAudioFiltersModal()}
