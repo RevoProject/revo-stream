@@ -446,7 +446,14 @@ pub(crate) fn start(
 		}
 
 		revo_lib::obs::obs_post_load_modules();
-		let capture_types = ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"];
+		let capture_types = [
+			"xshm_input_v2",
+			"xshm_input",
+			"xcomposite_input",
+			"window_capture",
+			"monitor_capture",
+			"pipewire_screen_capture",
+		];
 		let mut registered_capture_types = Vec::new();
 		for expected in capture_types {
 			let id = std::ffi::CString::new(expected).unwrap();

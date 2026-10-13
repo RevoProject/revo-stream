@@ -614,6 +614,12 @@ pub(crate) fn create_source_in_scene(
 		return Err("source type required".to_string());
 	}
 	let create_type = resolve_creatable_source_type(requested_type);
+	if !input_type_exists(create_type.as_str()) {
+		return Err(format!(
+			"source type '{}' is not registered by an OBS module",
+			requested_type
+		));
+	}
 	if create_type == "browser_source" {
 		if !input_type_exists("browser_source") {
 			return Err("Browser snapshots unavailable: no registered browser backend".into());
@@ -625,6 +631,9 @@ pub(crate) fn create_source_in_scene(
 
 	unsafe {
 		let settings = revo_lib::obs::obs_data_create();
+		if settings.is_null() {
+			return Err(format!("failed to allocate settings for source '{}'", requested_type));
+		}
 		crate::apply_source_params(settings, create_type.as_str(), &create.params, None);
 
 		let source_id = std::ffi::CString::new(create_type.as_str())

@@ -4474,6 +4474,7 @@
       }
     }
     const name = `${newSourceType}_${maxSuffix + 1}`;
+    let created = false;
     if (backendEnabled) {
       try {
         await invoke<string>("obs_create_source", {
@@ -4486,6 +4487,7 @@
         });
         await loadSources();
         requestPreviewUpdate();
+        created = true;
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -4493,8 +4495,9 @@
       const source: DemoSource = { id, name, visible: true, source_type: newSourceType, locked: false };
       sourcesList = [...sourcesList, source];
       requestPreviewUpdate();
+      created = true;
     }
-    showAddSource = false;
+    if (created) showAddSource = false;
   };
 
   const openAddSourceModal = async () => {
