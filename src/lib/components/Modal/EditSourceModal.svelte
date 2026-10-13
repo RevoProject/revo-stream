@@ -1319,6 +1319,10 @@
     }
   .modal {
     width: min(640px, 95vw);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    max-height: min(820px, calc(94vh / var(--ui-scale, 1)));
+    overflow: hidden;
   }
 
   .modal.with-preview {
@@ -1327,11 +1331,8 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 1rem;
     padding: 1.25rem;
-    max-height: min(820px, calc(94vh / var(--ui-scale, 1)));
   }
 
   .modal.window-mode {
