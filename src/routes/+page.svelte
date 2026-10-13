@@ -368,6 +368,9 @@
     let demoMode = false;
     let tauriAvailable = false;
     let isObsRunning = false;
+    let appInitializing = true;
+    let appInitializationMessage = "Starting core...";
+    let appInitializationError = "";
     let isRecording = false;
     let isStreaming = false;
     type MediaConfirmAction = "start-streaming" | "stop-streaming" | "start-recording" | "stop-recording";
@@ -2858,11 +2861,14 @@
           }
         }
       };
-      const maybeAutoStartObs = () => {
-        if (!isReleaseBuild || releaseObsAutoStarted) return;
-        if (demoMode || !tauriAvailable || isObsRunning || busy) return;
+      const startObsForStartup = async () => {
+        if (!isReleaseBuild || releaseObsAutoStarted || demoMode || !tauriAvailable || isObsRunning) return;
         releaseObsAutoStarted = true;
-        void startObsInternal(true);
+        appInitializationMessage = "Starting core...";
+        await startObsInternal(true);
+        if (!isObsRunning) {
+          throw new Error("RevoStream core could not be started.");
+        }
       };
       const maybeOpenAuxWindowModal = async () => {
         if (auxWindowMode === "plugins") {
@@ -2904,10 +2910,22 @@
           }
         }
       };
-      void refreshPromise.finally(maybeAutoStartObs);
-      void refreshPromise.finally(() => {
-        void maybeOpenAuxWindowModal();
-      });
+      const initializeApp = async () => {
+        appInitializing = true;
+        appInitializationError = "";
+        appInitializationMessage = "Connecting to RevoStream core...";
+        try {
+          await refreshPromise;
+          await startObsForStartup();
+          appInitializationMessage = "Loading workspace...";
+          await maybeOpenAuxWindowModal();
+          appInitializing = false;
+        } catch (err) {
+          appInitializationError = String(err);
+          appInitializationMessage = "Startup failed";
+        }
+      };
+      void initializeApp();
       const handleVisibility = () => {
         if (document.hidden) {
           stopPreviewLoop();
@@ -2944,7 +2962,6 @@
       window.addEventListener("mouseleave", stopDockHeaderMove);
       window.addEventListener("scroll", requestDockInlineBoundsSync, true);
       window.addEventListener("keydown", handleDockShortcut);
-      const autoStartTimer = setTimeout(maybeAutoStartObs, 120);
       const handleBeforeUnload = () => {
         if (isReleaseBuild && tauriAvailable && isObsRunning) {
           void invoke<string>("obs_shutdown").catch(() => undefined);
@@ -3048,7 +3065,6 @@
       document.addEventListener("focusin", handleModalFocusIn, true);
       document.addEventListener("keydown", handleModalTabTrap, true);
       return () => {
-        clearTimeout(autoStartTimer);
         document.removeEventListener("visibilitychange", handleVisibility);
         window.removeEventListener("resize", handleResize);
         window.removeEventListener("mousemove", handleDockResizeMove);
@@ -6918,6 +6934,21 @@
   }}
 />
 
+{#if appInitializing}
+  <div class="startup-screen" role="status" aria-live="polite" aria-busy="true">
+    <div class="startup-card">
+      <div class="startup-logo" aria-hidden="true">R</div>
+      <div class="startup-brand">RevoStream</div>
+      <div class="startup-message">{appInitializationError || appInitializationMessage}</div>
+      {#if appInitializationError}
+        <button class="primary startup-retry" type="button" onclick={() => window.location.reload()}>Retry</button>
+      {:else}
+        <div class="startup-spinner" aria-hidden="true"></div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 {#if globalDialogs.length}
   <div class="global-dialog-stack">
     {#each globalDialogs as dialog (dialog.id)}
@@ -8640,5 +8671,63 @@
       grid-area: sources;
       min-height: 180px;
     }
+  }
+
+  .startup-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: grid;
+    place-items: center;
+    background: var(--surface-1, #080c12);
+    color: var(--text, #f5f7fb);
+  }
+
+  .startup-card {
+    display: grid;
+    justify-items: center;
+    gap: 0.65rem;
+    text-align: center;
+  }
+
+  .startup-logo {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border: 2px solid var(--accent, #6ea8ff);
+    border-radius: 1rem;
+    color: var(--accent, #6ea8ff);
+    font-size: 2rem;
+    font-weight: 800;
+  }
+
+  .startup-brand {
+    font-size: 1.35rem;
+    font-weight: 750;
+    letter-spacing: 0.02em;
+  }
+
+  .startup-message {
+    color: var(--text-muted, #9ba8ba);
+    font-size: 0.9rem;
+  }
+
+  .startup-spinner {
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.4rem;
+    border: 2px solid color-mix(in srgb, var(--accent, #6ea8ff) 25%, transparent);
+    border-top-color: var(--accent, #6ea8ff);
+    border-radius: 50%;
+    animation: startup-spin 0.8s linear infinite;
+  }
+
+  .startup-retry {
+    margin-top: 0.5rem;
+  }
+
+  @keyframes startup-spin {
+    to { transform: rotate(360deg); }
   }
 </style>
