@@ -117,32 +117,32 @@ fn push_debug_log_entry(action: String, detail: Option<JsonValue>) {
 unsafe impl Send for ObsRuntime {}
 unsafe impl Sync for ObsRuntime {}
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_get_settings_select_options(state: tauri::State<ObsState>) -> Result<ObsSettingsSelectOptions, String> {
     settings::encoder_options::get_settings_select_options(state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_pulse_devices(kind: String) -> Result<Vec<AudioDevice>, String> {
     devices::audio::list_pulse_devices(&kind)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_alsa_devices() -> Result<Vec<AudioDevice>, String> {
     devices::audio::list_alsa_devices()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_window_picker_items() -> Result<Vec<SourceTypeItem>, String> {
     sources::window_picker::list_window_picker_items()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_system_fonts() -> Result<Vec<SourceTypeItem>, String> {
     sources::fonts::list_system_fonts()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_video_device_picker_items() -> Result<Vec<SourceTypeItem>, String> {
     sources::video_devices::list_video_device_picker_items()
 }
@@ -172,7 +172,7 @@ fn set_current_scene_internal(runtime: &mut ObsRuntime, name: &str) -> Result<()
     scenes::scene_state::set_current_scene_internal(runtime, name)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_scenes(state: tauri::State<ObsState>) -> Result<Vec<SceneInfo>, String> {
     scenes::scene_ops::list_scenes(state)
 }
@@ -385,17 +385,17 @@ fn obs_import_scene_collection(state: tauri::State<ObsState>, json: String) -> R
     scenes::collection_io::import_scene_collection(state, json)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn load_rtmp_services_json() -> Result<String, String> {
     settings::core::load_rtmp_services_json()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_get() -> Result<AppSettings, String> {
     settings::core::settings_get()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn settings_save(settings: AppSettings) -> Result<String, String> {
     settings::core::settings_save(settings)
 }
@@ -531,12 +531,12 @@ fn themes_import_archive(
     settings::themes::themes_import_archive(root_dir, file_name, data)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_start(state: tauri::State<ObsState>, root_dir: Option<String>) -> Result<String, String> {
     runtime::init::start(state, root_dir)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_shutdown(state: tauri::State<ObsState>) -> Result<String, String> {
     runtime::init::shutdown(state)
 }
@@ -551,7 +551,7 @@ fn obs_version() -> Result<String, String> {
     runtime::state::version()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_list_sources(state: tauri::State<ObsState>) -> Result<Vec<SourceInfo>, String> {
     sources::source_ops::list_sources(state)
 }
@@ -745,7 +745,7 @@ fn obs_get_source_size(
     runtime::preview::get_source_size(state, source_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_take_screenshot(
     state: tauri::State<ObsState>,
     width: Option<u32>,
