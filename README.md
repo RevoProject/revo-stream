@@ -52,6 +52,16 @@ script reference: [docs/scripts.md](docs/scripts.md)
 
 Rust · Tauri · Svelte · OBS/libobs (via [revo-lib](https://github.com/RevoProject/revo-lib))
 
+## Become a Sponsor
+
+RevoStream is an open-source project built to empower streamers and live production teams. Your support helps us improve the application, develop new features, and build a better streaming experience for everyone.
+
+Interested in supporting the project? We welcome sponsors and partners who share our vision.
+
+**Sponsors and project partners will also be featured on our official website: [revostream.in](https://revostream.in).**
+
+If you'd like to support RevoStream or discuss a partnership, feel free to reach out to us.
+
 ## Contributing
 
 The project is in an early MVP stage — contributions are welcome:
