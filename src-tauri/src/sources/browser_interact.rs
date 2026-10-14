@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,7 +33,7 @@ impl Drop for InteractProcess {
 }
 
 struct InteractSession {
-	process: InteractProcess,
+	_process: InteractProcess,
 	port: u16,
 	page_ws: Mutex<Option<tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>>>,
 	next_id: Mutex<u64>,
@@ -323,13 +323,20 @@ pub(crate) fn ensure_session(
 	if !url.starts_with("http://") && !url.starts_with("https://") {
 		return Err("browser source needs an http(s) URL".to_string());
 	}
+	reap_idle();
+	let normalized_user_agent = user_agent.trim();
 
 	{
 		let map = sessions()
 			.lock()
 			.map_err(|_| "interact sessions poisoned".to_string())?;
 		if let Some(existing) = map.get(source_id) {
-			if existing.page_url != url || existing.viewport != viewport {
+			if existing.page_url != url
+				|| existing.user_agent != normalized_user_agent
+				|| existing.css != css
+				|| existing.js != js
+				|| existing.viewport != viewport
+			{
 				drop(map);
 				close_session(source_id);
 			} else {
@@ -421,13 +428,13 @@ pub(crate) fn ensure_session(
 	std::thread::sleep(Duration::from_millis(400));
 
 	let session = InteractSession {
-		process: InteractProcess { proc: child },
+		_process: InteractProcess { proc: child },
 		port,
 		page_ws: Mutex::new(None),
 		next_id: Mutex::new(0),
 		latest_frame: Mutex::new(None),
 		page_url: url.clone(),
-		user_agent: user_agent.trim().to_string(),
+		user_agent: normalized_user_agent.to_string(),
 		css: css.to_string(),
 		js: js.to_string(),
 		viewport: (viewport.0.clamp(64, 4096), viewport.1.clamp(64, 4096)),

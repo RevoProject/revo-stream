@@ -1066,7 +1066,7 @@ pub(crate) fn open_source_interaction(
 	state: tauri::State<crate::ObsState>,
 	id: String,
 ) -> Result<String, String> {
-	let mut runtime = state
+	let runtime = state
 		.runtime
 		.lock()
 		.map_err(|_| "state poisoned".to_string())?;
