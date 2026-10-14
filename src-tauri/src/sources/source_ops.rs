@@ -6,6 +6,17 @@ fn should_expose_source_type(output_flags: u32, debug_build: bool) -> bool {
 	debug_build || output_flags & OBS_SOURCE_CAP_DISABLED == 0
 }
 
+fn fit_scale(base_width: u32, base_height: u32, canvas_width: u32, canvas_height: u32) -> Option<f32> {
+	if base_width == 0 || base_height == 0 || canvas_width == 0 || canvas_height == 0 {
+		return None;
+	}
+	Some(
+		((canvas_width as f32 / base_width as f32)
+			.min(canvas_height as f32 / base_height as f32))
+		.min(1.0),
+	)
+}
+
 pub(crate) fn list_external_source_types(
 	state: tauri::State<crate::ObsState>,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
@@ -67,13 +78,21 @@ pub(crate) fn list_external_source_types(
 
 #[cfg(test)]
 mod source_type_visibility_tests {
-	use super::{should_expose_source_type, OBS_SOURCE_CAP_DISABLED};
+	use super::{fit_scale, should_expose_source_type, OBS_SOURCE_CAP_DISABLED};
 
 	#[test]
 	fn internal_source_types_are_debug_only() {
 		assert!(should_expose_source_type(OBS_SOURCE_CAP_DISABLED, true));
 		assert!(!should_expose_source_type(OBS_SOURCE_CAP_DISABLED, false));
 		assert!(should_expose_source_type(0, false));
+	}
+
+	#[test]
+	fn source_fit_preserves_aspect_ratio_and_never_upscales() {
+		assert_eq!(fit_scale(3840, 2160, 1920, 1080), Some(0.5));
+		assert_eq!(fit_scale(2560, 1080, 1920, 1080), Some(0.75));
+		assert_eq!(fit_scale(640, 480, 1920, 1080), Some(1.0));
+		assert_eq!(fit_scale(0, 480, 1920, 1080), None);
 	}
 }
 
@@ -697,6 +716,58 @@ pub(crate) fn create_source(
 		return Err("OBS not initialized".to_string());
 	}
 	create_source_in_scene(&mut runtime, &create)
+}
+
+pub(crate) fn fit_source_to_canvas(
+	state: tauri::State<crate::ObsState>,
+	source_id: String,
+) -> Result<String, String> {
+	let runtime = state
+		.runtime
+		.lock()
+		.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let item = crate::resolve_scene_item(scene, source_id.trim())
+		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
+
+	let (canvas_width, canvas_height) = runtime
+		.scene_resolution
+		.split_once('x')
+		.and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+		.unwrap_or((1920, 1080));
+
+	unsafe {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item);
+		if source.is_null() {
+			return Err("source not available".to_string());
+		}
+		let flags = revo_lib::obs::obs_source_get_output_flags(source);
+		if flags & revo_lib::obs::OBS_SOURCE_VIDEO == 0 {
+			return Ok(format!("source {source_id} has no video output"));
+		}
+
+		let mut base_width = 0;
+		let mut base_height = 0;
+		for _ in 0..20 {
+			base_width = revo_lib::obs::obs_source_get_width(source);
+			base_height = revo_lib::obs::obs_source_get_height(source);
+			if base_width > 0 && base_height > 0 {
+				break;
+			}
+			std::thread::sleep(std::time::Duration::from_millis(25));
+		}
+		let scale_value = fit_scale(base_width, base_height, canvas_width, canvas_height)
+			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
+		let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
+		scale.__bindgen_anon_1.__bindgen_anon_1.x = scale_value;
+		scale.__bindgen_anon_1.__bindgen_anon_1.y = scale_value;
+		revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+	}
+
+	Ok(format!("fitted {source_id} to {canvas_width}x{canvas_height}"))
 }
 
 fn parse_boolish(value: &str) -> bool {

@@ -4486,6 +4486,11 @@
             params: {}
           }
         });
+        try {
+          await invoke<string>("obs_fit_source_to_canvas", { sourceId: id });
+        } catch (err) {
+          console.warn(`[sources] initial fit skipped for ${id}`, err);
+        }
         await loadSources();
         requestPreviewUpdate();
         created = true;
