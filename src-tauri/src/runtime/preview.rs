@@ -1,5 +1,18 @@
 use base64::Engine as _;
 
+#[cfg(not(target_os = "windows"))]
+unsafe fn reset_texrender(texrender: *mut revo_lib::obs::gs_texrender_t) {
+	extern "C" {
+		fn gs_texrender_reset(texrender: *mut revo_lib::obs::gs_texrender_t);
+	}
+	gs_texrender_reset(texrender);
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn reset_texrender(texrender: *mut revo_lib::obs::gs_texrender_t) {
+	revo_lib::obs::gs_texrender_reset(texrender);
+}
+
 pub(crate) fn planner_init_temp_path() -> Result<std::path::PathBuf, String> {
 	let dir = std::env::temp_dir().join("revostream");
 	std::fs::create_dir_all(&dir)
@@ -274,6 +287,9 @@ pub(crate) fn capture_view_png(
 		// instead; on failure keep the last good frame (handled by caller).
 		let mut rendered = false;
 
+		if !runtime.preview_texrender.is_null() {
+			reset_texrender(runtime.preview_texrender);
+		}
 		if !runtime.preview_texrender.is_null()
 			&& revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height)
 		{
@@ -321,11 +337,6 @@ pub(crate) fn capture_view_png(
 				rendered = true;
 			}
 		}
-
-		eprintln!(
-			"[preview-capture] source=preview_view width={} height={} rendered={}",
-			width, height, rendered
-		);
 
 		if !rendered {
 			revo_lib::obs::obs_leave_graphics();
