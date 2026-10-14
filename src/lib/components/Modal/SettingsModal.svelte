@@ -2928,7 +2928,7 @@
     border-radius: 12px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     display: grid;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     min-height: 0;
     padding: 0;
     overflow: hidden;
