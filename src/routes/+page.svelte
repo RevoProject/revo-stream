@@ -2501,17 +2501,6 @@
       }
     }
 
-    async function ensureWhipStreaming() {
-      if (!backendEnabled || !whipUrl.trim() || webrtcWhipStarted) return;
-      try {
-        await invoke<string>("obs_start_streaming", { streamUrl: whipUrl.trim() });
-        isStreaming = true;
-        webrtcWhipStarted = true;
-      } catch (err) {
-        webrtcError = String(err);
-      }
-    }
-
     async function startWhepPreview() {
       if (!backendEnabled || !isObsRunning || webrtcPc || !whepUrl.trim()) return false;
       webrtcError = "";
@@ -2521,7 +2510,6 @@
           console.warn(webrtcError);
           return false;
         }
-        await ensureWhipStreaming();
         const pc = new RTCPeerConnection();
         webrtcPc = pc;
         pc.addTransceiver("video", { direction: "recvonly" });
