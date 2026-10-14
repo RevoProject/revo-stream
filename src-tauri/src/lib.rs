@@ -892,6 +892,11 @@ pub fn run() {
                 let app_handle_for_close = app_handle.clone();
                 main_window.on_window_event(move |event| {
                     if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                        let state = app_handle_for_close.state::<ObsState>();
+                        if let Err(err) = runtime::init::shutdown(state) {
+                            eprintln!("[shutdown] failed during main window close: {err}");
+                        }
+
                         #[cfg(debug_assertions)]
                         {
                             for (_, window) in app_handle_for_close.webview_windows() {
