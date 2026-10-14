@@ -84,6 +84,17 @@ fn create_nvenc_encoder() -> *mut revo_lib::obs::obs_encoder {
 	std::ptr::null_mut()
 }
 
+pub(crate) fn is_hardware_video_encoder(encoder: *mut revo_lib::obs::obs_encoder) -> bool {
+	if encoder.is_null() {
+		return false;
+	}
+	let id_ptr = unsafe { revo_lib::obs::obs_encoder_get_id(encoder) };
+	let id = super::helpers::cstr_to_string(id_ptr).to_ascii_lowercase();
+	["nvenc", "qsv", "vaapi", "amf", "videotoolbox", "ave.avc", "apple."]
+		.iter()
+		.any(|needle| id.contains(needle))
+}
+
 pub(crate) fn encoder_id_available(id: &str) -> bool {
 	let mut idx: usize = 0;
 	unsafe {

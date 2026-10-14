@@ -96,7 +96,9 @@ pub(crate) fn start_recording(
 			revo_lib::obs::obs_output_set_mixers(fallback, 1);
 		}
 		if (flags & revo_lib::obs::OBS_OUTPUT_ENCODED) != 0 {
-			let video_encoder = super::encoders::create_video_encoder(runtime.video_encoder_preference);
+			let video_encoder = super::encoders::create_video_encoder(
+				crate::VideoEncoderPreference::Software,
+			);
 			let audio_encoder = super::encoders::create_audio_encoder();
 			if video_encoder.is_null() || audio_encoder.is_null() {
 				unsafe {
