@@ -129,6 +129,22 @@ unsafe extern "C" fn collect_module_candidate(
 	});
 }
 
+#[cfg(target_os = "linux")]
+fn linux_library_available(name: &str) -> bool {
+	let Ok(name) = std::ffi::CString::new(name) else {
+		return false;
+	};
+	unsafe {
+		let handle = libc::dlopen(name.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL);
+		if handle.is_null() {
+			false
+		} else {
+			libc::dlclose(handle);
+			true
+		}
+	}
+}
+
 // obs-websocket reads its settings from the frontend global config
 // (global.ini, section [obs-websocket]). The module loads them when
 // obs_init_module runs, so the file must be updated before module loading.
@@ -435,6 +451,10 @@ pub(crate) fn start(
 			"decklink",
 			"obs-browser",
 			"frontend-tools",
+			"libcef",
+			"libegl",
+			"libglesv2",
+			"libvk_swiftshader",
 		];
 
 		for module in candidates {
@@ -455,6 +475,11 @@ pub(crate) fn start(
 			}
 			if normalized_name.contains("obs-vst") && !obs_vst_enabled {
 				eprintln!("[plugins] obs-vst disabled in settings (enable in Settings -> Other)");
+				continue;
+			}
+			#[cfg(target_os = "linux")]
+			if normalized_name.contains("vlc-video") && !linux_library_available("libvlc.so.5") {
+				eprintln!("[plugins] skipped vlc-video because libvlc.so.5 is unavailable");
 				continue;
 			}
 
