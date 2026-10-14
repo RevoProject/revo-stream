@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pakuje binarke desktop-app w jeden plik .sh (self-extracting archive)
+# Pakuje binarke revo-ui w jeden plik .sh (self-extracting archive)
 # Uzycie: bash scripts/nix/package-bundle.sh [sciezka-do-binarki]
 # Wynik: iTVT-2.0.0-x86_64-linux.run (jeden plik do dystrybucji)
 
@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BINARY="${1:-$PROJECT_DIR/src-tauri/target/release/desktop-app}"
+BINARY="${1:-$PROJECT_DIR/src-tauri/target/release/revo-ui}"
 
 if [ ! -f "$BINARY" ]; then
   echo "Blad: binarka nie znaleziona w $BINARY"
@@ -44,13 +44,13 @@ fi
 LINE=$(grep -n "^__ITVT_ARCHIVE__$" "$B" | tail -1 | cut -d: -f1)
 LINE=$((LINE + 1))
 mkdir -p "$TMP_DIR"
-tail -n +$LINE "$B" | base64 -d | gzip -d > "$TMP_DIR/desktop-app" 2>/dev/null || {
+tail -n +$LINE "$B" | base64 -d | gzip -d > "$TMP_DIR/revo-ui" 2>/dev/null || {
   echo "Blad wyodrebniania"
   exit 1
 }
-chmod +x "$TMP_DIR/desktop-app"
+chmod +x "$TMP_DIR/revo-ui"
 
-[ $EXTRACT_ONLY -eq 1 ] && { echo "Wyodrebniono do $TMP_DIR/desktop-app"; exit 0; }
+[ $EXTRACT_ONLY -eq 1 ] && { echo "Wyodrebniono do $TMP_DIR/revo-ui"; exit 0; }
 
 # GStreamer env — nix eval first, then fallback to NixOS system paths
 GL=""
@@ -80,7 +80,7 @@ case "$GPU" in
   *)      FLAKE="github:nix-community/nixGL" ;;
 esac
 
-exec nix run --impure "$FLAKE" -- "$TMP_DIR/desktop-app"
+exec nix run --impure "$FLAKE" -- "$TMP_DIR/revo-ui"
 EOF
 
 echo "$BOUNDARY" >> "$OUTPUT"

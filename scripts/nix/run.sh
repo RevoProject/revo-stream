@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run iTVT with Nix-provided GStreamer and other deps
+# Run RevoStream with Nix-provided GStreamer and other deps
 # Usage: bash run.sh [path-to-binary]
 set -euo pipefail
 
@@ -7,6 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_BINARY="$PROJECT_DIR/src-tauri/target/release/revo-ui"
 BINARY="${1:-$DEFAULT_BINARY}"
+
+if [ ! -x "$BINARY" ]; then
+  echo "Error: executable not found: $BINARY" >&2
+  echo "Build it first with: bash $SCRIPT_DIR/compile.sh" >&2
+  exit 1
+fi
 
 # Runtime shared libraries and GStreamer plugin dirs from the Nix store.
 # lib.getLib picks the library output of multi-output packages (e.g. glib,
