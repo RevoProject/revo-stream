@@ -14,6 +14,23 @@ if [ ! -x "$BINARY" ]; then
   exit 1
 fi
 
+if [ "$BINARY" = "$DEFAULT_BINARY" ]; then
+  STALE_SOURCE="$(find \
+    "$PROJECT_DIR/src" \
+    "$PROJECT_DIR/static" \
+    "$PROJECT_DIR/src-tauri/src" \
+    "$PROJECT_DIR/package.json" \
+    "$PROJECT_DIR/src-tauri/Cargo.toml" \
+    "$PROJECT_DIR/src-tauri/tauri.conf.json" \
+    -type f -newer "$BINARY" -print -quit 2>/dev/null || true)"
+  if [ -n "$STALE_SOURCE" ]; then
+    echo "Error: release binary is older than source file: $STALE_SOURCE" >&2
+    echo "Rebuild it with: bash $SCRIPT_DIR/compile.sh" >&2
+    echo "A clean build is not required." >&2
+    exit 1
+  fi
+fi
+
 # Runtime shared libraries and GStreamer plugin dirs from the Nix store.
 # lib.getLib picks the library output of multi-output packages (e.g. glib,
 # pango default to -bin outputs without a lib/ directory).
