@@ -264,8 +264,12 @@ fn open_debug_console(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn app_close_all_windows(app: tauri::AppHandle) -> Result<(), String> {
+fn app_close_all_windows(app: tauri::AppHandle, state: tauri::State<ObsState>) -> Result<(), String> {
     use tauri::Manager;
+
+    if let Err(err) = runtime::init::shutdown(state) {
+        eprintln!("[shutdown] failed before closing application windows: {err}");
+    }
 
     let windows: Vec<_> = app.webview_windows().into_iter().map(|(_, w)| w).collect();
     for window in windows {
