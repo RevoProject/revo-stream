@@ -8460,7 +8460,7 @@
     display: none;
   }
 
-  @container tools-panel (max-height: 220px) {
+  @container tools-panel (max-height: 360px) {
     .tools > h2 {
       min-height: 30px !important;
       padding-inline: 0.4rem !important;

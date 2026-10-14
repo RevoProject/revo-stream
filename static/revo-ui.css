@@ -348,6 +348,12 @@
   overflow: hidden;
 }
 
+:root[data-theme="RevoFuture"] .panel-cell.tools {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  container: tools-panel / size;
+}
+
 /* =========================================================
    6. Panel header (NEW_UI §55, §56, §57)
    ========================================================= */
@@ -573,6 +579,7 @@
   padding: clamp(2px, 3cqh, var(--space-3));
   overflow: hidden;
   min-height: 0;
+  height: 100%;
 }
 
 :root[data-theme="RevoFuture"] .panel-cell .tool-list button {
