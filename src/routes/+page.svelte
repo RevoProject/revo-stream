@@ -8458,8 +8458,22 @@
     flex-shrink: 0;
   }
 
-  /* RevoFuture-only tool descriptions / chevrons (hidden in RevoClassic) */
-  .tool-list .tool-desc,
+  .tool-list .tool-label {
+    min-width: 0;
+    line-height: 1.15;
+  }
+
+  .tool-list .tool-desc {
+    display: block;
+    margin-top: clamp(1px, 0.8cqh, 4px);
+    color: var(--text-muted);
+    font-size: clamp(0.58rem, 3.6cqh, 0.76rem);
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .tool-list .tool-chevron,
   .panel-icon {
     display: none;
