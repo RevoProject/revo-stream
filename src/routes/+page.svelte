@@ -8413,13 +8413,20 @@
     background: transparent;
     border: none;
     padding: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+    container: tools-panel / size;
   }
 
   .tools .tool-list {
     display: grid;
-    gap: 0.55rem;
-    margin-top: 0.75rem;
-    padding-bottom: 0.35rem;
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+    gap: clamp(2px, 2cqh, 0.55rem);
+    margin-top: clamp(2px, 2.5cqh, 0.75rem);
+    padding-bottom: clamp(1px, 1cqh, 0.35rem);
+    min-height: 0;
+    overflow: hidden;
   }
 
   .tools .tool-list button {
@@ -8427,9 +8434,10 @@
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 0.58rem 0.72rem;
+    min-height: 0;
+    padding: clamp(0.18rem, 2cqh, 0.58rem) clamp(0.38rem, 3cqh, 0.72rem);
     border-radius: 10px;
-    font-size: 0.92rem;
+    font-size: clamp(0.7rem, 5cqh, 0.92rem);
     line-height: 1.25;
     font-weight: 500;
     cursor: pointer;
@@ -8439,8 +8447,8 @@
   }
 
   .tools .tool-list button svg {
-    width: 18px;
-    height: 18px;
+    width: clamp(12px, 7cqh, 18px);
+    height: clamp(12px, 7cqh, 18px);
     fill: var(--icon-color, currentColor);
     flex-shrink: 0;
   }
@@ -8450,6 +8458,31 @@
   .tool-list .tool-chevron,
   .panel-icon {
     display: none;
+  }
+
+  @container tools-panel (max-height: 220px) {
+    .tools > h2 {
+      min-height: 30px !important;
+      padding-inline: 0.4rem !important;
+      font-size: 0.78rem !important;
+    }
+
+    .tools .tool-list {
+      gap: 2px;
+      margin-top: 2px;
+      padding: 0 !important;
+    }
+
+    .tools .tool-list button {
+      gap: 0.3rem;
+      padding-block: 0.1rem;
+      border-radius: 7px;
+      font-size: 0.68rem;
+    }
+
+    .tools .tool-desc {
+      display: none !important;
+    }
   }
 
   :global(.context-menu) {
