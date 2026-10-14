@@ -442,6 +442,7 @@ pub(crate) fn start(
 	unsafe {
 		let mut candidates: Vec<ModuleCandidate> = Vec::new();
 		let mut loaded_module_paths = std::collections::HashSet::new();
+		let mut duplicate_module_paths = 0usize;
 		revo_lib::obs::obs_find_modules2(
 			Some(collect_module_candidate),
 			&mut candidates as *mut _ as *mut std::os::raw::c_void,
@@ -463,8 +464,8 @@ pub(crate) fn start(
 				.unwrap_or_else(|_| module_path.to_path_buf())
 				.to_string_lossy()
 				.to_string();
-			if !loaded_module_paths.insert(module_key.clone()) {
-				eprintln!("[plugins] skipped duplicate module path {} ({module_key})", module.name);
+			if !loaded_module_paths.insert(module_key) {
+				duplicate_module_paths += 1;
 				continue;
 			}
 			let normalized_name = module.name.to_lowercase();
@@ -530,6 +531,9 @@ pub(crate) fn start(
 			} else {
 				eprintln!("[plugins] failed to open {} (code {})", module.name, open_result);
 			}
+		}
+		if duplicate_module_paths > 0 {
+			eprintln!("[plugins] skipped {duplicate_module_paths} duplicate module paths");
 		}
 
 		revo_lib::obs::obs_post_load_modules();
