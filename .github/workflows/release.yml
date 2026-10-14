@@ -194,12 +194,18 @@ jobs:
       - name: Verify Windows MSI
         shell: pwsh
         run: ./scripts/windows/verify-msi.ps1
+      - name: Smoke test Windows MSI
+        shell: pwsh
+        run: ./scripts/windows/smoke-test-msi.ps1
       # ----------------------------------------------------------
       # Portable ZIP
       # ----------------------------------------------------------
       - name: Create Windows Portable ZIP
         shell: pwsh
         run: ./scripts/windows/create-portable-zip.ps1
+      - name: Smoke test Windows portable
+        shell: pwsh
+        run: ./scripts/windows/smoke-test-portable.ps1
       # ----------------------------------------------------------
       # Upload Windows artifacts
       # ----------------------------------------------------------
