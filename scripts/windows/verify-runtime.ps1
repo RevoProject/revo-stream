@@ -4,6 +4,7 @@ $ROOT = "src-tauri/resources/revo-root"
 $required = @(
   "$ROOT\core\lib\obs.dll",
   "$ROOT\core\bin\obs-ffmpeg-mux.exe",
+  "$ROOT\core\lib\obs-plugins\obs-nvenc.dll",
   "$ROOT\core\lib\obs-plugins",
   "$ROOT\core\share\obs\libobs\default.effect",
   "$ROOT\data\share\obs\libobs\default.effect"

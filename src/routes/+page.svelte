@@ -178,6 +178,7 @@
 
   const encoderPreferenceOptions = [
     { value: "hardware", label: "Hardware (if supported)" },
+    { value: "nvenc", label: "NVIDIA NVENC (if available)" },
     { value: "software", label: "Software (x264)" }
   ];
 

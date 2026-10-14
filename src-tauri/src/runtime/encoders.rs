@@ -10,6 +10,9 @@ pub(crate) fn set_encoder_preference(
 		.map_err(|_| "state poisoned".to_string())?;
 	let normalized = preference.trim().to_lowercase();
 	runtime.video_encoder_preference = match normalized.as_str() {
+		"nvenc" | "nvidia" | "obs_nvenc_h264" | "obs_nvenc_h264_tex" => {
+			crate::VideoEncoderPreference::Nvenc
+		}
 		"software" | "x264" | "obs_x264" | "legacy" | "legacy_x264" => {
 			crate::VideoEncoderPreference::Software
 		}
@@ -23,6 +26,15 @@ pub(crate) fn create_video_encoder(
 ) -> *mut revo_lib::obs::obs_encoder {
 	match preference {
 		crate::VideoEncoderPreference::Software => create_x264_encoder(),
+		crate::VideoEncoderPreference::Nvenc => {
+			let nvenc = create_nvenc_encoder();
+			if !nvenc.is_null() {
+				nvenc
+			} else {
+				eprintln!("[encoder] NVENC unavailable; falling back to x264");
+				create_x264_encoder()
+			}
+		}
 		crate::VideoEncoderPreference::Hardware => {
 			let hw = create_hardware_encoder();
 			if !hw.is_null() {
@@ -35,13 +47,13 @@ pub(crate) fn create_video_encoder(
 }
 
 pub(crate) fn create_hardware_encoder() -> *mut revo_lib::obs::obs_encoder {
+	let nvenc = create_nvenc_encoder();
+	if !nvenc.is_null() {
+		return nvenc;
+	}
 	let candidates = [
 		"com.apple.videotoolbox.videoencoder.ave.avc",
 		"com.apple.videotoolbox.videoencoder.h264",
-		"obs_nvenc_h264_tex",
-		"obs_nvenc_h264",
-		"h264_nvenc",
-		"ffmpeg_nvenc",
 		"h264_qsv",
 		"h264_vaapi",
 		"h264_amf",
@@ -52,6 +64,20 @@ pub(crate) fn create_hardware_encoder() -> *mut revo_lib::obs::obs_encoder {
 		}
 		let enc = try_create_encoder(id, "revo_video_hw");
 		if !enc.is_null() {
+			return enc;
+		}
+	}
+	std::ptr::null_mut()
+}
+
+fn create_nvenc_encoder() -> *mut revo_lib::obs::obs_encoder {
+	for id in ["obs_nvenc_h264_tex", "obs_nvenc_h264", "h264_nvenc", "ffmpeg_nvenc"] {
+		if !encoder_id_available(id) {
+			continue;
+		}
+		let enc = try_create_encoder(id, "revo_video_nvenc");
+		if !enc.is_null() {
+			eprintln!("[encoder] using NVENC encoder id {id}");
 			return enc;
 		}
 	}

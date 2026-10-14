@@ -6,6 +6,7 @@ use std::collections::HashMap;
 #[serde(rename_all = "lowercase")]
 pub(crate) enum VideoEncoderPreference {
 	Hardware,
+	Nvenc,
 	Software,
 }
 

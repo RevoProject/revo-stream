@@ -213,6 +213,9 @@ pub(crate) fn start(
 			.trim()
 			.to_lowercase();
 		runtime.video_encoder_preference = match pref.as_str() {
+			"nvenc" | "nvidia" | "obs_nvenc_h264" | "obs_nvenc_h264_tex" => {
+				crate::VideoEncoderPreference::Nvenc
+			}
 			"software" | "x264" | "obs_x264" | "legacy" | "legacy_x264" => {
 				crate::VideoEncoderPreference::Software
 			}

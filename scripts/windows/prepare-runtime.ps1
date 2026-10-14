@@ -55,6 +55,7 @@ Copy-Item (Join-Path $obsData "*") (Join-Path $Root "data\share\obs") -Recurse -
 $required = @(
     (Join-Path $Root "core\lib\obs.dll"),
     (Join-Path $Root "core\bin\obs-ffmpeg-mux.exe"),
+    (Join-Path $Root "core\lib\obs-plugins\obs-nvenc.dll"),
     (Join-Path $Root "core\share\obs\libobs\default.effect"),
     (Join-Path $Root "data\share\obs\libobs\default.effect")
 )
