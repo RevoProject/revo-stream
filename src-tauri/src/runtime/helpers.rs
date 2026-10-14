@@ -5,10 +5,25 @@ pub(crate) fn cstr_to_string(ptr: *const i8) -> String {
 	unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().to_string() }
 }
 
+#[cfg(target_os = "windows")]
+fn wait_output_stopped(output: *mut revo_lib::obs::obs_output) {
+	for _ in 0..100 {
+		if !unsafe { revo_lib::obs::obs_output_active(output) } {
+			return;
+		}
+		std::thread::sleep(std::time::Duration::from_millis(20));
+	}
+	eprintln!("[shutdown] OBS output did not stop within 2 seconds");
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wait_output_stopped(_output: *mut revo_lib::obs::obs_output) {}
+
 pub(crate) fn stop_recording_internal(runtime: &mut crate::ObsRuntime) {
 	unsafe {
 		if !runtime.output_record.is_null() {
 			revo_lib::obs::obs_output_stop(runtime.output_record);
+			wait_output_stopped(runtime.output_record);
 			revo_lib::obs::obs_output_release(runtime.output_record);
 		}
 		if !runtime.record_video_encoder.is_null() {
@@ -28,6 +43,7 @@ pub(crate) fn stop_streaming_internal(runtime: &mut crate::ObsRuntime) {
 	unsafe {
 		if !runtime.output_stream.is_null() {
 			revo_lib::obs::obs_output_stop(runtime.output_stream);
+			wait_output_stopped(runtime.output_stream);
 			revo_lib::obs::obs_output_release(runtime.output_stream);
 		}
 		if !runtime.stream_service.is_null() {
