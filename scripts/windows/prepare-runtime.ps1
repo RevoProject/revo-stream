@@ -50,7 +50,15 @@ foreach ($plugin in Get-ChildItem $pluginBin.FullName -Filter "*.dll" -File) {
 $obsData = Join-Path $ObsOut "data"
 if (-not (Test-Path $obsData)) { throw "OBS data directory missing: $obsData" }
 Copy-Item (Join-Path $obsData "*") (Join-Path $Root "core\share\obs") -Recurse -Force
-Copy-Item (Join-Path $obsData "*") (Join-Path $Root "data\share\obs") -Recurse -Force
+
+# core/share/obs is the full plugin-data copy used by bundled modules.
+# data/share/obs only needs libobs effects for root validation and fallback
+# effect lookup; copying all plugin data here duplicates roughly 10 MB.
+$obsLibobs = Join-Path $obsData "libobs"
+if (-not (Test-Path $obsLibobs)) { throw "OBS libobs shader directory missing: $obsLibobs" }
+$dataLibobs = Join-Path $Root "data\share\obs\libobs"
+New-Item -ItemType Directory -Force $dataLibobs | Out-Null
+Copy-Item (Join-Path $obsLibobs "*") $dataLibobs -Recurse -Force
 
 $required = @(
     (Join-Path $Root "core\lib\obs.dll"),
