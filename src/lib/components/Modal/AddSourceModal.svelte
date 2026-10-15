@@ -6,6 +6,7 @@
   export let externalSourceTypes: { id: string; label: string }[] = [];
   export let sourceLabels: Record<string, string> = {};
   export let loading = false;
+  export let creating = false;
   export let error = "";
 
   const dispatch = createEventDispatcher();
@@ -49,6 +50,7 @@
   };
 
   const handlePick = (id: string) => {
+    if (creating || loading) return;
     newSourceType = id;
     add();
   };
@@ -73,6 +75,9 @@
       <h2>Add Source</h2>
     </header>
     <div class="modal-body">
+      {#if creating}
+        <p class="source-status" role="status">Tworzenie źródła... To może chwilę potrwać dla źródeł FFmpeg lub przechwytywania ekranu.</p>
+      {/if}
       {#if loading}
         <p class="source-status" role="status">Ładowanie dostępnych źródeł...</p>
       {:else if error}
@@ -89,6 +94,7 @@
             type="button"
             class="source-card"
             onclick={() => handlePick(type.id)}
+            disabled={creating}
             aria-label={`Add ${sourceLabel(type)}`}
           >
             <div class="icon" aria-hidden="true">
@@ -108,6 +114,7 @@
                 type="button"
                 class="source-card external-card"
                 onclick={() => handlePick(type.id)}
+                disabled={creating}
                 aria-label={`Add ${sourceLabel(type)}`}
               >
                 <div class="icon" aria-hidden="true">

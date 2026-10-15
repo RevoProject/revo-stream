@@ -884,7 +884,6 @@ pub(crate) fn update_source(
 		} else {
 			update.source_type.as_str()
 		};
-		let is_ffmpeg_source = chosen_type.trim().eq_ignore_ascii_case("ffmpeg_source");
 		if actual_type == "browser_source" {
 			if let Some(url) = update.params.get("url") {
 				if let Err(error) = crate::sources::browser::validate_url(url) {
@@ -898,7 +897,6 @@ pub(crate) fn update_source(
 		// jest bezwzględną wartością pikselową ustawioną przez usera.
 		let base_w_before = revo_lib::obs::obs_source_get_width(source) as f32;
 		let base_h_before = revo_lib::obs::obs_source_get_height(source) as f32;
-		let was_visible = revo_lib::obs::obs_sceneitem_visible(item);
 		let editable_list_keys = crate::source_editable_list_keys(source);
 		crate::apply_source_params(settings, chosen_type, &update.params, Some(&editable_list_keys));
 
@@ -907,10 +905,11 @@ pub(crate) fn update_source(
 		let transform_params = without_unknown_item_dims(&update.params);
 		crate::sources::helpers::apply_scene_item_transform_with_base(item, source, &transform_params, base_w_before, base_h_before);
 		apply_audio_runtime_params(source, &update.params);
-		if !is_ffmpeg_source {
-			revo_lib::obs::obs_sceneitem_set_visible(item, false);
-			revo_lib::obs::obs_sceneitem_set_visible(item, was_visible);
-		}
+		// No visibility toggle here: deactivating and reactivating a capture
+		// source destroys and recreates its backend (on Windows the DXGI
+		// duplicator of monitor_capture), which flashes the preview black on
+		// every settings/transform update. `obs_source_update` is the
+		// supported path — libobs input sources apply new settings live.
 	}
 	Ok("updated".to_string())
 }

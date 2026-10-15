@@ -142,6 +142,17 @@ pub(crate) fn take_screenshot(
 		.as_ref()
 		.map(|v| v.trim().is_empty())
 		.unwrap_or(true);
+
+	// Preview freeze (Add Source workflow): serve the retained last good
+	// frame without touching the graphics context, so source creation does
+	// not contend with preview rendering. Only scene captures are frozen —
+	// single-source screenshots (edit modal) keep rendering.
+	if capture_scene_output && runtime.preview_freeze {
+		if let Some(frame) = runtime.last_preview_frame.clone() {
+			return Ok(frame);
+		}
+	}
+
 	let render_source = if let Some(raw_id) = source_id {
 		let source_key = raw_id.trim().to_string();
 		if source_key.is_empty() {
@@ -212,10 +223,102 @@ pub(crate) fn take_screenshot(
 	} else {
 		(width.unwrap_or(640).max(160).min(3840), height.unwrap_or(360).max(90).min(2160))
 	};
-	capture_view_png(&mut runtime, req_width, req_height, render_source).map_err(|err| {
-		eprintln!("obs: preview render failed: {err}");
-		err
-	})
+	let captured = capture_view_pixels(&mut runtime, req_width, req_height, render_source);
+	let captured = match captured {
+		Ok(frame) => frame,
+		Err(err) => {
+			eprintln!("obs: preview render failed: {err}");
+			// Keep the last good frame instead of an error so the UI does not
+			// flash or lose the preview on transient render failures.
+			if let Some(frame) = runtime.last_preview_frame.clone() {
+				return Ok(frame);
+			}
+			return Err(err);
+		}
+	};
+
+	// PNG encode + base64 are pure CPU work (~15ms at 1080p). Run them with
+	// the runtime lock released so other Tauri commands are not starved by
+	// the preview loop.
+	drop(runtime);
+	let encoded = encode_preview_frame(captured);
+
+	// Retain the frame for the freeze path and transient-failure fallback.
+	if let Ok(frame) = &encoded {
+		if let Ok(mut runtime) = state.runtime.lock() {
+			runtime.last_preview_frame = Some(frame.clone());
+		}
+	}
+
+	encoded
+}
+
+/// PNG-encode + base64 a captured frame into a data URI. Pure function — no
+/// OBS state, no locks. Consumes the frame.
+fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, String> {
+	let CapturedPreviewFrame { width, height, pixels } = frame;
+	let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
+		.ok_or_else(|| "failed to build image buffer".to_string())?;
+
+	let mut png_bytes = Vec::new();
+	let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+	image::ImageEncoder::write_image(
+		encoder,
+		image.as_raw(),
+		width,
+		height,
+		image::ColorType::Rgba8.into(),
+	)
+	.map_err(|e| format!("failed to encode screenshot: {e}"))?;
+
+	let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+	Ok(format!("data:image/png;base64,{b64}"))
+}
+
+/// Raw RGBA frame read back from the preview texrender. GPU-side work and the
+/// pixel copy run while the runtime lock is held; encoding happens later.
+pub(crate) struct CapturedPreviewFrame {
+	width: u32,
+	height: u32,
+	pixels: Vec<u8>,
+}
+
+#[cfg(test)]
+mod preview_tests {
+	use base64::Engine as _;
+	use image::GenericImageView;
+
+	use super::{encode_preview_frame, CapturedPreviewFrame};
+
+	#[test]
+	fn encoded_preview_frame_is_a_png_data_uri() {
+		// 2x2 solid red frame.
+		let frame = CapturedPreviewFrame {
+			width: 2,
+			height: 2,
+			pixels: vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255],
+		};
+		let uri = encode_preview_frame(frame).expect("encoding must succeed");
+		assert!(uri.starts_with("data:image/png;base64,"));
+
+		// The payload must decode back to the same pixels.
+		let raw = base64::engine::general_purpose::STANDARD
+			.decode(uri.trim_start_matches("data:image/png;base64,"))
+			.expect("valid base64");
+		let decoded = image::load_from_memory_with_format(&raw, image::ImageFormat::Png)
+			.expect("valid png");
+		assert_eq!(decoded.dimensions(), (2, 2));
+		assert_eq!(
+			decoded.to_rgba8().into_raw(),
+			vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]
+		);
+	}
+
+	#[test]
+	fn zero_sized_frame_fails_gracefully() {
+		let frame = CapturedPreviewFrame { width: 0, height: 0, pixels: vec![] };
+		assert!(encode_preview_frame(frame).is_err());
+	}
 }
 
 /// Destroy the preview texrender inside the graphics context and clear the
@@ -266,12 +369,12 @@ pub(crate) fn ensure_preview_renderer(
 	Ok(())
 }
 
-pub(crate) fn capture_view_png(
+pub(crate) fn capture_view_pixels(
 	runtime: &mut crate::ObsRuntime,
 	width: u32,
 	height: u32,
 	render_source: *mut revo_lib::obs::obs_source,
-) -> Result<String, String> {
+) -> Result<CapturedPreviewFrame, String> {
 	let mut pixels: Vec<u8> = Vec::new();
 	let mut width = width;
 	let mut height = height;
@@ -340,27 +443,13 @@ pub(crate) fn capture_view_png(
 
 		if !rendered {
 			revo_lib::obs::obs_leave_graphics();
-			let cached = runtime.last_preview_frame.clone();
-			return match cached {
-				Some(frame) => {
-					eprintln!("[preview-capture] returning last good frame");
-					Ok(frame)
-				}
-				None => Err("preview texrender failed".to_string()),
-			};
+			return Err("preview texrender failed".to_string());
 		}
 
 		let tex = revo_lib::obs::gs_texrender_get_texture(runtime.preview_texrender);
 		if tex.is_null() {
 			revo_lib::obs::obs_leave_graphics();
-			let cached = runtime.last_preview_frame.clone();
-			return match cached {
-				Some(frame) => {
-					eprintln!("[preview-capture] texture unavailable, returning last good frame");
-					Ok(frame)
-				}
-				None => Err("preview texture unavailable".to_string()),
-			};
+			return Err("preview texture unavailable".to_string());
 		}
 
 		width = revo_lib::obs::gs_texture_get_width(tex);
@@ -440,22 +529,5 @@ pub(crate) fn capture_view_png(
 		revo_lib::obs::obs_leave_graphics();
 	}
 
-	let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
-		.ok_or_else(|| "failed to build image buffer".to_string())?;
-
-	let mut png_bytes = Vec::new();
-	let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
-	image::ImageEncoder::write_image(
-		encoder,
-		image.as_raw(),
-		width,
-		height,
-		image::ColorType::Rgba8.into(),
-	)
-	.map_err(|e| format!("failed to encode screenshot: {e}"))?;
-
-	let b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
-	let frame = format!("data:image/png;base64,{b64}");
-	runtime.last_preview_frame = Some(frame.clone());
-	Ok(frame)
+	Ok(CapturedPreviewFrame { width, height, pixels })
 }

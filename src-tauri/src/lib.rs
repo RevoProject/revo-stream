@@ -36,6 +36,11 @@ struct ObsRuntime {
     stream_audio_encoder: *mut obs::obs_encoder,
     preview_view: *mut obs::obs_view,
     preview_texrender: *mut obs::gs_texrender_t,
+    /// When true, scene-level preview captures serve the retained last good
+    /// frame instead of rendering. Used by the Add Source workflow so source
+    /// creation does not contend with preview rendering. Recording and
+    /// streaming outputs are unaffected.
+    preview_freeze: bool,
     /// Last successfully captured preview frame (data URI). Returned when a
     /// fresh capture fails, so the UI keeps a good frame instead of an error
     /// or a wrongly-rendered main/output texture.
@@ -66,6 +71,7 @@ impl Default for ObsRuntime {
             stream_audio_encoder: std::ptr::null_mut(),
             preview_view: std::ptr::null_mut(),
             preview_texrender: std::ptr::null_mut(),
+            preview_freeze: false,
             last_preview_frame: None,
             last_record_path: None,
             video_encoder_preference: VideoEncoderPreference::default(),
@@ -147,7 +153,9 @@ fn obs_list_video_device_picker_items() -> Result<Vec<SourceTypeItem>, String> {
     sources::video_devices::list_video_device_picker_items()
 }
 
-#[tauri::command]
+// Runs off the UI thread: enumerating input types may contend with the
+// preview loop on the runtime lock and must not block the main thread.
+#[tauri::command(async)]
 fn obs_list_external_source_types(state: tauri::State<ObsState>) -> Result<Vec<SourceTypeItem>, String> {
     sources::source_ops::list_external_source_types(state)
 }
@@ -578,7 +586,8 @@ fn obs_get_graphic_planner_init(state: tauri::State<ObsState>) -> Result<Planner
     runtime::preview::get_graphic_planner_init(state)
 }
 
-#[tauri::command]
+// Polled by the preview loop and audio mixer; keep off the main thread.
+#[tauri::command(async)]
 fn obs_get_current_scene_resolution(state: tauri::State<ObsState>) -> Result<String, String> {
     runtime::preview::get_current_scene_resolution(state)
 }
@@ -666,7 +675,10 @@ fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Re
     sources::source_ops::create_source_in_scene(runtime, create)
 }
 
-#[tauri::command]
+// Runs off the UI thread: `obs_source_create` performs heavy per-type
+// initialization (FFmpeg probing, DXGI duplicator setup, browser workers)
+// and must never execute on the main thread.
+#[tauri::command(async)]
 fn obs_create_source(state: tauri::State<ObsState>, create: SourceCreate) -> Result<String, String> {
     sources::source_ops::create_source(state, create)
 }
@@ -675,7 +687,9 @@ fn abgr_to_hex(abgr: u32) -> String {
     sources::helpers::abgr_to_hex(abgr)
 }
 
-#[tauri::command]
+// Runs off the UI thread: source updates apply settings and transforms and
+// can contend with the preview loop on the runtime lock.
+#[tauri::command(async)]
 fn obs_update_source(state: tauri::State<ObsState>, update: SourceUpdate) -> Result<String, String> {
     sources::source_ops::update_source(state, update)
 }
@@ -737,7 +751,8 @@ fn obs_set_encoder_preference(
     runtime::encoders::set_encoder_preference(state, preference)
 }
 
-#[tauri::command]
+// Polled every 100ms by the audio mixer; keep off the main thread.
+#[tauri::command(async)]
 fn obs_get_audio_levels() -> Result<HashMap<String, f64>, String> {
     let levels = devices::levels::get_levels()
         .lock()
@@ -761,6 +776,20 @@ fn obs_take_screenshot(
     source_id: Option<String>,
 ) -> Result<String, String> {
     runtime::preview::take_screenshot(state, width, height, source_id)
+}
+
+/// Freeze/unfreeze scene-level preview rendering. While frozen,
+/// `obs_take_screenshot` returns the retained last good frame without any
+/// render, GPU or encode work. Single-source screenshots and active
+/// recording/streaming outputs are never affected.
+#[tauri::command(async)]
+fn obs_preview_set_freeze(state: tauri::State<ObsState>, freeze: bool) -> Result<(), String> {
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "state poisoned".to_string())?;
+    runtime.preview_freeze = freeze;
+    Ok(())
 }
 
 fn parse_cli_paths(args: impl IntoIterator<Item = String>) -> Result<Vec<(&'static str, String)>, String> {
@@ -971,6 +1000,7 @@ pub fn run() {
             obs_set_encoder_preference,
             obs_get_source_size,
             obs_take_screenshot,
+            obs_preview_set_freeze,
             obs_get_audio_levels,
             obs_reorder_scene,
             settings_get,

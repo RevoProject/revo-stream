@@ -404,6 +404,12 @@
     let previewPendingRequest = false;
     let previewLastFrameAt = 0;
     let previewResolutionSyncAt = 0;
+    // Preview freeze used by the Add Source workflow: while frozen, the last
+    // frame stays on screen and no preview work happens (backend skips scene
+    // rendering; the frontend loop is paused without clearing the image).
+    // The request counter keeps overlapping opens/closes consistent.
+    let previewFrozen = false;
+    let previewFreezeRequests = 0;
     let previewVideo: HTMLVideoElement | null = null;
     let stingerPreviewVideo: HTMLVideoElement | null = null;
     let previewDirty = true;
@@ -1212,6 +1218,7 @@
       (source) => Boolean(source.visible) && isMediaSourceType(source.source_type ?? "")
     );
     let showAddSource = false;
+    let addSourceBusy = false;
     let newSourceType = sourceTypes[0].id;
     let availableSourceTypes: SourceTypeItem[] = sourceTypes;
     let externalSourceTypes: SourceTypeItem[] = [];
@@ -2400,13 +2407,13 @@
 
     const setRealtimeRefresh = (enabled: boolean) => {
       realtimeRefresh = enabled;
-      if (!backendEnabled || !isObsRunning || webrtcActive || demoMode || document.hidden) return;
+      if (!backendEnabled || !isObsRunning || webrtcActive || demoMode || document.hidden || previewFrozen) return;
       stopPreviewLoop();
       startPreviewLoop();
     };
 
     function requestPreviewUpdate() {
-      if (!backendEnabled || !isObsRunning || webrtcActive || demoMode) return;
+      if (!backendEnabled || !isObsRunning || webrtcActive || demoMode || previewFrozen) return;
       previewDirty = true;
       if (hasVisibleMediaSource) {
         if (!previewInterval && previewAnimationFrame === null) {
@@ -2434,6 +2441,7 @@
 
     async function refreshPreview(force = false) {
       if (!backendEnabled || !isObsRunning || document.hidden) return;
+      if (previewFrozen) return;
       if (!force && !previewDirty) return;
 
       // Global throttle — nie szybciej niz 30fps
@@ -2575,6 +2583,7 @@
     }
 
     function startPreviewLoop() {
+      if (previewFrozen) return;
       if (previewInterval || previewAnimationFrame !== null) return;
       const tick = async () => {
         previewInterval = null;
@@ -2625,6 +2634,52 @@
       }
       previewUrl = "";
       previewDirty = true;
+    }
+
+    // Stop scheduling new captures but keep the last frame on screen. Used
+    // when the preview is frozen so the displayed image is retained.
+    function pausePreviewLoop() {
+      if (previewInterval) {
+        clearTimeout(previewInterval);
+        previewInterval = null;
+      }
+      if (previewAnimationFrame !== null) {
+        cancelAnimationFrame(previewAnimationFrame);
+        previewAnimationFrame = null;
+      }
+      previewDirty = true;
+    }
+
+    // Freeze the preview for a modal workflow (Add Source). Retains the
+    // current frame and suspends preview rendering without touching libobs
+    // outputs — recording and streaming keep running.
+    async function freezePreviewForModal() {
+      previewFreezeRequests += 1;
+      if (previewFrozen) return;
+      previewFrozen = true;
+      pausePreviewLoop();
+      try {
+        await invoke("obs_preview_set_freeze", { freeze: true });
+      } catch (err) {
+        console.warn("[preview] backend freeze failed", err);
+      }
+    }
+
+    // Restore live preview after a frozen modal workflow closes. Always
+    // re-renders the current scene so a stale frame is never shown.
+    async function unfreezePreviewFromModal() {
+      if (previewFreezeRequests > 0) previewFreezeRequests -= 1;
+      if (previewFreezeRequests > 0 || !previewFrozen) return;
+      previewFrozen = false;
+      try {
+        await invoke("obs_preview_set_freeze", { freeze: false });
+      } catch (err) {
+        console.warn("[preview] backend unfreeze failed", err);
+      }
+      previewDirty = true;
+      if (!backendEnabled || !isObsRunning || webrtcActive || demoMode || document.hidden) return;
+      void refreshPreview(true);
+      startPreviewLoop();
     }
 
     function showCannotRemoveLastSceneDialog() {
@@ -4461,7 +4516,13 @@
     closeSceneMenu();
   };
 
+  const closeAddSourceModal = () => {
+    showAddSource = false;
+    void unfreezePreviewFromModal();
+  };
+
   const addSource = async () => {
+    if (addSourceBusy) return;
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
     const escapedType = newSourceType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const suffixPattern = new RegExp(`^${escapedType}_(\\d+)$`);
@@ -4476,6 +4537,7 @@
     }
     const name = `${newSourceType}_${maxSuffix + 1}`;
     let created = false;
+    addSourceBusy = true;
     if (backendEnabled) {
       try {
         await invoke<string>("obs_create_source", {
@@ -4492,21 +4554,33 @@
           console.warn(`[sources] initial fit skipped for ${id}`, err);
         }
         await loadSources();
-        requestPreviewUpdate();
         created = true;
       } catch (err) {
         showGlobalDialog(String(err), "error");
+      } finally {
+        addSourceBusy = false;
       }
     } else {
       const source: DemoSource = { id, name, visible: true, source_type: newSourceType, locked: false };
       sourcesList = [...sourcesList, source];
-      requestPreviewUpdate();
+      addSourceBusy = false;
       created = true;
     }
-    if (created) showAddSource = false;
+    if (created) {
+      showAddSource = false;
+      // Restore live preview (renders the current scene, not a stale frame)
+      // before requesting an update for the newly added source.
+      await unfreezePreviewFromModal();
+      requestPreviewUpdate();
+    }
   };
 
   const openAddSourceModal = async () => {
+    // Freeze the preview for the whole Add Source workflow: keep the last
+    // frame on screen and suspend preview rendering so creating an expensive
+    // source (FFmpeg, Display Capture, Browser) does not fight the preview
+    // loop. Restored on every close path (success, cancel, error).
+    void freezePreviewForModal();
     externalSourceTypes = [];
     availableSourceTypes = sourceTypes;
     sourceTypesLoading = backendEnabled && isObsRunning;
@@ -7362,7 +7436,8 @@
       {externalSourceTypes}
       loading={sourceTypesLoading}
       error={sourceTypesError}
-      on:close={() => (showAddSource = false)}
+      creating={addSourceBusy}
+      on:close={closeAddSourceModal}
       on:add={addSource}
     />
   {/if}
