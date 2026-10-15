@@ -899,7 +899,7 @@
     inset: 0;
     transform: none;
     background: var(--surface-2);
-    color: var(--text);
+    color: var(--text, #fff);
     border-radius: 0;
     box-shadow: none;
     z-index: 3010;
@@ -949,7 +949,7 @@
     border-radius: 10px;
     padding: 0.5rem 0.9rem;
     background: var(--surface-2);
-    color: var(--text);
+    color: var(--text, #fff);
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
