@@ -467,7 +467,7 @@
       Init data missing – showing empty planner.
     </div>
   {/if}
-  <GraphicPlanner {sources} {sceneResolution} {onClose} {onSave} undoRedoLimit={plannerUndoRedoLimit} />
+  <GraphicPlanner {sources} {sceneResolution} {onClose} {onSave} undoRedoLimit={plannerUndoRedoLimit} {embedded} />
 {:else}
   <div id="app-loader" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
     Loading editor…

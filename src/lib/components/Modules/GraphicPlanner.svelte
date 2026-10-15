@@ -5,6 +5,7 @@
 
   export let sources: DemoSource[] = [];
   export let onClose: () => void;
+  export let embedded = false;
   export let onSave: (transforms: Record<string, {
     x: number;
     y: number;
@@ -817,7 +818,7 @@
   }
 </script>
 
-<div class="transform-modal">
+<div class="transform-modal" class:embedded>
   <div class="quick-toolbar">
     <button class="tool-btn" onclick={fitToScreen}>Fit to screen</button>
     <button class="tool-btn" onclick={centerActive} disabled={!activeId}>Center</button>
@@ -829,6 +830,7 @@
     <button class="tool-btn" onclick={undoTransform} disabled={undoStack.length === 0}>Undo</button>
     <button class="tool-btn" onclick={redoTransform} disabled={redoStack.length === 0}>Redo</button>
     <div class="toolbar-spacer"></div>
+    <button class="tool-btn" onclick={onClose}>Close</button>
     <button class="tool-btn primary" onclick={saveChanges} disabled={saveInFlight}>{saveInFlight ? "Saving..." : "Save"}</button>
   </div>
   <div class="planner-layout" bind:this={plannerLayoutEl}>
@@ -912,6 +914,17 @@
     align-items: stretch;
     gap: 1.2rem;
     overflow: hidden;
+  }
+
+  .transform-modal.embedded {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    max-height: none;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    gap: 0.75rem;
   }
   .planner-layout {
     position: relative;
