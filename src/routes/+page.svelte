@@ -4576,11 +4576,11 @@
   };
 
   const openAddSourceModal = async () => {
-    // Freeze the preview for the whole Add Source workflow: keep the last
-    // frame on screen and suspend preview rendering so creating an expensive
-    // source (FFmpeg, Display Capture, Browser) does not fight the preview
-    // loop. Restored on every close path (success, cancel, error).
-    void freezePreviewForModal();
+    // Show the modal immediately
+    showAddSource = true;
+    // Freeze the preview for the Add Source workflow
+    await freezePreviewForModal();
+    // Reset the source types and set loading state
     externalSourceTypes = [];
     availableSourceTypes = sourceTypes;
     sourceTypesLoading = backendEnabled && isObsRunning;
@@ -4616,13 +4616,11 @@
       sourceTypesLoading = false;
     }
 
+    // Set a default newSourceType if the current one is not in the list
     if (![...availableSourceTypes, ...externalSourceTypes].some((t) => t.id === newSourceType)) {
       newSourceType = availableSourceTypes[0]?.id ?? externalSourceTypes[0]?.id ?? "";
     }
-
-    showAddSource = true;
   };
-
   const toggleSourceVisibility = async (source: DemoSource) => {
     if (backendEnabled) {
       try {
