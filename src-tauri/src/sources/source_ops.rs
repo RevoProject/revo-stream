@@ -106,9 +106,9 @@ pub(crate) fn list_sources(
 	Ok(collect_sources(&runtime))
 }
 
-/// Wymiary elementu sceny (item_width/item_height) + flaga dims_ready.
-/// dims_ready = "1" gdy rozmiar jest znany, "0" gdy zrodlo jeszcze nie
-/// raportuje rozmiaru (np. asynchroniczne ładowanie obrazu).
+/// Scene-item dimensions (item_width/item_height) and a dims_ready flag.
+/// dims_ready is "1" when the size is known and "0" while an asynchronous
+/// source has not reported its dimensions yet.
 fn resolve_item_dims(
 	item: *mut revo_lib::obs::obs_scene_item,
 	source: *mut revo_lib::obs::obs_source,
@@ -125,9 +125,8 @@ fn resolve_item_dims(
 			);
 		}
 
-		// Fallback: zrodlo nie raportuje jeszcze rozmiaru — przeczytaj rozmiar
-		// na scenie z bounds scenitem (gdy bounds sa ustawione, to jego rozmiar
-		// jest rzeczywistym rozmiarem na scenie).
+		// A source may not have dimensions yet. Use scene-item bounds when they
+		// are available because those represent its current on-scene size.
 		let mut info: revo_lib::obs::obs_transform_info = std::mem::zeroed();
 		revo_lib::obs::obs_sceneitem_get_info2(item, &mut info as *mut _);
 		let mut bounds: revo_lib::obs::vec2 = std::mem::zeroed();
@@ -145,8 +144,8 @@ fn resolve_item_dims(
 	}
 }
 
-/// Usuwa item_width/item_height o wartosci <= 0 (wymiary nieznane) — helpers::apply_scene_item_transform*
-/// potraktowalby je jako poprawne wymiary i wyliczyl skale 0/base = 0.
+/// Remove non-positive item dimensions. The transform helpers would otherwise
+/// treat them as real values and calculate a zero scale.
 fn without_unknown_item_dims(
 	params: &std::collections::HashMap<String, String>,
 ) -> std::collections::HashMap<String, String> {
@@ -255,8 +254,8 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 				"pos_y".to_string(),
 				pos.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 			);
-			// Zawsze emituj item_width/item_height + dims_ready, aby frontend
-			// (m.in. graphic planner) rozroznial "wymiary nieznane" od "braku".
+			// Always expose dimensions and readiness so the frontend can distinguish
+			// an unknown asynchronous size from a missing transform.
 			let (item_w, item_h, dims_ready) = resolve_item_dims(item, source, &scale);
 			params.insert("item_width".to_string(), item_w.to_string());
 			params.insert("item_height".to_string(), item_h.to_string());
@@ -410,8 +409,8 @@ pub(crate) fn get_source_settings(
 			"pos_y".to_string(),
 			pos.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 		);
-		// Zawsze emituj item_width/item_height + dims_ready, aby frontend
-		// (m.in. graphic planner) rozroznial "wymiary nieznane" od "braku".
+		// Always expose dimensions and readiness so the frontend can distinguish
+		// an unknown asynchronous size from a missing transform.
 		let (item_w, item_h, dims_ready) = resolve_item_dims(item, source, &scale);
 		params.insert("item_width".to_string(), item_w.to_string());
 		params.insert("item_height".to_string(), item_h.to_string());
@@ -419,8 +418,8 @@ pub(crate) fn get_source_settings(
 			"dims_ready".to_string(),
 			if dims_ready { "1" } else { "0" }.to_string(),
 		);
-		// Zawsze dodawaj scale_x/scale_y — potrzebne m.in. przy graphic planner,
-		// gdzie musimy znać zamiar skali niezależnie od bazowych wymiarów źródła.
+		// Always expose scale_x/scale_y so the planner knows the intended scale
+		// independently of the source's current base dimensions.
 		params.insert(
 			"scale_x".to_string(),
 			scale.__bindgen_anon_1.__bindgen_anon_1.x.to_string(),
@@ -684,9 +683,8 @@ pub(crate) fn create_source_in_scene(
 		revo_lib::obs::obs_sceneitem_set_visible(item, true);
 		let transform_params = without_unknown_item_dims(&create.params);
 		crate::apply_scene_item_transform(item, source, &transform_params);
-		// Jesli OBS nie raportuje jeszcze rozmiaru (async image load), ustaw domyslny scale —
-		// ale tylko gdy w params nie ma zamiaru skali (scale_x/scale_y), aby nie kasowac
-		// transformacji przekazanej przy tworzeniu/klonowaniu zrodla.
+		// If OBS has not reported an asynchronous source size yet, initialize scale
+		// only when no explicit scale intent was supplied by create/clone params.
 		let base_w = revo_lib::obs::obs_source_get_width(source) as f32;
 		let has_scale_intent = transform_params.contains_key("scale_x")
 			|| transform_params.contains_key("scale_y");
@@ -892,9 +890,9 @@ pub(crate) fn update_source(
 				}
 			}
 		}
-		// Zachowaj bazowe wymiary PRZED aktualizacja źródła — po zmianie tekstu/obrazu
-		// naturalny rozmiar źródła może się zmienić, a item_width/item_height z params
-		// jest bezwzględną wartością pikselową ustawioną przez usera.
+		// Capture base dimensions before updating the source. Text or image updates
+		// may change its natural size while item_width/item_height are absolute
+		// pixel values selected by the user.
 		let base_w_before = revo_lib::obs::obs_source_get_width(source) as f32;
 		let base_h_before = revo_lib::obs::obs_source_get_height(source) as f32;
 		let editable_list_keys = crate::source_editable_list_keys(source);

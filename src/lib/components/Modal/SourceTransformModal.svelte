@@ -346,7 +346,7 @@
     <button onclick={() => onClose()}>Close</button>
     <button onclick={() => onSave(transforms)}>Save</button>
   </div>
-  <div class="hint">Przeciągaj źródła myszką. Uchwyty skalują źródło, a <b>Alt + uchwyt</b> działa jak crop. Strzałki przesuwają zaznaczony element (Ctrl/Cmd = 1px, Shift = 20px).</div>
+  <div class="hint">Drag sources with the mouse. Handles resize the source; <b>Alt + handle</b> crops it. Arrow keys move the selected item (Ctrl/Cmd = 1px, Shift = 20px).</div>
 </div>
 
 <style>

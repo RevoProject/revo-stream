@@ -533,7 +533,7 @@ pub(crate) fn apply_scene_item_transform_with_base(
 		}
 		revo_lib::obs::obs_sceneitem_set_pos(item, &pos as *const _);
 
-		// Uzyj wymiarow sprzed aktualizacji jesli dostarczone, inaczej aktualne
+		// Prefer dimensions captured before the source update when available.
 		let base_w = if base_w_before > 0.0 {
 			base_w_before
 		} else {

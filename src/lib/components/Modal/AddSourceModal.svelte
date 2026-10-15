@@ -76,17 +76,17 @@
     </header>
     <div class="modal-body">
       {#if creating}
-        <p class="source-status" role="status">Tworzenie źródła... To może chwilę potrwać dla źródeł FFmpeg lub przechwytywania ekranu.</p>
+        <p class="source-status" role="status">Creating source... FFmpeg and screen capture sources may take a moment.</p>
       {/if}
       {#if loading}
-        <p class="source-status" role="status">Ładowanie dostępnych źródeł...</p>
+        <p class="source-status" role="status">Loading available sources...</p>
       {:else if error}
         <p class="source-status source-status-error" role="alert">{error}</p>
       {:else if !sourceTypes.length && !externalSourceTypes.length}
-        <p class="source-status" role="status">Brak dostępnych źródeł. Sprawdź inicjalizację OBS i ładowanie pluginów.</p>
+        <p class="source-status" role="status">No sources are available. Check OBS initialization and plugin loading.</p>
       {/if}
       {#if !loading && !error && !sourceTypes.some((type) => ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"].includes(type.id)) && !externalSourceTypes.some((type) => ["xshm_input", "xcomposite_input", "window_capture", "monitor_capture", "pipewire_screen_capture"].includes(type.id))}
-        <p class="source-status source-status-warning" role="status">Przechwytywanie ekranu i okien jest niedostępne. Wymagany jest zarejestrowany moduł OBS <code>linux-capture</code> (X11) albo integracja PipeWire/XDG Desktop Portal (Wayland).</p>
+        <p class="source-status source-status-warning" role="status">Screen and window capture are unavailable. A registered OBS <code>linux-capture</code> module (X11) or PipeWire/XDG Desktop Portal integration (Wayland) is required.</p>
       {/if}
       <div class="source-grid builtin-grid" role="list">
         {#each sourceTypes as type}

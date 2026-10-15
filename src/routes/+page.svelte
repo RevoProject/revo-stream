@@ -940,7 +940,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         const t = sourceTransforms[s.id];
         if (!t) return s;
         // Oblicz scale_x/scale_y na podstawie planner pixel dimensions
-        // i bazowego rozmiaru źródła (odtworzonego z poprzedniego scale * base = item_dim)
+        // and the source base size reconstructed from previous scale * base = item_dim
         const prevScaleX = parseFloat(s.params?.scale_x || "1");
         const prevScaleY = parseFloat(s.params?.scale_y || "1");
         const prevItemW = parseFloat(s.params?.item_width || "0");
@@ -1006,7 +1006,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
                 }
               });
             } catch (err) {
-              // Ignoruj bledy 'unknown source id' po zmianie sceny
+              // Ignore stale "unknown source id" errors after a scene change.
               const msg = String(err);
               if (!msg.includes("unknown source id") && !msg.includes("source not available")) {
                 throw err;
@@ -2513,7 +2513,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
       previewInFlight = true;
       try {
         const now = Date.now();
-        // Nie zmieniaj rozdzielczosci podczas nagrywania/streamowania — zapobiega przeskalowywaniu UI
+        // Do not change resolution while recording/streaming; it would rescale the UI.
         if (!isRecording && !isStreaming && now - previewResolutionSyncAt >= 2500) {
           previewResolutionSyncAt = now;
           try {
@@ -4466,13 +4466,12 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     if (backendEnabled) {
       try {
         await invoke<string>("obs_set_current_scene", { name });
-        // Wyczysc oczekujace operacje na zrodlach ze starej sceny
+        // Clear pending source operations from the previous scene.
         sourceTransforms = {};
         plannerQueuedTransforms = null;
         await loadScenes();
         await loadSources();
-        // Odczekaj chwile po zmianie sceny by OBS zdazyl wyrenderowac klatke
-        // — zapobiega przeskalowaniu preview gdy klatka jeszcze gotowa
+        // Give OBS time to render the new scene before capturing its first frame.
         await new Promise((r) => setTimeout(r, 50));
         previewDirty = true;
         await refreshPreview(true);
@@ -4662,7 +4661,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         }
       } catch (err) {
         console.error("[sources] external source types load error", err);
-        sourceTypesError = "Nie udało się pobrać typów źródeł.";
+        sourceTypesError = "Could not load available source types.";
       } finally {
         sourceTypesLoading = false;
         sourceTypesLoadPromise = null;
@@ -6077,7 +6076,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
       });
     } catch {}
   };
-  // Inicjalizuj muted stan z widocznosci zrodla
+  // Initialize the muted state from source visibility.
   const syncAudioMixerMuted = () => {
     const muted: Record<string, boolean> = {};
     for (const s of sourcesList) {
