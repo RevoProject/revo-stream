@@ -30,6 +30,9 @@
   import QuickDeviceModal from "../lib/components/QuickModal/QuickDeviceModal.svelte";
   import { applyRevoTheme, revoThemeFromLookProfile } from "../lib/theme/revoTheme";
   import type { DemoSource, SceneInfo } from "../lib/types";
+import GraphicPlannerModal from "../lib/components/Modal/GraphicPlannerModal.svelte";
+import BrowserInteractionModal from "../lib/components/Modal/BrowserInteractionModal.svelte";
+import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte";
 
   type PersistedSettings = {
     root_dir?: string | null;
@@ -1219,6 +1222,10 @@
     );
     let showAddSource = false;
     let addSourceBusy = false;
+  let graphicPlannerModalOpen = false;
+  let browserInteractionModalOpen = false;
+  let debugConsoleModalOpen = false;
+  let browserInteractionSourceId = "";
     let newSourceType = sourceTypes[0].id;
     let availableSourceTypes: SourceTypeItem[] = sourceTypes;
     let externalSourceTypes: SourceTypeItem[] = [];
@@ -5360,6 +5367,7 @@
     }
   };
 
+
   const openTextEdit = async (source: DemoSource) => {
     if (!isTextSource(source)) return;
 
@@ -5381,7 +5389,6 @@
       showGlobalDialog(String(err), "error");
     }
   };
-
   const closeTextEditModal = () => {
     showTextEditModal = false;
     textEditSource = null;
@@ -6931,10 +6938,35 @@
     el.focus();
     showGlobalDialog(`${label} focused`, "info", 900);
   };
+  async function openGraphicPlannerWrapper() {
+    if (navigator.userAgent.includes("Windows")) {
+      graphicPlannerModalOpen = true;
+    } else {
+      await invoke('open_graphic_planner');
+    }
+  }
+
+  async function openSourceInteractionWrapper(sourceId: string) {
+    if (navigator.userAgent.includes("Windows")) {
+      browserInteractionSourceId = sourceId;
+      browserInteractionModalOpen = true;
+    } else {
+      await invoke<string>("obs_open_source_interaction", { id: sourceId });
+    }
+  }
+
+  async function openDebugConsoleWrapper() {
+    if (navigator.userAgent.includes("Windows")) {
+      debugConsoleModalOpen = true;
+    } else {
+      await invoke<void>("open_debug_console");
+    }
+  }
+
 
   const openDebugConsole = async () => {
     try {
-      await invoke<void>("open_debug_console");
+      await openDebugConsoleWrapper();
     } catch (err) {
       showGlobalDialog(`Debug console open failed: ${String(err)}`, "error");
     }
@@ -6947,7 +6979,7 @@
     closeAppContextMenu();
     closePreviewMenu();
   }}
-  onkeydown={(e) => {
+  onkeydown={async (e) => {
     const ctrlQuestion = e.ctrlKey && (e.key === "?" || e.key === "/" || (e.key === "/" && e.shiftKey));
 
     if (isModalKeyboardScopeActive(e.target)) {
@@ -6978,7 +7010,7 @@
 
     if (e.key === "F10") {
       e.preventDefault();
-      void openDebugConsole();
+      await openDebugConsoleWrapper();
       return;
     }
 

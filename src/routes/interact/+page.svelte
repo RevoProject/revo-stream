@@ -4,7 +4,7 @@
   import { goto } from "$app/navigation";
   import Icon from "$lib/components/UI/Icon.svelte";
 
-  let sourceId = "";
+  export let sourceId: string;
   let frame: string | null = null;
   let viewport = { width: 1280, height: 720 };
   let status = "Starting interaction session...";
