@@ -17,6 +17,7 @@
   export let obsWebsocketEnabled: boolean;
   export let obsWebsocketPassword: string;
   export let demoMode: boolean;
+  export let minimizeToTray: boolean;
   export let recordPath: string;
   export let streamUrl: string;
   export let streamKey: string = "";
@@ -550,6 +551,7 @@
     obsVstEnabled,
     obsWebsocketEnabled,
     obsWebsocketPassword,
+    minimizeToTray,
     recordPath,
     streamUrl,
     streamKey,
@@ -1677,6 +1679,14 @@
             <div class="field">
               <div class="field-label">Other functions</div>
               <div class="alert-settings">
+                <label class="toggle-row" for="minimizeToTray">
+                  <span>Minimize to system tray</span>
+                  <span class="toggle">
+                    <input id="minimizeToTray" type="checkbox" bind:checked={minimizeToTray} />
+                    <span class="slider"></span>
+                  </span>
+                </label>
+
                 <label class="toggle-row" for="autoRecordWhenStartStreaming">
                   <span>Automatically record when start streaming</span>
                   <span class="toggle">

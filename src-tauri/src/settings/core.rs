@@ -170,6 +170,7 @@ pub(crate) fn normalize_settings(settings: &mut crate::AppSettings) {
 
 	settings.auto_retry_preview = Some(settings.auto_retry_preview.unwrap_or(true));
 	settings.autorescale_inputs = Some(settings.autorescale_inputs.unwrap_or(false));
+	settings.minimize_to_tray = Some(settings.minimize_to_tray.unwrap_or(false));
 	settings.obs_vst_enabled = Some(settings.obs_vst_enabled.unwrap_or(false));
 	settings.obs_websocket_enabled = Some(settings.obs_websocket_enabled.unwrap_or(false));
 
@@ -253,6 +254,9 @@ pub(crate) fn parse_settings_raw(raw: &str) -> crate::AppSettings {
 		if let Some(v) = obj.get("autorescale_inputs").and_then(|v| v.as_bool()) {
 			settings.autorescale_inputs = Some(v);
 		}
+		if let Some(v) = obj.get("minimize_to_tray").and_then(|v| v.as_bool()) {
+			settings.minimize_to_tray = Some(v);
+		}
 		if let Some(v) = obj.get("obs_plugins_path").and_then(|v| v.as_str()) {
 			settings.obs_plugins_path = Some(v.to_string());
 		}
@@ -290,6 +294,7 @@ pub(crate) fn default_settings() -> crate::AppSettings {
 		whip_url: default_whip_url(),
 		auto_retry_preview: Some(true),
 		autorescale_inputs: Some(false),
+		minimize_to_tray: Some(false),
 		obs_plugins_path: None,
 		obs_vst_enabled: Some(false),
 		obs_websocket_enabled: Some(false),

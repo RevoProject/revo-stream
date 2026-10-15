@@ -126,6 +126,8 @@ pub(crate) struct AppSettings {
 	#[serde(default)]
 	pub(crate) autorescale_inputs: Option<bool>,
 	#[serde(default)]
+	pub(crate) minimize_to_tray: Option<bool>,
+	#[serde(default)]
 	pub(crate) obs_plugins_path: Option<String>,
 	#[serde(default)]
 	pub(crate) obs_vst_enabled: Option<bool>,

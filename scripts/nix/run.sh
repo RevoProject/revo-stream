@@ -40,7 +40,7 @@ eval_out=$(nix eval --impure --raw --expr '
     lib = pkgs.lib;
     getLib = name: lib.getLib (builtins.getAttr name pkgs);
     gst = name: "${lib.getLib pkgs.gst_all_1.${name}}/lib/gstreamer-1.0";
-    libNames = [ "obs-studio" "gtk3" "webkitgtk_4_1" "libsoup_3" "glib" "cairo" "pango" "gdk-pixbuf" "atk" "libxkbcommon" "dbus" "gsettings-desktop-schemas" ];
+    libNames = [ "obs-studio" "gtk3" "webkitgtk_4_1" "libsoup_3" "glib" "cairo" "pango" "gdk-pixbuf" "atk" "libxkbcommon" "dbus" "gsettings-desktop-schemas" "libayatana-appindicator" ];
     gstNames = [ "gstreamer" "gst-plugins-base" "gst-plugins-good" "gst-plugins-bad" "gst-plugins-ugly" "gst-libav" ];
   in
     (lib.concatStringsSep ":" (map (name: "${getLib name}/lib") libNames))
@@ -56,7 +56,7 @@ fi
 
 # Fallback: per-package lookup (slower, handles missing flake expr)
 if [ -z "$LIB_PATH" ]; then
-  for pkg in obs-studio gtk3 webkitgtk_4_1 libsoup_3 glib cairo pango gdk-pixbuf atk libxkbcommon dbus; do
+  for pkg in obs-studio gtk3 webkitgtk_4_1 libsoup_3 glib cairo pango gdk-pixbuf atk libxkbcommon dbus libayatana-appindicator; do
     path=$(nix eval --impure "nixpkgs#$pkg.lib" --raw 2>/dev/null || \
            nix eval --impure "nixpkgs#$pkg.out" --raw 2>/dev/null || true)
     if [ -n "$path" ] && [ -d "$path/lib" ]; then

@@ -13,6 +13,7 @@ pub(crate) use models::*;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 // (no threading imports needed here)
 
@@ -108,6 +109,10 @@ impl SceneState {
 
 struct ObsState {
     runtime: Mutex<ObsRuntime>,
+}
+
+struct AppUiState {
+    minimize_to_tray: AtomicBool,
 }
 
 fn init_debug_log_file() -> Result<PathBuf, String> {
@@ -282,6 +287,31 @@ fn app_close_all_windows(app: tauri::AppHandle, state: tauri::State<ObsState>) -
     let windows: Vec<_> = app.webview_windows().into_iter().map(|(_, w)| w).collect();
     for window in windows {
         let _ = window.close();
+    }
+    Ok(())
+}
+
+fn restore_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn app_set_minimize_to_tray(
+    app: tauri::AppHandle,
+    state: tauri::State<AppUiState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.minimize_to_tray.store(enabled, Ordering::Relaxed);
+    if let Some(tray) = app.tray_by_id("revo-main-tray") {
+        tray.set_visible(enabled).map_err(|error| error.to_string())?;
+    }
+    if !enabled {
+        restore_main_window(&app);
     }
     Ok(())
 }
@@ -873,6 +903,60 @@ pub fn run() {
                 eprintln!("startup data dir init warning: {err}");
             }
 
+            let initial_minimize_to_tray = settings::core::settings_get()
+                .ok()
+                .and_then(|settings| settings.minimize_to_tray)
+                .unwrap_or(false);
+            app.state::<AppUiState>()
+                .minimize_to_tray
+                .store(initial_minimize_to_tray, Ordering::Relaxed);
+
+            let show_item = tauri::menu::MenuItem::with_id(
+                app,
+                "tray-show",
+                "Show RevoStream",
+                true,
+                None::<&str>,
+            )?;
+            let quit_item = tauri::menu::MenuItem::with_id(
+                app,
+                "tray-quit",
+                "Quit",
+                true,
+                None::<&str>,
+            )?;
+            let tray_menu = tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])?;
+            let mut tray_builder = tauri::tray::TrayIconBuilder::with_id("revo-main-tray")
+                .tooltip("RevoStream")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        restore_main_window(tray.app_handle());
+                    }
+                })
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "tray-show" => restore_main_window(app),
+                    "tray-quit" => {
+                        let state = app.state::<ObsState>();
+                        if let Err(error) = runtime::init::shutdown(state) {
+                            eprintln!("[shutdown] failed from tray menu: {error}");
+                        }
+                        app.exit(0);
+                    }
+                    _ => {}
+                });
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            let tray = tray_builder.build(app)?;
+            tray.set_visible(initial_minimize_to_tray)?;
+
             #[cfg(debug_assertions)]
             {
                 if let Some(window) = app.get_webview_window("main") {
@@ -919,7 +1003,17 @@ pub fn run() {
 
             if let Some(main_window) = app.get_webview_window("main") {
                 let app_handle_for_close = app_handle.clone();
+                let main_window_for_events = main_window.clone();
                 main_window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Resized(_))
+                        && app_handle_for_close
+                            .state::<AppUiState>()
+                            .minimize_to_tray
+                            .load(Ordering::Relaxed)
+                        && main_window_for_events.is_minimized().unwrap_or(false)
+                    {
+                        let _ = main_window_for_events.hide();
+                    }
                     if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                         let state = app_handle_for_close.state::<ObsState>();
                         if let Err(err) = runtime::init::shutdown(state) {
@@ -947,6 +1041,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(ObsState {
             runtime: Mutex::new(ObsRuntime::default()),
+        })
+        .manage(AppUiState {
+            minimize_to_tray: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             obs_start,
@@ -1030,6 +1127,7 @@ pub fn run() {
             browser_dock_state,
             close_browser_dock,
             app_close_all_windows,
+            app_set_minimize_to_tray,
             cef_bridge_info,
             cef_dock_render_frame,
             open_debug_console,

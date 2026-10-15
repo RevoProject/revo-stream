@@ -5,7 +5,7 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake extra-cmake-modules ninja-build pkg-config clang libclang-dev \
   curl wget file patchelf xdg-utils rpm makeself \
-  libwebkit2gtk-4.1-dev libxdo-dev libssl-dev librsvg2-dev \
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libxdo-dev libssl-dev librsvg2-dev \
   libsimde-dev uthash-dev libjansson-dev nlohmann-json3-dev \
   libcurl4-openssl-dev libmbedtls-dev uuid-dev \
   libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev \

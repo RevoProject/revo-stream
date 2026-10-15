@@ -19,6 +19,7 @@ pkgs.mkShell {
 
     gtk3
     gtk3.dev
+    libayatana-appindicator
 
     gdk-pixbuf
     gdk-pixbuf.dev

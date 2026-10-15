@@ -51,6 +51,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     whip_url?: string | null;
     auto_retry_preview?: boolean | null;
     autorescale_inputs?: boolean | null;
+    minimize_to_tray?: boolean | null;
     ui_profile?: Record<string, unknown> | null;
     active_profile?: string | null;
   };
@@ -1255,6 +1256,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
     let showSettings = false;
     let autorescaleInputs = false;
+    let minimizeToTray = false;
     let showEditSource = false;
     let editSource: DemoSource | null = null;
     let editName = "";
@@ -2757,6 +2759,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       if (typeof settings.whip_url === "string") whipUrl = settings.whip_url;
       if (typeof settings.auto_retry_preview === "boolean") autoRetryPreview = settings.auto_retry_preview;
       if (typeof settings.autorescale_inputs === "boolean") autorescaleInputs = settings.autorescale_inputs;
+      if (typeof settings.minimize_to_tray === "boolean") minimizeToTray = settings.minimize_to_tray;
 
       if (typeof settings.active_profile === "string" && settings.active_profile.trim()) {
         selectedProfileName = settings.active_profile.trim();
@@ -2809,6 +2812,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       whip_url: whipUrl,
       auto_retry_preview: autoRetryPreview,
       autorescale_inputs: autorescaleInputs,
+      minimize_to_tray: minimizeToTray,
       ui_profile: currentUiProfile,
       active_profile: selectedProfileName
     });
@@ -3287,10 +3291,12 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
             whip_url: whipUrl,
             auto_retry_preview: autoRetryPreview,
             autorescale_inputs: autorescaleInputs,
+            minimize_to_tray: minimizeToTray,
             ui_profile: mergedProfile,
             active_profile: selectedProfileName
           }
         });
+        await invoke<void>("app_set_minimize_to_tray", { enabled: minimizeToTray });
       }
     } catch (err) {
       showGlobalDialog(`Settings profile save failed: ${String(err)}`, "error");
@@ -3694,6 +3700,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
             whip_url: whipUrl,
             auto_retry_preview: autoRetryPreview,
             autorescale_inputs: autorescaleInputs,
+            minimize_to_tray: minimizeToTray,
             ui_profile: mergedProfile,
             active_profile: selectedProfileName
           }
@@ -7452,6 +7459,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       bind:selectedProfileName
       {busy}
       bind:autorescaleInputs
+      bind:minimizeToTray
       initialAccessibilityHighContrast={accessibilityHighContrast}
       initialAccessibilityReduceMotion={accessibilityReduceMotion}
       initialAccessibilityFocusIndicators={accessibilityFocusIndicators}
