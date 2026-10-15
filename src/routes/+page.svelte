@@ -2459,7 +2459,28 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     }
 
     let previewLastTime = 0;
-    const PREVIEW_MIN_INTERVAL = 33; // ~30fps max
+    const PREVIEW_MIN_INTERVAL = 33; // hard floor for forced/user-triggered captures
+    const PREVIEW_REALTIME_MIN_INTERVAL = 100; // cap screenshot-based realtime preview at ~10fps
+    let previewFrameToken = 0;
+
+    async function decodePreviewFrame(url: string): Promise<boolean> {
+      const token = ++previewFrameToken;
+      const probe = new Image();
+      probe.src = url;
+      try {
+        if (typeof probe.decode === "function") {
+          await probe.decode();
+        } else {
+          await new Promise<void>((resolve, reject) => {
+            probe.onload = () => resolve();
+            probe.onerror = () => reject(new Error("preview frame failed to decode"));
+          });
+        }
+      } catch {
+        return false;
+      }
+      return token === previewFrameToken;
+    }
 
     async function refreshPreview(force = false) {
       if (!backendEnabled || !isObsRunning || document.hidden) return;
@@ -2505,16 +2526,20 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         }
         const { width, height } = getPreviewSize();
         const screenshot = await invoke<string>("obs_take_screenshot", { width, height });
-        if (screenshot.startsWith("data:")) {
-          previewUrl = screenshot;
-        } else {
-          previewUrl = `${convertFileSrc(screenshot)}?t=${Date.now()}`;
+        const nextPreviewUrl = screenshot.startsWith("data:")
+          ? screenshot
+          : `${convertFileSrc(screenshot)}?t=${Date.now()}`;
+        if (nextPreviewUrl !== previewUrl) {
+          const decoded = await decodePreviewFrame(nextPreviewUrl);
+          if (decoded && nextPreviewUrl !== previewUrl) {
+            previewUrl = nextPreviewUrl;
+          }
         }
         previewLastTime = Date.now();
         previewLastFrameAt = previewLastTime;
         previewDirty = false;
         const thumbSceneName = scenes.find((s) => s.active)?.name?.trim() || "";
-        if (thumbSceneName && !sceneThumbnails[thumbSceneName]) {
+        if (previewUrl && thumbSceneName && !sceneThumbnails[thumbSceneName]) {
           sceneThumbnails = { ...sceneThumbnails, [thumbSceneName]: previewUrl };
         }
       } catch (err) {
@@ -2619,7 +2644,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         if (!canContinue) return;
 
         if (useRafPreviewLoop()) {
-          const rafDelay = Math.max(PREVIEW_MIN_INTERVAL - (Date.now() - previewLastTime), 0);
+          const rafDelay = Math.max(PREVIEW_REALTIME_MIN_INTERVAL - (Date.now() - previewLastTime), 0);
           if (rafDelay > 0) {
             previewInterval = setTimeout(tick, rafDelay);
           } else {
@@ -2654,6 +2679,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         cancelAnimationFrame(previewAnimationFrame);
         previewAnimationFrame = null;
       }
+      previewFrameToken++;
       previewUrl = "";
       previewDirty = true;
     }
