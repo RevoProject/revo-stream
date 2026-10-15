@@ -14,6 +14,10 @@
     detail?: string;
   };
 
+  // Embedded mode: the console runs inside an in-app modal (Windows) and must
+  // fit the host modal body instead of the viewport.
+  export let embedded = false;
+
   let logs: LibObsActionEvent[] = [];
   let listEl: HTMLDivElement | null = null;
   let autoScroll = true;
@@ -148,7 +152,7 @@
   });
 </script>
 
-<main class="console-root">
+<main class="console-root" class:embedded={embedded}>
   <header class="toolbar">
     <div class="toolbar-top">
       <h1>Debug Console</h1>
@@ -211,6 +215,11 @@
     background: #0e1117;
     color: #d6deeb;
     font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+  }
+
+  /* Embedded (modal) mode: fit the host modal body instead of the viewport. */
+  .console-root.embedded {
+    height: min(72vh, 680px);
   }
 
   .toolbar {

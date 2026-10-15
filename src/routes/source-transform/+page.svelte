@@ -1,7 +1,8 @@
 <svelte:head>
-  <title>{plannerWindowTitle}</title>
-  <meta name="viewport" content="width=900, initial-scale=1.0" />
-  <style>
+  {#if !embedded}
+    <title>{plannerWindowTitle}</title>
+    <meta name="viewport" content="width=900, initial-scale=1.0" />
+    <style>
     @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap");
 
     :root {
@@ -55,7 +56,8 @@
       font-family: var(--a11y-font-family);
       font-size: 1em;
     }
-  </style>
+    </style>
+  {/if}
 </svelte:head>
 
 <script lang="ts">
@@ -65,6 +67,12 @@
   import { applyRevoTheme, revoThemeFromLookProfile } from "$lib/theme/revoTheme";
   import type { DemoSource } from "$lib/types";
 
+  // Embedded mode: the planner runs inside an in-app modal (Windows) instead of
+  // a dedicated aux window. Window-only side effects (title sync, min-size
+  // enforcement, getCurrentWindow().close()) must not touch the main window.
+  export let embedded = false;
+  export let requestClose: (() => void) | null = null;
+
   let sources: DemoSource[] = [];
   let sceneResolution = "1920x1080";
   let sceneName = "";
@@ -73,7 +81,7 @@
     : "RevoStream - Graphic planner";
 
   $: {
-    if (typeof window !== "undefined") {
+    if (!embedded && typeof window !== "undefined") {
       void (async () => {
         try {
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -112,6 +120,12 @@
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function onClose() {
+    // Embedded (modal) mode: delegate closing to the host modal instead of
+    // closing the underlying (main) window.
+    if (embedded && requestClose) {
+      requestClose();
+      return;
+    }
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().close();
@@ -224,9 +238,12 @@
       const uiProfile = asRecord(settings?.ui_profile);
       const general = asRecord(uiProfile.general);
       const look = asRecord(uiProfile.look);
+      plannerUndoRedoLimit = Math.max(1, Math.min(50, Number(general.plannerUndoRedoLimit) || 5));
+      // Embedded (modal) mode: the host main window owns document-level theme
+      // and accessibility vars — never touch documentElement here.
+      if (embedded) return;
       applyRevoTheme(revoThemeFromLookProfile(look));
       applyAccessibilityFromSettings(uiProfile);
-      plannerUndoRedoLimit = Math.max(1, Math.min(50, Number(general.plannerUndoRedoLimit) || 5));
       const selectedThemeId = String(look.selectedThemeId ?? "").trim();
       if (!selectedThemeId) {
         clearAppliedThemeVars();
@@ -246,7 +263,7 @@
       injectedThemeStyleEl.textContent = css;
       applyThemeVarsFromCss(css);
     } catch {
-      clearAppliedThemeVars();
+      if (!embedded) clearAppliedThemeVars();
       // ignore theme loading errors in planner window
     }
   };
@@ -386,7 +403,7 @@
     };
 
     const enforceMinWindowSize = () => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || embedded) return;
       const nextWidth = Math.max(window.innerWidth, MIN_WINDOW_WIDTH);
       const nextHeight = Math.max(window.innerHeight, MIN_WINDOW_HEIGHT);
       if (nextWidth === window.innerWidth && nextHeight === window.innerHeight) return;
@@ -439,7 +456,7 @@
         unlistenThemeRefreshEvent();
         unlistenThemeRefreshEvent = null;
       }
-      clearAppliedThemeVars();
+      if (!embedded) clearAppliedThemeVars();
     };
   });
 </script>

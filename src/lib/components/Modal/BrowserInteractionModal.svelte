@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, tick } from "svelte";
   import Interact from "../../../routes/interact/+page.svelte";
 
   export let open: boolean;
@@ -8,35 +8,69 @@
 
   const dispatch = createEventDispatcher();
 
-  function handleBackdropClick() {
-    onClose();
+  let dialogEl: HTMLDivElement | null = null;
+  let previouslyFocused: HTMLElement | null = null;
+
+  $: if (open && typeof document !== "undefined") {
+    previouslyFocused = (document.activeElement as HTMLElement | null) ?? null;
+    void tick().then(() => dialogEl?.focus());
   }
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      onClose();
-    }
+  const close = () => {
+    if (!open) return;
+    dispatch("close");
+    onClose();
+    previouslyFocused?.focus?.();
+    previouslyFocused = null;
+  };
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (!open || event.key !== "Escape") return;
+    // Keys pressed inside the interaction surface belong to the browser
+    // source session (including Escape); only close from outside it.
+    const target = event.target as HTMLElement | null;
+    if (target?.isContentEditable) return;
+    const tag = target?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (target && dialogEl?.contains(target) && target.closest(".interact-stream")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
   }
 </script>
 
+<svelte:window on:keydown={handleWindowKeydown} />
+
 {#if open}
-  <div class="modal-backdrop"
-       role="button"
-       tabindex="0"
-       on:click={handleBackdropClick}
-       on:keydown={handleKeydown}
+  <div
+    class="modal-backdrop"
+    role="button"
+    tabindex="-1"
+    onclick={close}
+    onkeydown={(e) => (e.key === "Escape" ? close() : null)}
   >
-    <div class="modal"
-         role="dialog"
-         aria-modal="true"
-         tabindex="0"
-         on:click|stopPropagation
-         on:keydown|stopPropagation>
-      <div class="modal-header">
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Browser source interaction"
+      tabindex="-1"
+      bind:this={dialogEl}
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+    >
+      <header class="modal-header">
         <h2>Interact</h2>
-      </div>
+        <button type="button" class="modal-close" aria-label="Close interaction" onclick={close}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4L12 13.4 6.4 19 5 17.6 10.6 12 5 6.4 6.4 5Z" /></svg>
+        </button>
+      </header>
       <div class="modal-body">
-        <Interact {sourceId} />
+        {#if sourceId}
+          <Interact {sourceId} embedded />
+        {:else}
+          <p class="modal-empty">No browser source selected.</p>
+        {/if}
       </div>
     </div>
   </div>
@@ -54,19 +88,29 @@
   }
 
   .modal {
-    width: min(900px, 94vw);
-    max-height: 90vh;
+    width: min(920px, 94vw);
+    height: min(84vh, 820px);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+  }
+
+  .modal:focus {
+    outline: none;
   }
 
   .modal-header {
-    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.9rem 1.25rem;
     border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
   }
 
   .modal-header h2 {
@@ -74,9 +118,41 @@
     font-size: 1.2rem;
   }
 
+  .modal-close {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .modal-close:hover {
+    background: var(--surface-2);
+  }
+
+  .modal-close svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+
   .modal-body {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
-    padding: 1.25rem;
+    padding: 1rem 1.25rem 1.25rem;
+  }
+
+  .modal-empty {
+    margin: 0;
+    padding: 1.5rem;
+    color: var(--text-muted);
+    text-align: center;
   }
 </style>

@@ -1095,7 +1095,22 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
             scene_name: activeSceneName
           }
         });
-        await invoke('open_graphic_planner');
+        const plannerMode = await openGraphicPlannerWindowOrModal();
+        if (plannerMode === "modal") {
+          // Modal self-fetches init via obs_get_graphic_planner_init; the
+          // global saveTransforms listener below covers transform saves.
+          try {
+            if (!saveTransformsUnlisten) {
+              saveTransformsUnlisten = await listen('saveTransforms', async (event) => {
+                await queueApplySourceTransforms(event.payload as Record<string, PlannerTransformPayload>);
+              });
+            }
+          } catch (listenErr) {
+            console.warn('openGraphicPlanner: saveTransforms listener unavailable in modal', listenErr);
+          }
+          return;
+        }
+
         let attempts = 0;
         const sendInit = () => {
           emitTo('source-transform', 'init', {
@@ -5360,7 +5375,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     }
 
     try {
-      await invoke<string>("obs_open_source_interaction", { id: source.id });
+      await openSourceInteractionWrapper(source.id);
       closeSourceMenu();
     } catch (err) {
       showGlobalDialog(String(err), "error");
@@ -6938,12 +6953,14 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     el.focus();
     showGlobalDialog(`${label} focused`, "info", 900);
   };
-  async function openGraphicPlannerWrapper() {
+  async function openGraphicPlannerWindowOrModal(): Promise<"modal" | "window"> {
+    // Windows: dedicated aux webview windows are replaced by in-app modals.
     if (navigator.userAgent.includes("Windows")) {
       graphicPlannerModalOpen = true;
-    } else {
-      await invoke('open_graphic_planner');
+      return "modal";
     }
+    await invoke('open_graphic_planner');
+    return "window";
   }
 
   async function openSourceInteractionWrapper(sourceId: string) {
@@ -7531,6 +7548,24 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
   <SourceInfoModal
     source={showSourceInfo ? selectedSource : null}
     on:close={() => (showSourceInfo = false)}
+  />
+
+  <!-- Windows aux-window replacements (in-app modals). Non-Windows keeps the
+       native aux windows opened via the backend commands. -->
+  <GraphicPlannerModal
+    open={graphicPlannerModalOpen}
+    onClose={() => (graphicPlannerModalOpen = false)}
+  />
+
+  <BrowserInteractionModal
+    open={browserInteractionModalOpen}
+    sourceId={browserInteractionSourceId}
+    onClose={() => (browserInteractionModalOpen = false)}
+  />
+
+  <DebugConsoleModal
+    open={debugConsoleModalOpen}
+    onClose={() => (debugConsoleModalOpen = false)}
   />
 
   <QuickTextEditModal

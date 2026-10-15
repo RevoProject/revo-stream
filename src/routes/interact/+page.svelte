@@ -4,6 +4,9 @@
   import { goto } from "$app/navigation";
   import Icon from "$lib/components/UI/Icon.svelte";
 
+  // Embedded mode: the interaction surface runs inside an in-app modal
+  // (Windows) and receives sourceId via prop instead of the URL query.
+  export let embedded = false;
   export let sourceId: string;
   let frame: string | null = null;
   let viewport = { width: 1280, height: 720 };
@@ -158,6 +161,19 @@
   const onContextMenu = (event: MouseEvent) => event.preventDefault();
 
   onMount(() => {
+    if (embedded) {
+      // Modal context: sourceId comes from the host component prop.
+      if (!sourceId) {
+        error = "No source selected";
+        return;
+      }
+      void startSession();
+      return () => {
+        error = "closed";
+        void invoke("obs_interact_close", { sourceId }).catch(() => undefined);
+      };
+    }
+
     const query = new URLSearchParams(window.location.search);
     const id = query.get("id") ?? "";
     if (!id) {
@@ -173,7 +189,7 @@
   });
 </script>
 
-<div class="interact-stage" bind:this={stageEl}>
+<div class="interact-stage" class:embedded={embedded} bind:this={stageEl}>
   <header class="interact-header">
     <span class="interact-status" role="status">{error ?? status}</span>
     <button
@@ -217,6 +233,11 @@
     height: 100vh;
     background: #0b0e14;
     color: var(--text, #e5e9f0);
+  }
+
+  /* Embedded (modal) mode: fit the host modal body instead of the viewport. */
+  .interact-stage.embedded {
+    height: min(72vh, 680px);
   }
 
   .interact-header {
