@@ -2,7 +2,10 @@
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
 
-  let sourceId = "";
+  export let embedded = false;
+  export let sourceId = "";
+
+  let rootEl: HTMLDivElement | null = null;
   let imgEl: HTMLImageElement | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let inFlight = false;
@@ -29,8 +32,8 @@
     }
     inFlight = true;
     try {
-      const width = Math.max(320, Math.floor(window.innerWidth));
-      const height = Math.max(180, Math.floor(window.innerHeight));
+      const width = Math.max(320, Math.floor(rootEl?.clientWidth ?? window.innerWidth));
+      const height = Math.max(180, Math.floor(rootEl?.clientHeight ?? window.innerHeight));
       const screenshot = await invoke<string>("obs_take_screenshot", {
         width,
         height,
@@ -54,8 +57,10 @@
 
   onMount(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    sourceId = params.get("source") ?? "";
+    if (!embedded) {
+      const params = new URLSearchParams(window.location.search);
+      sourceId = params.get("source") ?? "";
+    }
 
     scheduleFrame(100);
 
@@ -70,14 +75,16 @@
 </script>
 
 <svelte:head>
-  <title>Preview - RevoStream</title>
-  <style>
-    :root { color-scheme: dark; }
-    html, body { margin: 0; background: #000; overflow: hidden; }
-  </style>
+  {#if !embedded}
+    <title>Preview - RevoStream</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; background: #000; overflow: hidden; }
+    </style>
+  {/if}
 </svelte:head>
 
-<div class="root">
+<div class="root" class:embedded bind:this={rootEl}>
   <img bind:this={imgEl} alt="Preview" class="preview-img" />
   {#if error}
     <div class="error" data-selectable="true">{error}</div>
@@ -93,9 +100,14 @@
     justify-content: center;
     background: #000;
   }
+  .root.embedded {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
   .preview-img {
-    max-width: 100vw;
-    max-height: 100vh;
+    max-width: 100%;
+    max-height: 100%;
     object-fit: contain;
     display: block;
   }

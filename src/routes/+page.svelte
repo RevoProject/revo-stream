@@ -33,6 +33,7 @@
 import GraphicPlannerModal from "../lib/components/Modal/GraphicPlannerModal.svelte";
 import BrowserInteractionModal from "../lib/components/Modal/BrowserInteractionModal.svelte";
 import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte";
+import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   type PersistedSettings = {
     root_dir?: string | null;
@@ -1240,6 +1241,9 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
   let graphicPlannerModalOpen = false;
   let browserInteractionModalOpen = false;
   let debugConsoleModalOpen = false;
+  let previewModalOpen = false;
+  let previewModalSourceId = "";
+  let previewModalTitle = "Preview";
   let browserInteractionSourceId = "";
     let newSourceType = sourceTypes[0].id;
     let availableSourceTypes: SourceTypeItem[] = sourceTypes;
@@ -6756,6 +6760,12 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
   };
 
   const openPreviewInWindow = async () => {
+    if (navigator.userAgent.includes("Windows")) {
+      previewModalSourceId = "";
+      previewModalTitle = "Preview";
+      previewModalOpen = true;
+      return;
+    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("open_preview_window", { source: null });
@@ -6766,6 +6776,12 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
 
   const openScenePreviewInWindow = async (scene?: SceneInfo | null) => {
     const name = scene?.name ?? getActiveSceneName();
+    if (navigator.userAgent.includes("Windows")) {
+      previewModalSourceId = name;
+      previewModalTitle = name ? `Scene preview - ${name}` : "Scene preview";
+      previewModalOpen = true;
+      return;
+    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("open_preview_window", { source: name });
@@ -7601,6 +7617,13 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     onClose={() => (debugConsoleModalOpen = false)}
   />
 
+  <PreviewModal
+    open={previewModalOpen}
+    title={previewModalTitle}
+    sourceId={previewModalSourceId}
+    onClose={() => (previewModalOpen = false)}
+  />
+
   <QuickTextEditModal
     open={showTextEditModal && Boolean(textEditSource)}
     value={textEditValue}
@@ -7799,8 +7822,8 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     <div class="context-menu" style={`top:${previewMenu.y}px; left:${previewMenu.x}px;`} role="menu">
       <button onclick={() => void refreshRenderFrame()}>Refresh render</button>
       <button onclick={() => void openGraphicPlannerFromPreviewMenu()}>Graphic planner</button>
-      <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Preview - Window</button>
-      <button onclick={() => { closePreviewMenu(); void openScenePreviewInWindow(); }}>Scene preview - Window</button>
+      <button onclick={() => { closePreviewMenu(); openPreviewInWindow(); }}>Preview</button>
+      <button onclick={() => { closePreviewMenu(); void openScenePreviewInWindow(); }}>Scene preview</button>
     </div>
     <div
       class="context-overlay"
@@ -7842,7 +7865,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         <span class="menu-icon" aria-hidden="true"><Icon name={sceneMenu.scene?.locked ? "unlock" : "lock"} size={13} /></span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
       <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
-      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview - Window</button>
+      <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview</button>
     </div>
     <div
       class="context-overlay"
