@@ -1246,6 +1246,8 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     let externalSourceTypes: SourceTypeItem[] = [];
     let sourceTypesLoading = false;
     let sourceTypesError = "";
+    let sourceTypesLoaded = false;
+    let sourceTypesLoadPromise: Promise<void> | null = null;
 
     let showSettings = false;
     let autorescaleInputs = false;
@@ -2862,6 +2864,7 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
       if (!demoMode && isObsRunning) {
         await loadScenes();
         await loadSources();
+        void loadSourceTypeCatalog();
         const webrtcOk = await startWhepPreview();
         if (webrtcOk) {
           stopPreviewLoop();
@@ -4058,9 +4061,12 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         void applyProgramTransition();
       }
       isObsRunning = true;
+      sourceTypesLoaded = false;
+      sourceTypesLoadPromise = null;
       await loadVersion();
       await loadScenes();
       await loadSources();
+      void loadSourceTypeCatalog();
       try {
         const runtimeActiveProfile = await invoke<string>("plugin_profile_get_active");
         const runtimePluginState = await invoke<PluginProfileState>("plugin_profile_get", { name: runtimeActiveProfile });
@@ -4113,6 +4119,8 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
         showGlobalDialog(stopMsg, "info");
       }
       isObsRunning = false;
+      sourceTypesLoaded = false;
+      sourceTypesLoadPromise = null;
       audioLevels = {};
       scenes = [];
       sourcesList = [];
@@ -4623,19 +4631,17 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
     }
   };
 
-  const openAddSourceModal = async () => {
-    // Show the modal immediately
-    showAddSource = true;
-    // Freeze the preview for the Add Source workflow
-    await freezePreviewForModal();
-    // Reset the source types and set loading state
-    externalSourceTypes = [];
-    availableSourceTypes = sourceTypes;
-    sourceTypesLoading = backendEnabled && isObsRunning;
-    sourceTypesError = "";
+  const loadSourceTypeCatalog = async () => {
+    if (!backendEnabled || !isObsRunning) {
+      sourceTypesLoading = false;
+      return;
+    }
+    if (sourceTypesLoaded) return;
+    if (sourceTypesLoadPromise) return sourceTypesLoadPromise;
 
-    if (backendEnabled && isObsRunning) {
-      availableSourceTypes = [];
+    sourceTypesLoading = true;
+    sourceTypesError = "";
+    sourceTypesLoadPromise = (async () => {
       try {
         const listed = await invoke<SourceTypeItem[]>("obs_list_external_source_types");
         const registered = new Map(listed.map((type) => [type.id, type]));
@@ -4643,31 +4649,33 @@ import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte"
           .filter((type) => registered.has(type.id))
           .map((type) => type.id === "browser_source" ? registered.get(type.id)! : type);
         const seen = new Set<string>();
-        externalSourceTypes = listed.filter((t) => {
-          if (externalSourceTypeBlacklist.has(t.id)) return false;
-          if (builtInSourceTypeIds.has(t.id)) return false;
-
-          const normalized = normalizeSourceLabel(t.label || t.id);
-          if (builtInSourceTypeLabels.has(normalized)) return false;
-
-          if (seen.has(t.id)) return false;
-          seen.add(t.id);
+        externalSourceTypes = listed.filter((type) => {
+          if (externalSourceTypeBlacklist.has(type.id) || builtInSourceTypeIds.has(type.id)) return false;
+          const normalized = normalizeSourceLabel(type.label || type.id);
+          if (!normalized || builtInSourceTypeLabels.has(normalized) || seen.has(normalized)) return false;
+          seen.add(normalized);
           return true;
         });
+        sourceTypesLoaded = true;
+        if (![...availableSourceTypes, ...externalSourceTypes].some((type) => type.id === newSourceType)) {
+          newSourceType = availableSourceTypes[0]?.id ?? externalSourceTypes[0]?.id ?? "";
+        }
       } catch (err) {
         console.error("[sources] external source types load error", err);
         sourceTypesError = "Nie udało się pobrać typów źródeł.";
       } finally {
         sourceTypesLoading = false;
+        sourceTypesLoadPromise = null;
       }
-    } else {
-      sourceTypesLoading = false;
-    }
+    })();
+    return sourceTypesLoadPromise;
+  };
 
-    // Set a default newSourceType if the current one is not in the list
-    if (![...availableSourceTypes, ...externalSourceTypes].some((t) => t.id === newSourceType)) {
-      newSourceType = availableSourceTypes[0]?.id ?? externalSourceTypes[0]?.id ?? "";
-    }
+  const openAddSourceModal = async () => {
+    showAddSource = true;
+    sourceTypesError = "";
+    void loadSourceTypeCatalog();
+    await freezePreviewForModal();
   };
   const toggleSourceVisibility = async (source: DemoSource) => {
     if (backendEnabled) {

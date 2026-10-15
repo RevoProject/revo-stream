@@ -94,7 +94,7 @@
             type="button"
             class="source-card"
             onclick={() => handlePick(type.id)}
-            disabled={creating}
+            disabled={creating || loading}
             aria-label={`Add ${sourceLabel(type)}`}
           >
             <div class="icon" aria-hidden="true">
@@ -114,7 +114,7 @@
                 type="button"
                 class="source-card external-card"
                 onclick={() => handlePick(type.id)}
-                disabled={creating}
+                disabled={creating || loading}
                 aria-label={`Add ${sourceLabel(type)}`}
               >
                 <div class="icon" aria-hidden="true">
