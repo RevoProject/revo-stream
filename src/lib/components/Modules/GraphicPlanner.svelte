@@ -972,7 +972,7 @@
   }
   .tool-btn.primary {
     background: var(--accent);
-    color: var(--text-on-primary);
+    color: var(--text-on-primary, #fff);
     border-color: color-mix(in srgb, var(--accent) 60%, #000 40%);
   }
   .tool-btn.primary:hover:not(:disabled) {
