@@ -4618,6 +4618,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           await invoke<string>("obs_fit_source_to_canvas", { sourceId: id });
         } catch (err) {
           console.warn(`[sources] initial fit skipped for ${id}`, err);
+          void retrySourceFit(id);
         }
         await loadSources();
         created = true;
@@ -4638,6 +4639,21 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       // before requesting an update for the newly added source.
       await unfreezePreviewFromModal();
       requestPreviewUpdate();
+    }
+  };
+
+  const retrySourceFit = async (id: string) => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!backendEnabled || !isObsRunning || sourcesList.every((source) => source.id !== id)) return;
+      try {
+        await invoke<string>("obs_fit_source_to_canvas", { sourceId: id });
+        await loadSources();
+        requestPreviewUpdate();
+        return;
+      } catch (err) {
+        if (attempt === 3) console.warn(`[sources] fit never applied for ${id}`, err);
+      }
     }
   };
 
