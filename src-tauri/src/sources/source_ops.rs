@@ -718,6 +718,25 @@ pub(crate) fn create_source(
 	create_source_in_scene(&mut runtime, &create)
 }
 
+fn wait_for_source_size(source: *mut revo_lib::obs::obs_source) -> Option<(u32, u32)> {
+	if source.is_null() {
+		return None;
+	}
+	unsafe {
+		for attempt in 0..20 {
+			let width = revo_lib::obs::obs_source_get_width(source);
+			let height = revo_lib::obs::obs_source_get_height(source);
+			if width > 0 && height > 0 {
+				return Some((width, height));
+			}
+			if attempt < 19 {
+				std::thread::sleep(std::time::Duration::from_millis(25));
+			}
+		}
+	}
+	None
+}
+
 pub(crate) fn fit_source_to_canvas(
 	state: tauri::State<crate::ObsState>,
 	source_id: String,
@@ -749,16 +768,8 @@ pub(crate) fn fit_source_to_canvas(
 			return Ok(format!("source {source_id} has no video output"));
 		}
 
-		let mut base_width = 0;
-		let mut base_height = 0;
-		for _ in 0..20 {
-			base_width = revo_lib::obs::obs_source_get_width(source);
-			base_height = revo_lib::obs::obs_source_get_height(source);
-			if base_width > 0 && base_height > 0 {
-				break;
-			}
-			std::thread::sleep(std::time::Duration::from_millis(25));
-		}
+		let (base_width, base_height) = wait_for_source_size(source)
+			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
 		let scale_value = fit_scale(base_width, base_height, canvas_width, canvas_height)
 			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
 		let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
@@ -768,6 +779,41 @@ pub(crate) fn fit_source_to_canvas(
 	}
 
 	Ok(format!("fitted {source_id} to {canvas_width}x{canvas_height}"))
+}
+
+pub(crate) fn stretch_source_to_canvas(
+	state: tauri::State<crate::ObsState>,
+	source_id: String,
+) -> Result<String, String> {
+	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let item = crate::resolve_scene_item(scene, source_id.trim())
+		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
+	let (canvas_width, canvas_height) = runtime
+		.scene_resolution
+		.split_once('x')
+		.and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+		.unwrap_or((1920, 1080));
+
+	unsafe {
+		let source = revo_lib::obs::obs_sceneitem_get_source(item);
+		if source.is_null() {
+			return Err("source not available".to_string());
+		}
+		if revo_lib::obs::obs_source_get_output_flags(source) & revo_lib::obs::OBS_SOURCE_VIDEO == 0 {
+			return Ok(format!("source {source_id} has no video output"));
+		}
+		let (base_width, base_height) = wait_for_source_size(source)
+			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
+		let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
+		scale.__bindgen_anon_1.__bindgen_anon_1.x = canvas_width as f32 / base_width as f32;
+		scale.__bindgen_anon_1.__bindgen_anon_1.y = canvas_height as f32 / base_height as f32;
+		revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+	}
+	Ok(format!("stretched {source_id} to {canvas_width}x{canvas_height}"))
 }
 
 fn parse_boolish(value: &str) -> bool {

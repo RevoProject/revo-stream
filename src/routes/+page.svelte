@@ -17,6 +17,7 @@
   import EditSourceModal from "../lib/components/Modal/EditSourceModal.svelte";
   import Icon from "../lib/components/UI/Icon.svelte";
   import SourceInfoModal from "../lib/components/Modal/SourceInfoModal.svelte";
+  import SourcePropertiesModal from "../lib/components/Modal/SourcePropertiesModal.svelte";
   import FiltersModal from "../lib/components/Filters/FiltersModal.svelte";
   import AudioFiltersModal from "../lib/components/Filters/AudioFiltersModal.svelte";
   import Transitions from "../lib/components/Modules/Transitions.svelte";
@@ -1490,6 +1491,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       : [];
 
     let sourceMenu = { open: false, x: 0, y: 0, source: null as DemoSource | null };
+    let showSourceProperties = false;
+    let propertiesSource: DemoSource | null = null;
     let sceneMenu = { open: false, x: 0, y: 0, scene: null as SceneInfo | null };
     let dockMenu = { open: false, x: 0, y: 0 };
     let appContextMenu = { open: false, x: 0, y: 0 };
@@ -5319,6 +5322,12 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     closeSourceMenu();
   };
 
+  const openSourceProperties = (source: DemoSource) => {
+    propertiesSource = source;
+    showSourceProperties = true;
+    closeSourceMenu();
+  };
+
   const cloneFilterList = (filters: FilterItem[]) =>
     (filters ?? []).map((f) => ({ ...f, params: { ...(f.params ?? {}) } }));
 
@@ -7623,6 +7632,26 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     on:close={() => (showSourceInfo = false)}
   />
 
+  <SourcePropertiesModal
+    open={showSourceProperties}
+    source={propertiesSource}
+    sources={sourcesList}
+    on:close={() => {
+      showSourceProperties = false;
+      propertiesSource = null;
+    }}
+    on:changed={() => {
+      void loadSources();
+      requestPreviewUpdate();
+    }}
+    on:openFullEditor={() => {
+      const target = propertiesSource;
+      showSourceProperties = false;
+      propertiesSource = null;
+      if (target) void openEditSource(target);
+    }}
+  />
+
   <!-- Windows aux-window replacements (in-app modals). Non-Windows keeps the
        native aux windows opened via the backend commands. -->
   <GraphicPlannerModal
@@ -7862,6 +7891,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     <div class="context-menu" style={`top:${sourceMenu.y}px; left:${sourceMenu.x}px;`} role="menu">
       <button onclick={() => sourceMenu.source && cloneSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⧉</span>Clone</button>
       <button onclick={() => sourceMenu.source && openEditSource(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">✎</span>Edit</button>
+      <button onclick={() => sourceMenu.source && openSourceProperties(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⚙</span>Properties</button>
       {#if isBrowserSource(sourceMenu.source)}
         <button onclick={() => sourceMenu.source && openSourceInteraction(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">⇄</span>Interact (live)</button>
       {/if}

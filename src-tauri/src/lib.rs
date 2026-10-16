@@ -619,6 +619,14 @@ fn obs_fit_source_to_canvas(
     sources::source_ops::fit_source_to_canvas(state, source_id)
 }
 
+#[tauri::command(async)]
+fn obs_stretch_source_to_canvas(
+    state: tauri::State<ObsState>,
+    source_id: String,
+) -> Result<String, String> {
+    sources::source_ops::stretch_source_to_canvas(state, source_id)
+}
+
 fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
     sources::source_ops::collect_sources(runtime)
 }
@@ -1094,6 +1102,7 @@ pub fn run() {
             obs_get_current_scene_resolution,
             obs_list_sources,
             obs_fit_source_to_canvas,
+            obs_stretch_source_to_canvas,
             obs_list_external_source_types,
             obs_get_graphic_planner_init,
             obs_set_graphic_planner_init,
