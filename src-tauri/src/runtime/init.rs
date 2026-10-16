@@ -386,8 +386,8 @@ pub(crate) fn start(
 	}
 
 	unsafe {
-		#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        revo_lib::obs::base_set_log_handler(
+		#[cfg(any(target_os = "windows", all(target_os = "linux", target_arch = "x86_64")))]
+		revo_lib::obs::base_set_log_handler(
             Some(crate::logging::obs_logger::obs_log_handler),
             std::ptr::null_mut(),
         );
