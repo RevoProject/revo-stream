@@ -223,6 +223,10 @@ pub(crate) fn take_screenshot(
 	} else {
 		(width.unwrap_or(640).max(160).min(3840), height.unwrap_or(360).max(90).min(2160))
 	};
+	let capture_seq = {
+		runtime.preview_frame_seq = runtime.preview_frame_seq.wrapping_add(1);
+		runtime.preview_frame_seq
+	};
 	let captured = capture_view_pixels(&mut runtime, req_width, req_height, render_source);
 	let captured = match captured {
 		Ok(frame) => frame,
@@ -246,7 +250,10 @@ pub(crate) fn take_screenshot(
 	// Retain the frame for the freeze path and transient-failure fallback.
 	if let Ok(frame) = &encoded {
 		if let Ok(mut runtime) = state.runtime.lock() {
-			runtime.last_preview_frame = Some(frame.clone());
+			if capture_seq >= runtime.last_preview_frame_seq {
+				runtime.last_preview_frame = Some(frame.clone());
+				runtime.last_preview_frame_seq = capture_seq;
+			}
 		}
 	}
 
@@ -381,6 +388,7 @@ pub(crate) fn capture_view_pixels(
 
 	unsafe {
 		revo_lib::obs::obs_view_set_source(runtime.preview_view, 0, render_source);
+		crate::logging::trace::step("preview-capture", "obs_enter_graphics:enter");
 		revo_lib::obs::obs_enter_graphics();
 
 		// Never fall back to obs_get_main_texture() here: the main/output
@@ -406,6 +414,7 @@ pub(crate) fn capture_view_pixels(
 			);
 			revo_lib::obs::obs_view_render(runtime.preview_view);
 			revo_lib::obs::gs_texrender_end(runtime.preview_texrender);
+			crate::logging::trace::step("preview-capture", "obs_view_render:done");
 			rendered = true;
 		}
 
@@ -437,6 +446,7 @@ pub(crate) fn capture_view_pixels(
 				);
 				revo_lib::obs::obs_view_render(runtime.preview_view);
 				revo_lib::obs::gs_texrender_end(runtime.preview_texrender);
+				crate::logging::trace::step("preview-capture", "obs_view_render:retry-done");
 				rendered = true;
 			}
 		}

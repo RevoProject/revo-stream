@@ -69,20 +69,24 @@ pub(crate) fn set_program_transition(
             || runtime.program_transition_kind != trimmed;
         if needs_new {
             if !runtime.transition_source.is_null() {
+                crate::logging::trace::step("transition-replace", "obs_source_release:enter");
                 revo_lib::obs::obs_set_output_source(0, std::ptr::null_mut());
                 revo_lib::obs::obs_source_release(runtime.transition_source);
                 runtime.transition_source = std::ptr::null_mut();
+                crate::logging::trace::step("transition-replace", "obs_source_release:done");
             }
             let type_c = std::ffi::CString::new(type_id)
                 .map_err(|_| "transition type invalid".to_string())?;
             let name_c = std::ffi::CString::new("revo_program_transition")
                 .map_err(|_| "transition name invalid".to_string())?;
+            crate::logging::trace::step("transition-replace", "obs_source_create:enter");
             let transition = revo_lib::obs::obs_source_create(
                 type_c.as_ptr(),
                 name_c.as_ptr(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
             );
+            crate::logging::trace::step("transition-replace", "obs_source_create:done");
             if transition.is_null() {
                 return Err(format!("failed to create transition source: {type_id}"));
             }
@@ -93,10 +97,12 @@ pub(crate) fn set_program_transition(
         if let Some(current) = runtime.current_scene.as_deref() {
             if let Some(current_state) = runtime.scenes.get(current) {
                 if !current_state.scene_source.is_null() {
+                    crate::logging::trace::step("transition-replace", "obs_transition_set:enter");
                     revo_lib::obs::obs_transition_set(
                         runtime.transition_source,
                         current_state.scene_source,
                     );
+                    crate::logging::trace::step("transition-replace", "obs_transition_set:done");
                 }
             }
         }

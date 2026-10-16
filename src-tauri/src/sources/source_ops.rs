@@ -332,6 +332,7 @@ pub(crate) fn get_source_settings(
 	state: tauri::State<crate::ObsState>,
 	id: String,
 ) -> Result<serde_json::Value, String> {
+	crate::logging::trace::step("source-settings", "get:enter");
 	let runtime = state
 		.runtime
 		.lock()
@@ -434,6 +435,7 @@ pub(crate) fn get_source_settings(
 			"params": params,
 			"source_properties": source_properties
 		});
+		crate::logging::trace::step("source-settings", "get:done");
 		Ok(result)
 	}
 }

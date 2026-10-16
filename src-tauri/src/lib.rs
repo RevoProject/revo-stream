@@ -46,6 +46,9 @@ struct ObsRuntime {
     /// fresh capture fails, so the UI keeps a good frame instead of an error
     /// or a wrongly-rendered main/output texture.
     last_preview_frame: Option<String>,
+    preview_frame_seq: u64,
+    last_preview_frame_seq: u64,
+    scene_generation: u64,
     last_record_path: Option<PathBuf>,
     video_encoder_preference: VideoEncoderPreference,
     scene_resolution: String,
@@ -74,6 +77,9 @@ impl Default for ObsRuntime {
             preview_texrender: std::ptr::null_mut(),
             preview_freeze: false,
             last_preview_frame: None,
+            preview_frame_seq: 0,
+            last_preview_frame_seq: 0,
+            scene_generation: 0,
             last_record_path: None,
             video_encoder_preference: VideoEncoderPreference::default(),
             scene_resolution: "1920x1080".to_string(),
@@ -190,7 +196,7 @@ fn obs_list_scenes(state: tauri::State<ObsState>) -> Result<Vec<SceneInfo>, Stri
     scenes::scene_ops::list_scenes(state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_set_program_transition(
     state: tauri::State<ObsState>,
     kind: String,
@@ -199,7 +205,7 @@ fn obs_set_program_transition(
     scenes::scene_ops::set_program_transition(state, kind, duration_ms)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn obs_set_current_scene(state: tauri::State<ObsState>, name: String) -> Result<String, String> {
     scenes::scene_ops::set_current_scene(state, name)
 }
@@ -344,6 +350,17 @@ fn debug_console_history() -> Result<Vec<LibObsActionEvent>, String> {
 #[tauri::command]
 fn debug_console_clear() -> Result<(), String> {
     logging::debug::debug_console_clear()
+}
+
+#[tauri::command]
+fn debug_trace_last() -> Result<JsonValue, String> {
+    let (step, age_ms) = logging::trace::last()
+        .unwrap_or_else(|| ("(no trace recorded)".to_string(), 0));
+    Ok(serde_json::json!({
+        "step": step,
+        "age_ms": age_ms,
+        "scopes": logging::trace::snapshot(),
+    }))
 }
 
 fn extract_source_params(settings: *mut obs::obs_data, params: &mut HashMap<String, String>) {
@@ -1138,7 +1155,8 @@ pub fn run() {
             open_debug_console,
             debug_console_log,
             debug_console_history,
-            debug_console_clear
+            debug_console_clear,
+            debug_trace_last
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
