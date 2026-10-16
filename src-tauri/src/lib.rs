@@ -697,8 +697,13 @@ fn obs_interact_close(source_id: String) {
 }
 
 #[tauri::command]
-fn obs_open_source_interaction(app: tauri::AppHandle, state: tauri::State<ObsState>, id: String) -> Result<String, String> {
-    sources::source_ops::open_source_interaction(app, state, id)
+fn obs_open_source_interaction(
+    app: tauri::AppHandle,
+    state: tauri::State<ObsState>,
+    id: String,
+    open_window: Option<bool>,
+) -> Result<String, String> {
+    sources::source_ops::open_source_interaction(app, state, id, open_window.unwrap_or(true))
 }
 
 fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Result<String, String> {

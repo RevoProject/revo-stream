@@ -21,7 +21,7 @@
 
   const startSession = async () => {
     try {
-      await invoke("obs_open_source_interaction", { id: sourceId });
+      await invoke("obs_open_source_interaction", { id: sourceId, openWindow: !embedded });
       error = null;
       status = "Interaction session ready";
       void loop();

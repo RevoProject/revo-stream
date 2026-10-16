@@ -1062,6 +1062,7 @@ pub(crate) fn open_source_interaction(
 	app: tauri::AppHandle,
 	state: tauri::State<crate::ObsState>,
 	id: String,
+	open_window: bool,
 ) -> Result<String, String> {
 	let runtime = state
 		.runtime
@@ -1139,6 +1140,9 @@ pub(crate) fn open_source_interaction(
 		&custom_js,
 		(viewport_width, viewport_height),
 	)?;
+	if !open_window {
+		return Ok(format!("interaction session ready: {url}"));
+	}
 
 	let window_label = format!("interact-{}", id.trim().replace([' ', '#', '/', ':'], "_"));
 	let route = format!("interact?id={}", percent_encode_query_value(id.trim()));
