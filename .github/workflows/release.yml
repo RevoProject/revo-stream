@@ -545,6 +545,48 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Dev release tag: ${TAG} (will point to commit ${{ github.sha }})"
+      - name: Prepare dev release filenames
+        env:
+          DEV_TAG: ${{ steps.devtag.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="release/dev"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+
+          copy_one() {
+            local root="$1" pattern="$2" target="$3"
+            mapfile -d '' matches < <(find "$root" -type f -name "$pattern" -print0)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one $pattern in $root, found ${#matches[@]}"
+              exit 1
+            fi
+            cp "${matches[0]}" "$DEST/$target"
+          }
+
+          PREFIX="revo-ui-${DEV_TAG}"
+          copy_one release/windows '*.msi' "${PREFIX}-windows-x64.msi"
+          copy_one release/windows '*.zip' "${PREFIX}-windows-x64.zip"
+          copy_one release/macos-arm64 '*.dmg' "${PREFIX}-macos-arm64.dmg"
+          copy_one release/macos-x64 '*.dmg' "${PREFIX}-macos-x64.dmg"
+          copy_one release/linux '*.AppImage' "${PREFIX}-linux-x64.AppImage"
+          copy_one release/linux '*.deb' "${PREFIX}-linux-x64.deb"
+          copy_one release/linux '*.rpm' "${PREFIX}-linux-x64.rpm"
+          copy_one release/linux '*-linux-x64-portable.tar.gz' "${PREFIX}-linux-x64-portable.tar.gz"
+          copy_one release/linux '*-linux-x64.run' "${PREFIX}-linux-x64.run"
+
+          (
+            cd "$DEST"
+            sha256sum \
+              "${PREFIX}-linux-x64.AppImage" \
+              "${PREFIX}-linux-x64.deb" \
+              "${PREFIX}-linux-x64.rpm" \
+              "${PREFIX}-linux-x64-portable.tar.gz" \
+              "${PREFIX}-linux-x64.run" \
+              > "${PREFIX}-linux-x64-SHA256SUMS.txt"
+          )
+          find "$DEST" -type f -print | sort
       - name: Build release notes
         env:
           DEV_TAG: ${{ steps.devtag.outputs.tag }}
@@ -602,16 +644,7 @@ jobs:
           fail_on_unmatched_files: true
           body_path: dev-notes.md
           files: |
-            release/linux/**/*.AppImage
-            release/linux/**/*.deb
-            release/linux/**/*.rpm
-            release/linux/**/*-linux-x64-portable.tar.gz
-            release/linux/**/*-linux-x64.run
-            release/linux/**/*-linux-x64-SHA256SUMS.txt
-            release/windows/**/*.msi
-            release/windows/**/*.zip
-            release/macos-arm64/**/*.dmg
-            release/macos-x64/**/*.dmg
+            release/dev/*
       - name: Write dev release summary
         env:
           DEV_TAG: ${{ steps.devtag.outputs.tag }}
@@ -625,6 +658,6 @@ jobs:
             echo ""
             echo "Published files:"
             echo '```'
-            find release -type f -print | sort
+            find release/dev -type f -print | sort
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
