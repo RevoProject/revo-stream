@@ -2507,7 +2507,20 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       });
       (window as unknown as { __revoPreviewDiag?: () => Promise<unknown> }).__revoPreviewDiag =
         async () => invoke("debug_preview_stats", { ui: previewDiagSnapshot() });
-      (window as unknown as { __revoInvoke?: typeof invoke }).__revoInvoke = invoke;
+      const diagnosticCommands = new Set([
+        "debug_preview_stats",
+        "debug_trace_last",
+        "debug_interact_stats"
+      ]);
+      const diagnosticInvoke = async (command: string, args?: Record<string, unknown>) => {
+        if (!diagnosticCommands.has(command)) {
+          throw new Error(`Diagnostic command is not allowed: ${command}`);
+        }
+        return invoke(command, args);
+      };
+      (window as unknown as {
+        __revoInvoke?: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      }).__revoInvoke = diagnosticInvoke;
     }
 
     async function decodePreviewFrame(url: string): Promise<boolean> {
