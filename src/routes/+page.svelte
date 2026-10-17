@@ -2628,6 +2628,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           sceneThumbnails = { ...sceneThumbnails, [thumbSceneName]: previewUrl };
         }
       } catch (err) {
+        if (String(err).includes("preview frame invalidated by scene change")) {
+          previewDirty = true;
+          previewPendingRequest = true;
+          return;
+        }
         previewUiStats.errors += 1;
         previewUiStats.lastError = String(err);
         showGlobalDialog(String(err), "error");

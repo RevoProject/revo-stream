@@ -143,9 +143,10 @@ pub(crate) fn take_screenshot(
 	source_id: Option<String>,
 ) -> Result<String, String> {
 	let lock_started = std::time::Instant::now();
-	let mut runtime = state
-		.runtime
-		.lock()
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.take_screenshot",
+	)
 		.map_err(|_| "state poisoned".to_string())?;
 	if !runtime.initialized {
 		return Err("OBS not initialized".to_string());
@@ -168,10 +169,12 @@ pub(crate) fn take_screenshot(
 	// not contend with preview rendering. Only scene captures are frozen —
 	// single-source screenshots (edit modal) keep rendering.
 	if capture_scene_output && runtime.preview_freeze {
-		if let Some(frame) = runtime.last_preview_frame.clone() {
+		if runtime.last_preview_frame_generation == runtime.scene_generation {
+			if let Some(frame) = runtime.last_preview_frame.clone() {
 			crate::with_preview_stats(|stats| stats.frozen_returns += 1);
 			crate::logging::trace::step("preview-loop", "request:served-frozen");
 			return Ok(frame);
+			}
 		}
 	}
 
@@ -187,14 +190,14 @@ pub(crate) fn take_screenshot(
 			}
 			scene_source
 		} else {
-			// Najpierw sprobuj znalezc scene o podanej nazwie
+			// First try to resolve a scene with the requested name.
 			if let Some(scene_state) = runtime.scenes.get(&source_key) {
 				if scene_state.scene_source.is_null() {
 					return Err("scene source unavailable".to_string());
 				}
 				scene_state.scene_source
 			} else {
-				// Nie znaleziono sceny — sprobuj jako element w biezacej scenie
+				// Otherwise resolve it as an item in the current scene.
 				let scene = crate::current_scene(&runtime)?;
 				let item = crate::resolve_scene_item(scene, source_key.as_str())
 					.ok_or_else(|| format!("unknown source id: {source_key}"))?;
@@ -249,6 +252,7 @@ pub(crate) fn take_screenshot(
 		runtime.preview_frame_seq = runtime.preview_frame_seq.wrapping_add(1);
 		runtime.preview_frame_seq
 	};
+	let capture_generation = runtime.scene_generation;
 	let capture_started = std::time::Instant::now();
 	let captured = capture_view_pixels(&mut runtime, req_width, req_height, render_source);
 	let capture_us = capture_started.elapsed().as_micros() as u64;
@@ -273,10 +277,12 @@ pub(crate) fn take_screenshot(
 			crate::logging::trace::step("preview-loop", "request:capture-failed");
 			// Keep the last good frame instead of an error so the UI does not
 			// flash or lose the preview on transient render failures.
-			if let Some(frame) = runtime.last_preview_frame.clone() {
+			if !capture_scene_output || runtime.last_preview_frame_generation == runtime.scene_generation {
+				if let Some(frame) = runtime.last_preview_frame.clone() {
 				crate::with_preview_stats(|stats| stats.stale_returns += 1);
 				crate::logging::trace::step("preview-loop", "request:served-stale");
 				return Ok(frame);
+				}
 			}
 			return Err(err);
 		}
@@ -304,6 +310,7 @@ pub(crate) fn take_screenshot(
 			}
 		}
 	});
+	let mut generation_invalidated = false;
 	if let Ok(mut runtime) = crate::logging::mutex_probe::probe_lock(
 		&state.runtime,
 		"runtime.preview_retain",
@@ -312,8 +319,13 @@ pub(crate) fn take_screenshot(
 			runtime.last_preview_error_at = Some(std::time::Instant::now());
 		}
 		if let Ok(frame) = &encoded {
-			if capture_seq >= runtime.last_preview_frame_seq {
+			if capture_scene_output && capture_generation != runtime.scene_generation {
+				generation_invalidated = true;
+				crate::with_preview_stats(|stats| stats.stale_discards += 1);
+				crate::logging::trace::step("preview-loop", "request:generation-discarded");
+			} else if capture_seq >= runtime.last_preview_frame_seq {
 				runtime.last_preview_frame = Some(frame.clone());
+				runtime.last_preview_frame_generation = capture_generation;
 				runtime.last_preview_frame_at = Some(std::time::Instant::now());
 				runtime.last_preview_frame_seq = capture_seq;
 				crate::logging::trace::step("preview-loop", "request:stored");
@@ -324,6 +336,9 @@ pub(crate) fn take_screenshot(
 		}
 	}
 	crate::logging::trace::step("preview-loop", "request:done");
+	if generation_invalidated {
+		return Err("preview frame invalidated by scene change".to_string());
+	}
 
 	encoded
 }

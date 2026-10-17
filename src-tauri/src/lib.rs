@@ -49,6 +49,7 @@ struct ObsRuntime {
     /// fresh capture fails, so the UI keeps a good frame instead of an error
     /// or a wrongly-rendered main/output texture.
     last_preview_frame: Option<String>,
+    last_preview_frame_generation: u64,
     last_preview_frame_at: Option<std::time::Instant>,
     last_preview_error_at: Option<std::time::Instant>,
     preview_frame_seq: u64,
@@ -85,6 +86,7 @@ impl Default for ObsRuntime {
             preview_freeze_requests: 0,
             preview_freeze_since: None,
             last_preview_frame: None,
+            last_preview_frame_generation: 0,
             last_preview_frame_at: None,
             last_preview_error_at: None,
             preview_frame_seq: 0,
@@ -418,6 +420,7 @@ fn debug_preview_stats(
                 "preview_freeze_requests": runtime.preview_freeze_requests,
                 "preview_freeze_age_ms": runtime.preview_freeze_since.map(|at| at.elapsed().as_millis() as u64),
                 "has_retained_frame": runtime.last_preview_frame.is_some(),
+                "last_preview_frame_generation": runtime.last_preview_frame_generation,
                 "last_frame_age_ms": runtime.last_preview_frame_at.map(|at| at.elapsed().as_millis() as u64),
                 "last_error_age_ms": runtime.last_preview_error_at.map(|at| at.elapsed().as_millis() as u64),
                 "preview_frame_seq": runtime.preview_frame_seq,
