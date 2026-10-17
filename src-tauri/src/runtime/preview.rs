@@ -131,6 +131,7 @@ pub(crate) fn take_screenshot(
 	height: Option<u32>,
 	source_id: Option<String>,
 ) -> Result<String, String> {
+	let lock_started = std::time::Instant::now();
 	let mut runtime = state
 		.runtime
 		.lock()
@@ -142,6 +143,12 @@ pub(crate) fn take_screenshot(
 		.as_ref()
 		.map(|v| v.trim().is_empty())
 		.unwrap_or(true);
+	if capture_scene_output {
+		let wait_us = lock_started.elapsed().as_micros() as u64;
+		runtime.preview_stats.requests += 1;
+		runtime.preview_stats.lock_wait_us_max = runtime.preview_stats.lock_wait_us_max.max(wait_us);
+		crate::logging::trace::step("preview-loop", "request:enter");
+	}
 
 	// Preview freeze (Add Source workflow): serve the retained last good
 	// frame without touching the graphics context, so source creation does
@@ -149,6 +156,8 @@ pub(crate) fn take_screenshot(
 	// single-source screenshots (edit modal) keep rendering.
 	if capture_scene_output && runtime.preview_freeze {
 		if let Some(frame) = runtime.last_preview_frame.clone() {
+			runtime.preview_stats.frozen_returns += 1;
+			crate::logging::trace::step("preview-loop", "request:served-frozen");
 			return Ok(frame);
 		}
 	}
@@ -227,14 +236,28 @@ pub(crate) fn take_screenshot(
 		runtime.preview_frame_seq = runtime.preview_frame_seq.wrapping_add(1);
 		runtime.preview_frame_seq
 	};
+	let capture_started = std::time::Instant::now();
 	let captured = capture_view_pixels(&mut runtime, req_width, req_height, render_source);
+	let capture_us = capture_started.elapsed().as_micros() as u64;
 	let captured = match captured {
-		Ok(frame) => frame,
+		Ok(frame) => {
+			runtime.preview_stats.captures_ok += 1;
+			runtime.preview_stats.capture_us_max = runtime.preview_stats.capture_us_max.max(capture_us);
+			runtime.preview_stats.last_error.clear();
+			crate::logging::trace::step("preview-loop", "request:captured");
+			frame
+		}
 		Err(err) => {
 			eprintln!("obs: preview render failed: {err}");
+			runtime.preview_stats.captures_err += 1;
+			runtime.preview_stats.capture_us_max = runtime.preview_stats.capture_us_max.max(capture_us);
+			runtime.preview_stats.last_error = err.clone();
+			crate::logging::trace::step("preview-loop", "request:capture-failed");
 			// Keep the last good frame instead of an error so the UI does not
 			// flash or lose the preview on transient render failures.
 			if let Some(frame) = runtime.last_preview_frame.clone() {
+				runtime.preview_stats.stale_returns += 1;
+				crate::logging::trace::step("preview-loop", "request:served-stale");
 				return Ok(frame);
 			}
 			return Err(err);
@@ -245,17 +268,35 @@ pub(crate) fn take_screenshot(
 	// the runtime lock released so other Tauri commands are not starved by
 	// the preview loop.
 	drop(runtime);
+	let encode_started = std::time::Instant::now();
 	let encoded = encode_preview_frame(captured);
+	let encode_us = encode_started.elapsed().as_micros() as u64;
 
 	// Retain the frame for the freeze path and transient-failure fallback.
-	if let Ok(frame) = &encoded {
-		if let Ok(mut runtime) = state.runtime.lock() {
+	if let Ok(mut runtime) = state.runtime.lock() {
+		runtime.preview_stats.encode_us_max = runtime.preview_stats.encode_us_max.max(encode_us);
+		match &encoded {
+			Ok(_) => {
+				runtime.preview_stats.encoded_ok += 1;
+				runtime.preview_stats.last_error.clear();
+			}
+			Err(error) => {
+				runtime.preview_stats.encoded_err += 1;
+				runtime.preview_stats.last_error = error.clone();
+			}
+		}
+		if let Ok(frame) = &encoded {
 			if capture_seq >= runtime.last_preview_frame_seq {
 				runtime.last_preview_frame = Some(frame.clone());
 				runtime.last_preview_frame_seq = capture_seq;
+				crate::logging::trace::step("preview-loop", "request:stored");
+			} else {
+				runtime.preview_stats.stale_discards += 1;
+				crate::logging::trace::step("preview-loop", "request:stale-discarded");
 			}
 		}
 	}
+	crate::logging::trace::step("preview-loop", "request:done");
 
 	encoded
 }

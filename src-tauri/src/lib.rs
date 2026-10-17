@@ -49,6 +49,7 @@ struct ObsRuntime {
     preview_frame_seq: u64,
     last_preview_frame_seq: u64,
     scene_generation: u64,
+    preview_stats: PreviewStats,
     last_record_path: Option<PathBuf>,
     video_encoder_preference: VideoEncoderPreference,
     scene_resolution: String,
@@ -80,6 +81,7 @@ impl Default for ObsRuntime {
             preview_frame_seq: 0,
             last_preview_frame_seq: 0,
             scene_generation: 0,
+            preview_stats: PreviewStats::default(),
             last_record_path: None,
             video_encoder_preference: VideoEncoderPreference::default(),
             scene_resolution: "1920x1080".to_string(),
@@ -89,6 +91,22 @@ impl Default for ObsRuntime {
             program_transition_duration_ms: 300,
         }
     }
+}
+
+#[derive(Clone, Default, serde::Serialize)]
+pub(crate) struct PreviewStats {
+    pub requests: u64,
+    pub frozen_returns: u64,
+    pub stale_returns: u64,
+    pub captures_ok: u64,
+    pub captures_err: u64,
+    pub encoded_ok: u64,
+    pub encoded_err: u64,
+    pub stale_discards: u64,
+    pub lock_wait_us_max: u64,
+    pub capture_us_max: u64,
+    pub encode_us_max: u64,
+    pub last_error: String,
 }
 
 struct SceneState {
@@ -360,6 +378,36 @@ fn debug_trace_last() -> Result<JsonValue, String> {
         "step": step,
         "age_ms": age_ms,
         "scopes": logging::trace::snapshot(),
+    }))
+}
+
+#[tauri::command(async)]
+fn debug_preview_stats(state: tauri::State<ObsState>) -> Result<JsonValue, String> {
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    let stats = &runtime.preview_stats;
+    Ok(serde_json::json!({
+        "requests": stats.requests,
+        "frozen_returns": stats.frozen_returns,
+        "stale_returns": stats.stale_returns,
+        "captures_ok": stats.captures_ok,
+        "captures_err": stats.captures_err,
+        "encoded_ok": stats.encoded_ok,
+        "encoded_err": stats.encoded_err,
+        "stale_discards": stats.stale_discards,
+        "lock_wait_us_max": stats.lock_wait_us_max,
+        "capture_us_max": stats.capture_us_max,
+        "encode_us_max": stats.encode_us_max,
+        "last_error": stats.last_error,
+        "preview_freeze": runtime.preview_freeze,
+        "has_retained_frame": runtime.last_preview_frame.is_some(),
+        "preview_frame_seq": runtime.preview_frame_seq,
+        "last_preview_frame_seq": runtime.last_preview_frame_seq,
+        "scene_generation": runtime.scene_generation,
+        "current_scene": runtime.current_scene,
+        "transition_active": !runtime.transition_source.is_null(),
+        "program_transition_kind": runtime.program_transition_kind,
+        "program_transition_duration_ms": runtime.program_transition_duration_ms,
+        "initialized": runtime.initialized,
     }))
 }
 
@@ -1165,6 +1213,7 @@ pub fn run() {
             debug_console_log,
             debug_console_history,
             debug_console_clear,
+            debug_preview_stats,
             debug_trace_last
         ])
         .run(tauri::generate_context!())

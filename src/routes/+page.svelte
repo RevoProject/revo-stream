@@ -2473,6 +2473,25 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     const PREVIEW_MIN_INTERVAL = 33; // hard floor for forced/user-triggered captures
     const PREVIEW_REALTIME_MIN_INTERVAL = 100; // cap screenshot-based realtime preview at ~10fps
     let previewFrameToken = 0;
+    const previewUiStats = {
+      blockedNotRunning: 0,
+      blockedHidden: 0,
+      blockedFrozen: 0,
+      blockedNotDirty: 0,
+      attempts: 0,
+      throttled: 0,
+      requested: 0,
+      identical: 0,
+      displayed: 0,
+      decodeRejected: 0,
+      errors: 0,
+      lastAttemptAt: 0,
+      lastDisplayAt: 0,
+      lastError: ""
+    };
+    if (typeof window !== "undefined") {
+      (window as unknown as { __revoPreviewStats?: typeof previewUiStats }).__revoPreviewStats = previewUiStats;
+    }
 
     async function decodePreviewFrame(url: string): Promise<boolean> {
       const token = ++previewFrameToken;
@@ -2494,18 +2513,35 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
 
     async function refreshPreview(force = false) {
-      if (!backendEnabled || !isObsRunning || document.hidden) return;
-      if (previewFrozen) return;
-      if (!force && !previewDirty) return;
+      if (!backendEnabled || !isObsRunning) {
+        previewUiStats.blockedNotRunning += 1;
+        return;
+      }
+      if (document.hidden) {
+        previewUiStats.blockedHidden += 1;
+        return;
+      }
+      if (previewFrozen) {
+        previewUiStats.blockedFrozen += 1;
+        return;
+      }
+      if (!force && !previewDirty) {
+        previewUiStats.blockedNotDirty += 1;
+        return;
+      }
+      previewUiStats.attempts += 1;
+      previewUiStats.lastAttemptAt = Date.now();
 
-      // Global throttle — nie szybciej niz 30fps
+      // Global throttle: never capture faster than the configured floor.
       const now = Date.now();
       if (now - previewLastTime < PREVIEW_MIN_INTERVAL) {
+        previewUiStats.throttled += 1;
         previewPendingRequest = true;
         return;
       }
 
       if (previewInFlight) {
+        previewUiStats.throttled += 1;
         previewPendingRequest = true;
         return;
       }
@@ -2514,6 +2550,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         const minFrameGapMs = Math.max(PREVIEW_MIN_INTERVAL, 120);
         const elapsed = now - previewLastFrameAt;
         if (elapsed > 0 && elapsed < minFrameGapMs) {
+          previewUiStats.throttled += 1;
           previewPendingRequest = true;
           return;
         }
@@ -2536,6 +2573,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           }
         }
         const { width, height } = getPreviewSize();
+        previewUiStats.requested += 1;
         const screenshot = await invoke<string>("obs_take_screenshot", { width, height });
         const nextPreviewUrl = screenshot.startsWith("data:")
           ? screenshot
@@ -2544,7 +2582,13 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           const decoded = await decodePreviewFrame(nextPreviewUrl);
           if (decoded && nextPreviewUrl !== previewUrl) {
             previewUrl = nextPreviewUrl;
+            previewUiStats.displayed += 1;
+            previewUiStats.lastDisplayAt = Date.now();
+          } else if (!decoded) {
+            previewUiStats.decodeRejected += 1;
           }
+        } else {
+          previewUiStats.identical += 1;
         }
         previewLastTime = Date.now();
         previewLastFrameAt = previewLastTime;
@@ -2554,6 +2598,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           sceneThumbnails = { ...sceneThumbnails, [thumbSceneName]: previewUrl };
         }
       } catch (err) {
+        previewUiStats.errors += 1;
+        previewUiStats.lastError = String(err);
         showGlobalDialog(String(err), "error");
       } finally {
         previewInFlight = false;
