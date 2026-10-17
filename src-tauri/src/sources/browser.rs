@@ -643,6 +643,7 @@ mod tests {
     #[test]
     #[ignore = "requires libobs and Chromium; initializes the process-global OBS runtime"]
     fn registered_obs_source_submits_snapshot_and_cleans_up() {
+        set_enabled(true);
         let (url, done, server) = serve_page();
         unsafe {
             assert!(obs::obs_startup(
@@ -690,6 +691,7 @@ mod tests {
             }
             let last_status = status(source);
             obs::obs_source_release(source);
+            set_enabled(false);
             obs::obs_shutdown();
             done.store(true, Ordering::Release);
             server.join().unwrap();
