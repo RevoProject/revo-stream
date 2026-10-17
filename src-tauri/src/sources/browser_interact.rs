@@ -17,6 +17,60 @@ use tauri::Url as ParsedUrl;
 
 const SESSION_IDLE_SHUTDOWN: Duration = Duration::from_secs(300);
 
+#[derive(Default, serde::Serialize)]
+struct InteractStats {
+	screencast_frames: u64,
+	screencast_bytes_total: u64,
+	frame_calls: u64,
+	frame_fast_hits: u64,
+	frame_forced_captures: u64,
+	frame_us_max: u64,
+	rpc_calls: u64,
+	rpc_us_max: u64,
+	rpc_timeouts: u64,
+	ensure_calls: u64,
+	ensure_us_max: u64,
+	ensure_launches: u64,
+	reaped_sessions: u64,
+	dispatch_mouse_calls: u64,
+	dispatch_key_calls: u64,
+}
+
+fn interact_stats<T>(f: impl FnOnce(&mut InteractStats) -> T) -> T {
+	static STATS: OnceLock<Mutex<InteractStats>> = OnceLock::new();
+	let mut guard = STATS
+		.get_or_init(|| Mutex::new(InteractStats::default()))
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	f(&mut guard)
+}
+
+pub(crate) fn debug_stats() -> serde_json::Value {
+	let counters = interact_stats(|stats| serde_json::to_value(stats).unwrap_or_default());
+	let sessions_json = match sessions().try_lock() {
+		Ok(map) => {
+			let now = Instant::now();
+			serde_json::json!(map.iter().map(|(source_id, session)| {
+				let frame_age_ms = session.latest_frame.lock().ok()
+					.and_then(|slot| slot.as_ref().map(|(at, png)| serde_json::json!({
+						"age_ms": at.elapsed().as_millis() as u64, "bytes": png.len()
+					}))).unwrap_or(serde_json::Value::Null);
+				let idle_ms = session.last_used.lock().ok()
+					.map(|last| now.duration_since(*last).as_millis() as u64).unwrap_or(0);
+				serde_json::json!({ "source_id": source_id, "url": session.page_url,
+					"viewport": session.viewport, "idle_ms": idle_ms, "latest_frame": frame_age_ms })
+			}).collect::<Vec<_>>())
+		}
+		Err(_) => serde_json::json!({ "sessions_lock": "busy" }),
+	};
+	serde_json::json!({
+		"counters": counters,
+		"sessions": sessions_json,
+		"mutex_probe": crate::logging::mutex_probe::snapshot(),
+		"session_idle_shutdown_s": SESSION_IDLE_SHUTDOWN.as_secs(),
+	})
+}
+
 struct InteractProcess {
 	proc: Child,
 }
@@ -48,6 +102,19 @@ struct InteractSession {
 
 impl InteractSession {
 	fn rpc(&self, request: &serde_json::Value) -> Result<Value, String> {
+		let started = Instant::now();
+		let result = self.rpc_inner(request);
+		let elapsed_us = started.elapsed().as_micros() as u64;
+		let timed_out = matches!(&result, Err(message) if message.contains("timeout"));
+		interact_stats(|stats| {
+			stats.rpc_calls += 1;
+			stats.rpc_us_max = stats.rpc_us_max.max(elapsed_us);
+			if timed_out { stats.rpc_timeouts += 1; }
+		});
+		result
+	}
+
+	fn rpc_inner(&self, request: &serde_json::Value) -> Result<Value, String> {
 		let mut guard = self
 			.page_ws
 			.lock()
@@ -91,6 +158,10 @@ impl InteractSession {
 				let session_id = value.pointer("/params/sessionId").and_then(|v| v.as_i64()).unwrap_or(0);
 				if let Some(data_b64) = value.pointer("/params/data").and_then(|v| v.as_str()) {
 					if let Ok(png) = base64_decode(data_b64) {
+						interact_stats(|stats| {
+							stats.screencast_frames += 1;
+							stats.screencast_bytes_total += png.len() as u64;
+						});
 						if let Ok(mut slot) = self.latest_frame.lock() {
 							*slot = Some((Instant::now(), png));
 						}
@@ -193,11 +264,13 @@ impl InteractSession {
 		if let Ok(slot) = self.latest_frame.lock() {
 			if let Some((captured_at, png)) = slot.as_ref() {
 				if captured_at.elapsed() < Duration::from_millis(400) {
+					interact_stats(|stats| stats.frame_fast_hits += 1);
 					return Ok(png.clone());
 				}
 			}
 		}
 
+		interact_stats(|stats| stats.frame_forced_captures += 1);
 		let request_time = Instant::now();
 		let response = self.rpc(&serde_json::json!({
 			"id": self.next_rpc_id(),
@@ -319,6 +392,24 @@ pub(crate) fn ensure_session(
 	js: &str,
 	viewport: (u32, u32),
 ) -> Result<(), String> {
+	let started = Instant::now();
+	let result = ensure_session_inner(source_id, url, user_agent, css, js, viewport);
+	let elapsed_us = started.elapsed().as_micros() as u64;
+	interact_stats(|stats| {
+		stats.ensure_calls += 1;
+		stats.ensure_us_max = stats.ensure_us_max.max(elapsed_us);
+	});
+	result
+}
+
+fn ensure_session_inner(
+	source_id: &str,
+	url: &str,
+	user_agent: &str,
+	css: &str,
+	js: &str,
+	viewport: (u32, u32),
+) -> Result<(), String> {
 	let url = url.trim().to_string();
 	if !url.starts_with("http://") && !url.starts_with("https://") {
 		return Err("browser source needs an http(s) URL".to_string());
@@ -394,6 +485,7 @@ pub(crate) fn ensure_session(
 	let mut child = cmd
 		.spawn()
 		.map_err(|e| format!("launch interact browser: {e}"))?;
+	interact_stats(|stats| stats.ensure_launches += 1);
 
 	let stderr = child.stderr.take();
 	let (ready_tx, ready_rx) = std::sync::mpsc::channel::<u16>();
@@ -472,13 +564,19 @@ fn touch(source_id: &str) {
 
 pub(crate) fn frame_png(source_id: &str) -> Result<Vec<u8>, String> {
 	touch(source_id);
-	let map = sessions()
-		.lock()
+	let started = Instant::now();
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.frame_png")
 		.map_err(|_| "interact sessions poisoned".to_string())?;
 	let session = map
 		.get(source_id)
 		.ok_or_else(|| "no interact session".to_string())?;
-	session.screenshot_png()
+	let result = session.screenshot_png();
+	let elapsed_us = started.elapsed().as_micros() as u64;
+	interact_stats(|stats| {
+		stats.frame_calls += 1;
+		stats.frame_us_max = stats.frame_us_max.max(elapsed_us);
+	});
+	result
 }
 
 pub(crate) fn has_session(source_id: &str) -> bool {
@@ -508,9 +606,9 @@ pub(crate) fn dispatch_mouse(
 	delta_y: f64,
 ) -> Result<(), String> {
 	touch(source_id);
-	let map = sessions()
-		.lock()
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.dispatch_mouse")
 		.map_err(|_| "interact sessions poisoned".to_string())?;
+	interact_stats(|stats| stats.dispatch_mouse_calls += 1);
 	let session = map
 		.get(source_id)
 		.ok_or_else(|| "no interact session".to_string())?;
@@ -545,9 +643,9 @@ pub(crate) fn dispatch_key(
 	text: &str,
 ) -> Result<(), String> {
 	touch(source_id);
-	let map = sessions()
-		.lock()
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.dispatch_key")
 		.map_err(|_| "interact sessions poisoned".to_string())?;
+	interact_stats(|stats| stats.dispatch_key_calls += 1);
 	let session = map
 		.get(source_id)
 		.ok_or_else(|| "no interact session".to_string())?;
@@ -567,8 +665,7 @@ pub(crate) fn dispatch_key(
 
 pub(crate) fn reapply_code(source_id: &str) -> Result<(), String> {
 	touch(source_id);
-	let map = sessions()
-		.lock()
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.reapply_code")
 		.map_err(|_| "interact sessions poisoned".to_string())?;
 	let session = map
 		.get(source_id)
@@ -582,8 +679,7 @@ pub(crate) fn reapply_code(source_id: &str) -> Result<(), String> {
 
 pub(crate) fn navigate_session(source_id: &str, url: &str) -> Result<(), String> {
 	touch(source_id);
-	let map = sessions()
-		.lock()
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.navigate_session")
 		.map_err(|_| "interact sessions poisoned".to_string())?;
 	let session = map
 		.get(source_id)
@@ -592,7 +688,7 @@ pub(crate) fn navigate_session(source_id: &str, url: &str) -> Result<(), String>
 }
 
 pub(crate) fn close_session(source_id: &str) {
-	if let Ok(mut map) = sessions().lock() {
+	if let Ok(mut map) = crate::logging::mutex_probe::probe_lock(sessions(), "interact.close_session") {
 		if let Some(session) = map.remove(source_id) {
 			drop(map);
 			let _ = session
@@ -606,14 +702,15 @@ pub(crate) fn close_session(source_id: &str) {
 }
 
 pub(crate) fn close_all() {
-	if let Ok(mut map) = sessions().lock() {
+	if let Ok(mut map) = crate::logging::mutex_probe::probe_lock(sessions(), "interact.close_all") {
 		map.clear();
 	}
 }
 
 pub(crate) fn reap_idle() {
 	let now = Instant::now();
-	if let Ok(mut map) = sessions().lock() {
+	if let Ok(mut map) = crate::logging::mutex_probe::probe_lock(sessions(), "interact.reap_idle") {
+		let before = map.len();
 		map.retain(|_, session| {
 			let idle = session
 				.last_used
@@ -622,6 +719,10 @@ pub(crate) fn reap_idle() {
 				.unwrap_or(false);
 			idle
 		});
+		let reaped = before.saturating_sub(map.len()) as u64;
+		if reaped > 0 {
+			interact_stats(|stats| stats.reaped_sessions += reaped);
+		}
 	}
 }
 

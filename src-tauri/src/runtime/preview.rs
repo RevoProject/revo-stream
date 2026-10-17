@@ -37,9 +37,10 @@ pub(crate) fn set_graphic_planner_init(
 		}
 	}
 
-	let mut runtime = state
-		.runtime
-		.lock()
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.take_screenshot",
+	)
 		.map_err(|_| "state poisoned".to_string())?;
 	runtime.planner_init = Some(planner_init);
 	Ok(())
@@ -145,8 +146,10 @@ pub(crate) fn take_screenshot(
 		.unwrap_or(true);
 	if capture_scene_output {
 		let wait_us = lock_started.elapsed().as_micros() as u64;
-		runtime.preview_stats.requests += 1;
-		runtime.preview_stats.lock_wait_us_max = runtime.preview_stats.lock_wait_us_max.max(wait_us);
+		crate::with_preview_stats(|stats| {
+			stats.requests += 1;
+			stats.lock_wait_us_max = stats.lock_wait_us_max.max(wait_us);
+		});
 		crate::logging::trace::step("preview-loop", "request:enter");
 	}
 
@@ -156,7 +159,7 @@ pub(crate) fn take_screenshot(
 	// single-source screenshots (edit modal) keep rendering.
 	if capture_scene_output && runtime.preview_freeze {
 		if let Some(frame) = runtime.last_preview_frame.clone() {
-			runtime.preview_stats.frozen_returns += 1;
+			crate::with_preview_stats(|stats| stats.frozen_returns += 1);
 			crate::logging::trace::step("preview-loop", "request:served-frozen");
 			return Ok(frame);
 		}
@@ -241,22 +244,27 @@ pub(crate) fn take_screenshot(
 	let capture_us = capture_started.elapsed().as_micros() as u64;
 	let captured = match captured {
 		Ok(frame) => {
-			runtime.preview_stats.captures_ok += 1;
-			runtime.preview_stats.capture_us_max = runtime.preview_stats.capture_us_max.max(capture_us);
-			runtime.preview_stats.last_error.clear();
+			crate::with_preview_stats(|stats| {
+				stats.captures_ok += 1;
+				stats.capture_us_max = stats.capture_us_max.max(capture_us);
+				stats.last_error.clear();
+			});
 			crate::logging::trace::step("preview-loop", "request:captured");
 			frame
 		}
 		Err(err) => {
 			eprintln!("obs: preview render failed: {err}");
-			runtime.preview_stats.captures_err += 1;
-			runtime.preview_stats.capture_us_max = runtime.preview_stats.capture_us_max.max(capture_us);
-			runtime.preview_stats.last_error = err.clone();
+			runtime.last_preview_error_at = Some(std::time::Instant::now());
+			crate::with_preview_stats(|stats| {
+				stats.captures_err += 1;
+				stats.capture_us_max = stats.capture_us_max.max(capture_us);
+				stats.last_error = err.clone();
+			});
 			crate::logging::trace::step("preview-loop", "request:capture-failed");
 			// Keep the last good frame instead of an error so the UI does not
 			// flash or lose the preview on transient render failures.
 			if let Some(frame) = runtime.last_preview_frame.clone() {
-				runtime.preview_stats.stale_returns += 1;
+				crate::with_preview_stats(|stats| stats.stale_returns += 1);
 				crate::logging::trace::step("preview-loop", "request:served-stale");
 				return Ok(frame);
 			}
@@ -273,25 +281,34 @@ pub(crate) fn take_screenshot(
 	let encode_us = encode_started.elapsed().as_micros() as u64;
 
 	// Retain the frame for the freeze path and transient-failure fallback.
-	if let Ok(mut runtime) = state.runtime.lock() {
-		runtime.preview_stats.encode_us_max = runtime.preview_stats.encode_us_max.max(encode_us);
+	crate::with_preview_stats(|stats| {
+		stats.encode_us_max = stats.encode_us_max.max(encode_us);
 		match &encoded {
 			Ok(_) => {
-				runtime.preview_stats.encoded_ok += 1;
-				runtime.preview_stats.last_error.clear();
+				stats.encoded_ok += 1;
+				stats.last_error.clear();
 			}
 			Err(error) => {
-				runtime.preview_stats.encoded_err += 1;
-				runtime.preview_stats.last_error = error.clone();
+				stats.encoded_err += 1;
+				stats.last_error = error.clone();
 			}
+		}
+	});
+	if let Ok(mut runtime) = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.preview_retain",
+	) {
+		if encoded.is_err() {
+			runtime.last_preview_error_at = Some(std::time::Instant::now());
 		}
 		if let Ok(frame) = &encoded {
 			if capture_seq >= runtime.last_preview_frame_seq {
 				runtime.last_preview_frame = Some(frame.clone());
+				runtime.last_preview_frame_at = Some(std::time::Instant::now());
 				runtime.last_preview_frame_seq = capture_seq;
 				crate::logging::trace::step("preview-loop", "request:stored");
 			} else {
-				runtime.preview_stats.stale_discards += 1;
+				crate::with_preview_stats(|stats| stats.stale_discards += 1);
 				crate::logging::trace::step("preview-loop", "request:stale-discarded");
 			}
 		}

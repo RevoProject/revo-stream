@@ -117,9 +117,10 @@ pub(crate) fn set_current_scene(
 	state: tauri::State<crate::ObsState>,
 	name: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.set_current_scene",
+	)
 		.map_err(|_| "state poisoned".to_string())?;
 	if !runtime.initialized {
 		return Err("OBS not initialized".to_string());

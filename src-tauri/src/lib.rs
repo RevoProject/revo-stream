@@ -42,14 +42,18 @@ struct ObsRuntime {
     /// creation does not contend with preview rendering. Recording and
     /// streaming outputs are unaffected.
     preview_freeze: bool,
+    preview_freeze_reason: Option<String>,
+    preview_freeze_requests: u64,
+    preview_freeze_since: Option<std::time::Instant>,
     /// Last successfully captured preview frame (data URI). Returned when a
     /// fresh capture fails, so the UI keeps a good frame instead of an error
     /// or a wrongly-rendered main/output texture.
     last_preview_frame: Option<String>,
+    last_preview_frame_at: Option<std::time::Instant>,
+    last_preview_error_at: Option<std::time::Instant>,
     preview_frame_seq: u64,
     last_preview_frame_seq: u64,
     scene_generation: u64,
-    preview_stats: PreviewStats,
     last_record_path: Option<PathBuf>,
     video_encoder_preference: VideoEncoderPreference,
     scene_resolution: String,
@@ -77,11 +81,15 @@ impl Default for ObsRuntime {
             preview_view: std::ptr::null_mut(),
             preview_texrender: std::ptr::null_mut(),
             preview_freeze: false,
+            preview_freeze_reason: None,
+            preview_freeze_requests: 0,
+            preview_freeze_since: None,
             last_preview_frame: None,
+            last_preview_frame_at: None,
+            last_preview_error_at: None,
             preview_frame_seq: 0,
             last_preview_frame_seq: 0,
             scene_generation: 0,
-            preview_stats: PreviewStats::default(),
             last_record_path: None,
             video_encoder_preference: VideoEncoderPreference::default(),
             scene_resolution: "1920x1080".to_string(),
@@ -107,6 +115,20 @@ pub(crate) struct PreviewStats {
     pub capture_us_max: u64,
     pub encode_us_max: u64,
     pub last_error: String,
+}
+
+fn preview_stats() -> &'static Mutex<PreviewStats> {
+    static PREVIEW_STATS: std::sync::OnceLock<Mutex<PreviewStats>> = std::sync::OnceLock::new();
+    PREVIEW_STATS.get_or_init(|| Mutex::new(PreviewStats::default()))
+}
+
+pub(crate) fn with_preview_stats<T>(f: impl FnOnce(&mut PreviewStats) -> T) -> T {
+    let mut guard = preview_stats().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
+}
+
+pub(crate) fn clone_preview_stats() -> PreviewStats {
+    with_preview_stats(|stats| stats.clone())
 }
 
 struct SceneState {
@@ -382,9 +404,37 @@ fn debug_trace_last() -> Result<JsonValue, String> {
 }
 
 #[tauri::command(async)]
-fn debug_preview_stats(state: tauri::State<ObsState>) -> Result<JsonValue, String> {
-    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-    let stats = &runtime.preview_stats;
+fn debug_preview_stats(
+    state: tauri::State<ObsState>,
+    ui: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let stats = clone_preview_stats();
+    let (runtime_lock, runtime) = match state.runtime.try_lock() {
+        Ok(runtime) => (
+            "ok",
+            Some(serde_json::json!({
+                "preview_freeze": runtime.preview_freeze,
+                "preview_freeze_reason": runtime.preview_freeze_reason,
+                "preview_freeze_requests": runtime.preview_freeze_requests,
+                "preview_freeze_age_ms": runtime.preview_freeze_since.map(|at| at.elapsed().as_millis() as u64),
+                "has_retained_frame": runtime.last_preview_frame.is_some(),
+                "last_frame_age_ms": runtime.last_preview_frame_at.map(|at| at.elapsed().as_millis() as u64),
+                "last_error_age_ms": runtime.last_preview_error_at.map(|at| at.elapsed().as_millis() as u64),
+                "preview_frame_seq": runtime.preview_frame_seq,
+                "last_preview_frame_seq": runtime.last_preview_frame_seq,
+                "scene_generation": runtime.scene_generation,
+                "current_scene": runtime.current_scene,
+                "transition_active": !runtime.transition_source.is_null(),
+                "program_transition_kind": runtime.program_transition_kind,
+                "program_transition_duration_ms": runtime.program_transition_duration_ms,
+                "initialized": runtime.initialized,
+            })),
+        ),
+        Err(std::sync::TryLockError::WouldBlock) => ("busy", None),
+        Err(std::sync::TryLockError::Poisoned(_)) => return Err("state poisoned".to_string()),
+    };
+    let (trace_step, trace_age_ms) = logging::trace::last()
+        .unwrap_or_else(|| ("(no trace recorded)".to_string(), 0));
     Ok(serde_json::json!({
         "requests": stats.requests,
         "frozen_returns": stats.frozen_returns,
@@ -398,17 +448,17 @@ fn debug_preview_stats(state: tauri::State<ObsState>) -> Result<JsonValue, Strin
         "capture_us_max": stats.capture_us_max,
         "encode_us_max": stats.encode_us_max,
         "last_error": stats.last_error,
-        "preview_freeze": runtime.preview_freeze,
-        "has_retained_frame": runtime.last_preview_frame.is_some(),
-        "preview_frame_seq": runtime.preview_frame_seq,
-        "last_preview_frame_seq": runtime.last_preview_frame_seq,
-        "scene_generation": runtime.scene_generation,
-        "current_scene": runtime.current_scene,
-        "transition_active": !runtime.transition_source.is_null(),
-        "program_transition_kind": runtime.program_transition_kind,
-        "program_transition_duration_ms": runtime.program_transition_duration_ms,
-        "initialized": runtime.initialized,
+        "runtime_lock": runtime_lock,
+        "runtime": runtime,
+        "trace": { "step": trace_step, "age_ms": trace_age_ms },
+        "mutex_probe": logging::mutex_probe::snapshot(),
+        "ui": ui,
     }))
+}
+
+#[tauri::command(async)]
+fn debug_interact_stats() -> Result<JsonValue, String> {
+    Ok(sources::browser_interact::debug_stats())
 }
 
 fn extract_source_params(settings: *mut obs::obs_data, params: &mut HashMap<String, String>) {
@@ -891,12 +941,26 @@ fn obs_take_screenshot(
 /// render, GPU or encode work. Single-source screenshots and active
 /// recording/streaming outputs are never affected.
 #[tauri::command(async)]
-fn obs_preview_set_freeze(state: tauri::State<ObsState>, freeze: bool) -> Result<(), String> {
+fn obs_preview_set_freeze(
+    state: tauri::State<ObsState>,
+    freeze: bool,
+    reason: Option<String>,
+) -> Result<(), String> {
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "state poisoned".to_string())?;
     runtime.preview_freeze = freeze;
+    if freeze {
+        runtime.preview_freeze_requests += 1;
+        runtime.preview_freeze_since = Some(std::time::Instant::now());
+        runtime.preview_freeze_reason = Some(
+            reason.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "unspecified".to_string())
+        );
+    } else {
+        runtime.preview_freeze_reason = None;
+        runtime.preview_freeze_since = None;
+    }
     Ok(())
 }
 
@@ -1214,6 +1278,7 @@ pub fn run() {
             debug_console_history,
             debug_console_clear,
             debug_preview_stats,
+            debug_interact_stats,
             debug_trace_last
         ])
         .run(tauri::generate_context!())

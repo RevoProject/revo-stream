@@ -294,9 +294,10 @@ pub(crate) fn remove_source(
 	state: tauri::State<crate::ObsState>,
 	id: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.remove_source",
+	)
 		.map_err(|_| "state poisoned".to_string())?;
 	if !runtime.initialized {
 		return Err("OBS not initialized".to_string());
@@ -708,9 +709,10 @@ pub(crate) fn create_source(
 	state: tauri::State<crate::ObsState>,
 	create: crate::SourceCreate,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.create_source",
+	)
 		.map_err(|_| "state poisoned".to_string())?;
 	if !runtime.initialized {
 		return Err("OBS not initialized".to_string());

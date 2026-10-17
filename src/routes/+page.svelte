@@ -2491,6 +2491,23 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     };
     if (typeof window !== "undefined") {
       (window as unknown as { __revoPreviewStats?: typeof previewUiStats }).__revoPreviewStats = previewUiStats;
+      const previewDiagSnapshot = () => ({
+        at: Date.now(),
+        documentHidden: document.hidden,
+        previewDirty,
+        previewFrozen,
+        previewFreezeRequests,
+        loopRunning: previewInterval !== null || previewAnimationFrame !== null,
+        inFlight: previewInFlight,
+        pendingRequest: previewPendingRequest,
+        hasVisibleMediaSource,
+        realtimeRefresh,
+        lastFrameAt: previewLastFrameAt,
+        stats: { ...previewUiStats }
+      });
+      (window as unknown as { __revoPreviewDiag?: () => Promise<unknown> }).__revoPreviewDiag =
+        async () => invoke("debug_preview_stats", { ui: previewDiagSnapshot() });
+      (window as unknown as { __revoInvoke?: typeof invoke }).__revoInvoke = invoke;
     }
 
     async function decodePreviewFrame(url: string): Promise<boolean> {
@@ -2764,7 +2781,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       previewFrozen = true;
       pausePreviewLoop();
       try {
-        await invoke("obs_preview_set_freeze", { freeze: true });
+        await invoke("obs_preview_set_freeze", { freeze: true, reason: "add-source-modal" });
       } catch (err) {
         console.warn("[preview] backend freeze failed", err);
       }
@@ -2777,7 +2794,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       if (previewFreezeRequests > 0 || !previewFrozen) return;
       previewFrozen = false;
       try {
-        await invoke("obs_preview_set_freeze", { freeze: false });
+        await invoke("obs_preview_set_freeze", { freeze: false, reason: "add-source-modal" });
       } catch (err) {
         console.warn("[preview] backend unfreeze failed", err);
       }
