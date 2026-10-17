@@ -222,6 +222,7 @@ pub(crate) fn start(
 	let mut obs_vst_enabled = false;
 	let mut obs_websocket_enabled = false;
 	let mut obs_websocket_password = String::new();
+	let mut built_in_browser_enabled = false;
 	if let Ok(settings) = crate::settings::core::settings_get() {
 		let pref = settings
 			.encoder_preference
@@ -240,7 +241,9 @@ pub(crate) fn start(
 		obs_vst_enabled = settings.obs_vst_enabled.unwrap_or(false);
 		obs_websocket_enabled = settings.obs_websocket_enabled.unwrap_or(false);
 		obs_websocket_password = settings.obs_websocket_password.unwrap_or_default();
+		built_in_browser_enabled = settings.built_in_browser_enabled.unwrap_or(false);
 	}
+	crate::sources::browser::set_enabled(built_in_browser_enabled);
 
 	let root = crate::settings::core::resolve_root_dir(root_dir)?;
 	let data_dir = if root.join("data/share/obs/libobs/default.effect").exists() {
@@ -572,8 +575,10 @@ pub(crate) fn start(
 		} else {
 			registered_capture_types.join(", ")
 		});
-		if let Err(err) = crate::sources::browser::register() {
-			eprintln!("[browser] source registration unavailable: {err}");
+		if built_in_browser_enabled {
+			if let Err(err) = crate::sources::browser::register() {
+				eprintln!("[browser] source registration unavailable: {err}");
+			}
 		}
 
 		// Stworz transition source PO zaladowaniu modulow (cut_transition z obs-transitions)
@@ -613,6 +618,7 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	super::helpers::stop_recording_internal(&mut runtime);
 	super::helpers::stop_streaming_internal(&mut runtime);
 	crate::sources::browser_interact::close_all();
+	crate::sources::browser::set_enabled(false);
 	cleanup_scene(&mut runtime);
 	crate::devices::levels::cleanup_audio_volmeters();
 	unsafe {

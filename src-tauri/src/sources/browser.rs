@@ -14,6 +14,18 @@ use std::{
 
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+static BUILT_IN_BROWSER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_enabled(enabled: bool) {
+    BUILT_IN_BROWSER_ENABLED.store(enabled, Ordering::Release);
+    if !enabled {
+        shutdown_all();
+    }
+}
+
+pub(crate) fn is_enabled() -> bool {
+    BUILT_IN_BROWSER_ENABLED.load(Ordering::Acquire)
+}
 
 pub(crate) fn chromium_binary() -> Option<PathBuf> {
     let names = [
@@ -232,6 +244,16 @@ fn sources() -> &'static Mutex<std::collections::HashMap<usize, Weak<Shared>>> {
     SOURCES.get_or_init(Mutex::default)
 }
 
+pub(crate) fn shutdown_all() {
+    if let Ok(mut entries) = sources().lock() {
+        for shared in entries.values().filter_map(Weak::upgrade) {
+            shared.stop.store(true, Ordering::Release);
+            shared.wake.notify_all();
+        }
+        entries.clear();
+    }
+}
+
 pub(crate) fn status(source: *mut obs::obs_source_t) -> Option<String> {
     let shared = sources()
         .lock()
@@ -374,6 +396,9 @@ unsafe extern "C" fn create(
     settings: *mut obs::obs_data_t,
     source: *mut obs::obs_source_t,
 ) -> *mut c_void {
+    if !is_enabled() {
+        return std::ptr::null_mut();
+    }
     if settings.is_null() || source.is_null() || chromium_binary().is_none() {
         return std::ptr::null_mut();
     }
@@ -517,6 +542,9 @@ unsafe extern "C" fn properties(data: *mut c_void) -> *mut obs::obs_properties_t
 
 /// Call after OBS startup, on each initialization. Unavailable backends are not registered.
 pub(crate) fn register() -> Result<(), String> {
+    if !is_enabled() {
+        return Err("built-in browser is disabled in Experimental Future settings".into());
+    }
     if chromium_binary().is_none() {
         return Err("Browser snapshots unavailable: install Chromium, Brave or Chrome".into());
     }

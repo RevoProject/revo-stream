@@ -50,7 +50,10 @@ pub(crate) fn list_external_source_types(
 						idx += 1;
 						continue;
 					}
-					if id == "browser_source" && crate::sources::browser::chromium_binary().is_none() {
+					if id == "browser_source"
+						&& (!crate::sources::browser::is_enabled()
+							|| crate::sources::browser::chromium_binary().is_none())
+					{
 						idx += 1;
 						continue;
 					}
@@ -642,6 +645,9 @@ pub(crate) fn create_source_in_scene(
 		));
 	}
 	if create_type == "browser_source" {
+		if !crate::sources::browser::is_enabled() {
+			return Err("Built-in Browser is disabled in Settings > Other > Experimental Future".into());
+		}
 		if !input_type_exists("browser_source") {
 			return Err("Browser snapshots unavailable: no registered browser backend".into());
 		}
@@ -933,6 +939,10 @@ pub(crate) fn update_source(
 			update.source_type.as_str()
 		};
 		if actual_type == "browser_source" {
+			if !crate::sources::browser::is_enabled() {
+				revo_lib::obs::obs_data_release(settings);
+				return Err("Built-in Browser is disabled in Experimental Future settings".into());
+			}
 			if let Some(url) = update.params.get("url") {
 				if let Err(error) = crate::sources::browser::validate_url(url) {
 					revo_lib::obs::obs_data_release(settings);
@@ -1139,6 +1149,9 @@ pub(crate) fn open_source_interaction(
 			return Err(format!(
 				"interaction is only available for browser sources (this is {source_type})"
 			));
+		}
+		if !crate::sources::browser::is_enabled() {
+			return Err("Browser Interaction requires Enable built-in browser in Experimental Future settings".into());
 		}
 		let settings = revo_lib::obs::obs_source_get_settings(source);
 		let read = |key: &std::ffi::CStr| -> String {

@@ -18,6 +18,7 @@
   export let obsWebsocketPassword: string;
   export let demoMode: boolean;
   export let minimizeToTray: boolean;
+  export let builtInBrowserEnabled: boolean;
   export let recordPath: string;
   export let streamUrl: string;
   export let streamKey: string = "";
@@ -552,6 +553,7 @@
     obsWebsocketEnabled,
     obsWebsocketPassword,
     minimizeToTray,
+    builtInBrowserEnabled,
     recordPath,
     streamUrl,
     streamKey,
@@ -2750,8 +2752,20 @@
               </label>
             </div>
             <div class="field">
-              <div class="field-label">Experimental features</div>
+              <div class="field-label">Experimental Future</div>
               <div class="alert-settings">
+                <label class="toggle-row" for="builtInBrowserEnabled">
+                  <span>Enable built-in browser</span>
+                  <span class="toggle">
+                    <input id="builtInBrowserEnabled" type="checkbox" bind:checked={builtInBrowserEnabled} />
+                    <span class="slider"></span>
+                  </span>
+                </label>
+                <p style="margin:0 0 10px;color:var(--text-muted);font-size:12px;line-height:1.4;">
+                  Experimental and resource-intensive. Browser Interaction may use substantial CPU and memory.
+                  Disabling it closes active interaction and snapshot sessions without stopping OBS outputs.
+                </p>
+
                 <label class="toggle-row" for="openAdditionalSettingsInWindows">
                   <span>Open additional settings on windows instead popup</span>
                   <span class="toggle">

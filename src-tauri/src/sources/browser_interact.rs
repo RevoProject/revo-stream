@@ -410,6 +410,9 @@ fn ensure_session_inner(
 	js: &str,
 	viewport: (u32, u32),
 ) -> Result<(), String> {
+	if !super::browser::is_enabled() {
+		return Err("Browser Interaction is disabled in Experimental Future settings".to_string());
+	}
 	let url = url.trim().to_string();
 	if !url.starts_with("http://") && !url.starts_with("https://") {
 		return Err("browser source needs an http(s) URL".to_string());

@@ -365,6 +365,33 @@ fn app_set_minimize_to_tray(
 }
 
 #[tauri::command]
+fn app_set_builtin_browser_enabled(
+    state: tauri::State<ObsState>,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled && sources::browser::chromium_binary().is_none() {
+        sources::browser::set_enabled(false);
+        return Err("Built-in Browser requires Chromium, Chrome, Brave or Edge".to_string());
+    }
+    let initialized = state
+        .runtime
+        .lock()
+        .map_err(|_| "state poisoned".to_string())?
+        .initialized;
+    sources::browser::set_enabled(enabled);
+    if enabled && initialized {
+        if let Err(error) = sources::browser::register() {
+            sources::browser::set_enabled(false);
+            return Err(error);
+        }
+    }
+    if !enabled {
+        sources::browser_interact::close_all();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn cef_bridge_info() -> Result<CefBridgeInfo, String> {
     ui::cef::bridge_info()
 }
@@ -1274,6 +1301,7 @@ pub fn run() {
             close_browser_dock,
             app_close_all_windows,
             app_set_minimize_to_tray,
+            app_set_builtin_browser_enabled,
             cef_bridge_info,
             cef_dock_render_frame,
             open_debug_console,

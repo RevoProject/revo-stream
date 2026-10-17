@@ -53,6 +53,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     auto_retry_preview?: boolean | null;
     autorescale_inputs?: boolean | null;
     minimize_to_tray?: boolean | null;
+    built_in_browser_enabled?: boolean | null;
     ui_profile?: Record<string, unknown> | null;
     active_profile?: string | null;
   };
@@ -1258,6 +1259,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     let showSettings = false;
     let autorescaleInputs = false;
     let minimizeToTray = false;
+    let builtInBrowserEnabled = false;
     let showEditSource = false;
     let editSource: DemoSource | null = null;
     let editName = "";
@@ -2844,6 +2846,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       if (typeof settings.auto_retry_preview === "boolean") autoRetryPreview = settings.auto_retry_preview;
       if (typeof settings.autorescale_inputs === "boolean") autorescaleInputs = settings.autorescale_inputs;
       if (typeof settings.minimize_to_tray === "boolean") minimizeToTray = settings.minimize_to_tray;
+      if (typeof settings.built_in_browser_enabled === "boolean") builtInBrowserEnabled = settings.built_in_browser_enabled;
 
       if (typeof settings.active_profile === "string" && settings.active_profile.trim()) {
         selectedProfileName = settings.active_profile.trim();
@@ -2897,6 +2900,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       auto_retry_preview: autoRetryPreview,
       autorescale_inputs: autorescaleInputs,
       minimize_to_tray: minimizeToTray,
+      built_in_browser_enabled: builtInBrowserEnabled,
       ui_profile: currentUiProfile,
       active_profile: selectedProfileName
     });
@@ -3358,6 +3362,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     try {
       if (tauriAvailable) {
         const rootArg = rootDir.trim().length ? rootDir.trim() : null;
+        await invoke<void>("app_set_builtin_browser_enabled", { enabled: builtInBrowserEnabled });
         await invoke<string>("settings_save", {
           settings: {
             root_dir: rootArg,
@@ -3376,11 +3381,15 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
             auto_retry_preview: autoRetryPreview,
             autorescale_inputs: autorescaleInputs,
             minimize_to_tray: minimizeToTray,
+            built_in_browser_enabled: builtInBrowserEnabled,
             ui_profile: mergedProfile,
             active_profile: selectedProfileName
           }
         });
         await invoke<void>("app_set_minimize_to_tray", { enabled: minimizeToTray });
+        sourceTypesLoaded = false;
+        sourceTypesLoadPromise = null;
+        void loadSourceTypeCatalog();
       }
     } catch (err) {
       showGlobalDialog(`Settings profile save failed: ${String(err)}`, "error");
@@ -3785,6 +3794,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
             auto_retry_preview: autoRetryPreview,
             autorescale_inputs: autorescaleInputs,
             minimize_to_tray: minimizeToTray,
+            built_in_browser_enabled: builtInBrowserEnabled,
             ui_profile: mergedProfile,
             active_profile: selectedProfileName
           }
@@ -5518,6 +5528,14 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   };
 
   const openSourceInteraction = async (source: DemoSource) => {
+    if (!builtInBrowserEnabled) {
+      showGlobalDialog(
+        "Browser Interaction is disabled. Enable Settings > Other > Experimental Future > Enable built-in browser.",
+        "warning"
+      );
+      closeSourceMenu();
+      return;
+    }
     if (!backendEnabled) {
       showGlobalDialog("Interaction is available only with OBS backend enabled", "warning", 1800);
       closeSourceMenu();
@@ -7566,6 +7584,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       {busy}
       bind:autorescaleInputs
       bind:minimizeToTray
+      bind:builtInBrowserEnabled
       initialAccessibilityHighContrast={accessibilityHighContrast}
       initialAccessibilityReduceMotion={accessibilityReduceMotion}
       initialAccessibilityFocusIndicators={accessibilityFocusIndicators}
