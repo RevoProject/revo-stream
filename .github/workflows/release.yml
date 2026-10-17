@@ -160,14 +160,14 @@ jobs:
         shell: pwsh
         run: ./scripts/windows/patch-libobs-bootstrapper.ps1
       - name: Install cargo-obs-build
-        run: cargo install cargo-obs-build --locked
+        run: cargo install cargo-obs-build --version 2.0.3 --locked
       # ----------------------------------------------------------
       # OBS runtime
       # ----------------------------------------------------------
       - name: Bootstrap OBS
         working-directory: src-tauri
         shell: pwsh
-        run: cargo obs-build build --out-dir target/release
+        run: cargo obs-build build --out-dir target/release --tag $env:OBS_VERSION
       - name: Verify Windows OBS runtime
         shell: pwsh
         run: ./scripts/windows/verify-obs-runtime.ps1
