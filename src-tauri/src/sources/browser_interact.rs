@@ -418,8 +418,7 @@ fn ensure_session_inner(
 	let normalized_user_agent = user_agent.trim();
 
 	{
-		let map = sessions()
-			.lock()
+		let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.ensure_lookup")
 			.map_err(|_| "interact sessions poisoned".to_string())?;
 		if let Some(existing) = map.get(source_id) {
 			if existing.page_url != url
@@ -536,8 +535,7 @@ fn ensure_session_inner(
 	session.set_viewport(session.viewport.0, session.viewport.1)?;
 	session.inject_code()?;
 
-	sessions()
-		.lock()
+	crate::logging::mutex_probe::probe_lock(sessions(), "interact.ensure_insert")
 		.map_err(|_| "interact sessions poisoned".to_string())?
 		.insert(source_id.to_string(), Arc::new(session));
 
@@ -553,7 +551,7 @@ fn parse_devtools_port(line: &str) -> Option<u16> {
 }
 
 fn touch(source_id: &str) {
-	if let Ok(map) = sessions().lock() {
+	if let Ok(map) = crate::logging::mutex_probe::probe_lock(sessions(), "interact.touch") {
 		if let Some(session) = map.get(source_id) {
 			if let Ok(mut last) = session.last_used.lock() {
 				*last = Instant::now();
@@ -580,15 +578,13 @@ pub(crate) fn frame_png(source_id: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) fn has_session(source_id: &str) -> bool {
-	sessions()
-		.lock()
+	crate::logging::mutex_probe::probe_lock(sessions(), "interact.has_session")
 		.map(|map| map.contains_key(source_id))
 		.unwrap_or(false)
 }
 
 pub(crate) fn session_url(source_id: &str) -> Option<String> {
-	let map = sessions()
-		.lock()
+	let map = crate::logging::mutex_probe::probe_lock(sessions(), "interact.session_url")
 		.ok()?;
 	let session = map.get(source_id)?;
 	Some(session.page_url.clone())
