@@ -13,6 +13,16 @@ unsafe fn reset_texrender(texrender: *mut revo_lib::obs::gs_texrender_t) {
 	revo_lib::obs::gs_texrender_reset(texrender);
 }
 
+unsafe fn clear_current_render_target() {
+	let transparent: revo_lib::obs::vec4 = std::mem::zeroed();
+	revo_lib::obs::gs_clear(
+		revo_lib::obs::GS_CLEAR_COLOR,
+		&transparent as *const _,
+		0.0,
+		0,
+	);
+}
+
 pub(crate) fn planner_init_temp_path() -> Result<std::path::PathBuf, String> {
 	let dir = std::env::temp_dir().join("revostream");
 	std::fs::create_dir_all(&dir)
@@ -462,6 +472,7 @@ pub(crate) fn capture_view_pixels(
 		if !runtime.preview_texrender.is_null()
 			&& revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height)
 		{
+			clear_current_render_target();
 			revo_lib::obs::gs_ortho(
 				0.0,
 				width as f32,
@@ -494,6 +505,7 @@ pub(crate) fn capture_view_pixels(
 			if !runtime.preview_texrender.is_null()
 				&& revo_lib::obs::gs_texrender_begin(runtime.preview_texrender, width, height)
 			{
+				clear_current_render_target();
 				revo_lib::obs::gs_ortho(
 					0.0,
 					width as f32,
