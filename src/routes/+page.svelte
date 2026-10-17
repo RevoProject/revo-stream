@@ -3359,10 +3359,12 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     accessibilityFontFamily = String(a11y.accessibilityFontFamily ?? "system");
     accessibilityColorVision = String(a11y.accessibilityColorVision ?? "none");
 
+    let browserBackendApplied = false;
     try {
       if (tauriAvailable) {
         const rootArg = rootDir.trim().length ? rootDir.trim() : null;
         await invoke<void>("app_set_builtin_browser_enabled", { enabled: builtInBrowserEnabled });
+        browserBackendApplied = true;
         await invoke<string>("settings_save", {
           settings: {
             root_dir: rootArg,
@@ -3392,6 +3394,9 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         void loadSourceTypeCatalog();
       }
     } catch (err) {
+      if (!browserBackendApplied && builtInBrowserEnabled) builtInBrowserEnabled = false;
+      settingsModalSaved = false;
+      showSettings = true;
       showGlobalDialog(`Settings profile save failed: ${String(err)}`, "error");
       return;
     }
