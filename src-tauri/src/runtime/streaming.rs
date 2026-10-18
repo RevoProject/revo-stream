@@ -14,7 +14,7 @@ pub(crate) fn start_streaming(
 	}
 
 	let mut preference = runtime.video_encoder_preference;
-	for attempt in 0..2 {
+	for _attempt in 0..3 {
 		let mut service = std::ptr::null_mut();
 		let mut video_encoder = std::ptr::null_mut();
 		let mut audio_encoder = std::ptr::null_mut();
@@ -57,6 +57,7 @@ pub(crate) fn start_streaming(
 			super::helpers::cstr_to_string(revo_lib::obs::obs_output_get_last_error(output))
 		};
 		let hardware_encoder = super::encoders::is_hardware_video_encoder(video_encoder);
+		let texture_nvenc = super::encoders::is_texture_nvenc_encoder(video_encoder);
 		unsafe {
 			revo_lib::obs::obs_output_release(output);
 			if !service.is_null() {
@@ -70,19 +71,23 @@ pub(crate) fn start_streaming(
 			}
 		}
 
-		if hardware_encoder
-			&& attempt == 0
-			&& !matches!(preference, crate::VideoEncoderPreference::Software)
-		{
+		if texture_nvenc && !matches!(preference, crate::VideoEncoderPreference::NvencLegacy) {
 			eprintln!(
-				"[stream] hardware encoder start failed ({last_error}); retrying once with x264"
+				"[stream] texture NVENC start failed ({last_error}); retrying with legacy/non-texture NVENC"
+			);
+			preference = crate::VideoEncoderPreference::NvencLegacy;
+			continue;
+		}
+		if hardware_encoder && !matches!(preference, crate::VideoEncoderPreference::Software) {
+			eprintln!(
+				"[stream] hardware encoder start failed ({last_error}); retrying with x264"
 			);
 			preference = crate::VideoEncoderPreference::Software;
 			continue;
 		}
 		return Err(format!("stream start failed: {last_error}"));
 	}
-	unreachable!("streaming retry loop is bounded to two attempts")
+	unreachable!("streaming retry loop is bounded to three attempts")
 }
 
 pub(crate) fn stop_streaming(state: tauri::State<crate::ObsState>) -> Result<String, String> {
