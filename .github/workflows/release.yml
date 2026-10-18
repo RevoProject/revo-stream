@@ -358,7 +358,7 @@ jobs:
         shell: bash
         run: |
           cmake \
-            --build "$RUNNER_TEMP/obs-build" \
+            --build "${REVO_OBS_BUILD:-$RUNNER_TEMP/obs-build-$REVO_TARGET}" \
             --config RelWithDebInfo \
             --parallel "$(sysctl -n hw.ncpu)"
       # ----------------------------------------------------------
