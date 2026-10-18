@@ -112,13 +112,23 @@ pub(crate) fn list_external_source_types(
 
 #[cfg(test)]
 mod source_type_visibility_tests {
-	use super::{centered_position, fit_scale, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
+	use super::{centered_position, fit_scale, resolve_filter_source_ids, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
 
 	#[test]
 	fn internal_source_types_are_debug_only() {
 		assert!(should_expose_source_type(OBS_SOURCE_CAP_DISABLED, true));
 		assert!(!should_expose_source_type(OBS_SOURCE_CAP_DISABLED, false));
 		assert!(should_expose_source_type(0, false));
+	}
+
+	#[test]
+	fn every_filter_kind_offered_by_the_ui_maps_to_libobs() {
+		for kind in [
+			"color_correction", "chroma_key", "crop_pad", "gain", "sharpness", "scroll",
+			"noise_suppression", "noise_gate", "compressor", "limiter", "expander",
+		] {
+			assert!(!resolve_filter_source_ids(kind).is_empty(), "unmapped filter kind: {kind}");
+		}
 	}
 
 	#[test]
@@ -1048,6 +1058,11 @@ fn resolve_filter_source_ids(kind: &str) -> &'static [&'static str] {
 		"gain" => &["gain_filter"],
 		"sharpness" => &["sharpness_filter"],
 		"scroll" => &["scroll_filter"],
+		"noise_suppression" => &["noise_suppress_filter"],
+		"noise_gate" => &["noise_gate_filter"],
+		"compressor" => &["compressor_filter"],
+		"limiter" => &["limiter_filter"],
+		"expander" => &["expander_filter"],
 		_ => &[],
 	}
 }
@@ -1152,7 +1167,12 @@ pub(crate) fn set_source_filters(
 			revo_lib::obs::obs_data_release(settings);
 
 			if filter_source.is_null() {
-				continue;
+				return Err(format!(
+					"failed to create '{}' filter '{}' (tried: {})",
+					filter.kind,
+					filter_name,
+					filter_source_ids.join(", ")
+				));
 			}
 
 			revo_lib::obs::obs_source_filter_add(source, filter_source);
