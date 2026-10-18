@@ -623,6 +623,7 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 	crate::sources::browser_interact::close_all();
 	crate::sources::browser::set_enabled(false);
 	cleanup_scene(&mut runtime);
+	crate::sources::browser::shutdown_all();
 	crate::devices::levels::cleanup_audio_volmeters();
 	unsafe {
 		if !runtime.transition_source.is_null() {

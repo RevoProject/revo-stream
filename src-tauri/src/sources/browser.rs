@@ -17,9 +17,13 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 static BUILT_IN_BROWSER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_enabled(enabled: bool) {
-    BUILT_IN_BROWSER_ENABLED.store(enabled, Ordering::Release);
-    if !enabled {
-        shutdown_all();
+    if BUILT_IN_BROWSER_ENABLED.swap(enabled, Ordering::AcqRel) == enabled {
+        return;
+    }
+    if enabled {
+        resume_all();
+    } else {
+        pause_all();
     }
 }
 
@@ -231,6 +235,11 @@ struct Shared {
     state: Mutex<State>,
     wake: Condvar,
     stop: AtomicBool,
+    paused: AtomicBool,
+}
+
+const fn should_wait(visible: bool, paused: bool, stop: bool) -> bool {
+    (!visible || paused) && !stop
 }
 struct Browser {
     shared: Arc<Shared>,
@@ -242,6 +251,25 @@ fn sources() -> &'static Mutex<std::collections::HashMap<usize, Weak<Shared>>> {
     static SOURCES: OnceLock<Mutex<std::collections::HashMap<usize, Weak<Shared>>>> =
         OnceLock::new();
     SOURCES.get_or_init(Mutex::default)
+}
+
+pub(crate) fn pause_all() {
+    if let Ok(mut entries) = sources().lock() {
+        entries.retain(|_, weak| weak.strong_count() > 0);
+        for shared in entries.values().filter_map(Weak::upgrade) {
+            shared.paused.store(true, Ordering::Release);
+            shared.wake.notify_all();
+        }
+    }
+}
+
+pub(crate) fn resume_all() {
+    if let Ok(entries) = sources().lock() {
+        for shared in entries.values().filter_map(Weak::upgrade) {
+            shared.paused.store(false, Ordering::Release);
+            shared.wake.notify_all();
+        }
+    }
 }
 
 pub(crate) fn shutdown_all() {
@@ -299,7 +327,11 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
     while !shared.stop.load(Ordering::Acquire) {
         let (config, revision) = {
             let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
-            while !state.visible && !shared.stop.load(Ordering::Acquire) {
+            while should_wait(
+                state.visible,
+                shared.paused.load(Ordering::Acquire),
+                shared.stop.load(Ordering::Acquire),
+            ) {
                 state = shared.wake.wait(state).unwrap_or_else(|e| e.into_inner());
             }
             if shared.stop.load(Ordering::Acquire) {
@@ -358,7 +390,10 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
         if shared.stop.load(Ordering::Acquire) {
             break;
         }
-        if state.revision != revision || !state.visible {
+        if state.revision != revision
+            || !state.visible
+            || shared.paused.load(Ordering::Acquire)
+        {
             continue;
         }
         match result {
@@ -415,6 +450,7 @@ unsafe extern "C" fn create(
         }),
         wake: Condvar::new(),
         stop: AtomicBool::new(false),
+        paused: AtomicBool::new(false),
     });
     obs::obs_source_set_async_unbuffered(source, true);
     let worker_shared = shared.clone();
@@ -599,6 +635,17 @@ mod tests {
             capture_png("https://example.com", 1280, 720, "", &AtomicBool::new(true)).unwrap_err(),
             "Browser capture cancelled"
         );
+    }
+
+    #[test]
+    fn browser_worker_parks_while_hidden_or_disabled() {
+        assert!(!should_wait(true, false, false));
+        assert!(should_wait(false, false, false));
+        assert!(should_wait(true, true, false));
+        assert!(should_wait(false, true, false));
+        assert!(!should_wait(false, true, true));
+        assert!(!should_wait(false, false, true));
+        assert!(!should_wait(true, true, true));
     }
 
     fn serve_page() -> (String, Arc<AtomicBool>, JoinHandle<()>) {
