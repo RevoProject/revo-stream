@@ -57,7 +57,7 @@
       title={`${undoTitle} (right-click for history)`}
       aria-label="Undo"
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
       </svg>
     </button>
@@ -69,7 +69,7 @@
       title={`${redoTitle} (right-click for history)`}
       aria-label="Redo"
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8Z" />
       </svg>
     </button>
