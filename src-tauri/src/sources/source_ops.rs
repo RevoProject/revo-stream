@@ -384,6 +384,13 @@ pub(crate) fn remove_source(
 		let source = revo_lib::obs::obs_sceneitem_get_source(item_ptr);
 		crate::devices::levels::detach_volmeters_for_source(source);
 		revo_lib::obs::obs_sceneitem_remove(item_ptr);
+		if is_custom {
+			// `obs_scene_add` handed us a scene-item reference that
+			// `custom_items` owned. Without this release the OBS source object
+			// survives the removal and later recreates of the same id collide
+			// with the stale instance (undo/redo recreate).
+			revo_lib::obs::obs_sceneitem_release(item_ptr);
+		}
 	}
 	if !is_custom {
 		match id.as_str() {
@@ -694,7 +701,22 @@ pub(crate) fn create_source_in_scene(
 	}
 	if let Some(existing) = crate::resolve_scene_item(scene, id) {
 		if !existing.is_null() {
-			return Err("source id already exists".to_string());
+			// Recreate (undo of a removal, redo of an add) must stay
+			// idempotent: detach any stale scene-item still holding this id
+			// instead of failing with "source id already exists".
+			unsafe {
+				revo_lib::obs::obs_sceneitem_remove(existing);
+			}
+			if id == "accent" {
+				scene.item_accent = std::ptr::null_mut();
+			} else if id == "title" {
+				scene.item_text = std::ptr::null_mut();
+			} else if scene.custom_items.get(id).copied() == Some(existing) {
+				scene.custom_items.remove(id);
+				unsafe {
+					revo_lib::obs::obs_sceneitem_release(existing);
+				}
+			}
 		}
 	}
 
