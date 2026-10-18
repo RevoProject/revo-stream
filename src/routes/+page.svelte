@@ -906,7 +906,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
     const applySourceTransforms = async (newTransforms: Record<string, PlannerTransformPayload>) => {
       const activeSceneName = getActiveSceneName();
-      const beforeTransforms = captureTransformSnapshot();
+      const beforeTransforms = await captureTransformSnapshot();
       sourceTransforms = { ...newTransforms };
       plannerTransformsByScene = {
         ...plannerTransformsByScene,
@@ -996,7 +996,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           recordTransformHistory(
             "Graphic Planner save",
             beforeTransforms,
-            captureTransformSnapshot()
+            await captureTransformSnapshot()
           );
           showGlobalDialog("Source transforms saved", "info");
         } catch (err) {
@@ -5463,7 +5463,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const openSourceProperties = (source: DemoSource) => {
     propertiesSource = source;
-    sourcePropertiesSnapshotBefore = captureTransformSnapshot([source.id]);
+    void captureTransformSnapshot([source.id]).then((snapshot) => (sourcePropertiesSnapshotBefore = snapshot));
     showSourceProperties = true;
     closeSourceMenu();
   };
@@ -5726,35 +5726,18 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     pendingDeleteScene = null;
   };
 
-  const TRANSFORM_PARAM_KEYS = [
-    "pos_x",
-    "pos_y",
-    "item_width",
-    "item_height",
-    "scale_x",
-    "scale_y",
-    "rot",
-    "crop_left",
-    "crop_right",
-    "crop_top",
-    "crop_bottom"
-  ];
-
   type TransformSnapshot = Record<string, Record<string, string>>;
 
-  const captureTransformSnapshot = (ids?: string[]): TransformSnapshot => {
-    const wanted = ids ? new Set(ids) : null;
-    const out: TransformSnapshot = {};
-    for (const source of sourcesList) {
-      if (wanted && !wanted.has(source.id)) continue;
-      const params: Record<string, string> = {};
-      for (const key of TRANSFORM_PARAM_KEYS) {
-        const value = source.params?.[key];
-        if (value !== undefined && value !== "") params[key] = value;
-      }
-      out[source.id] = params;
-    }
-    return out;
+  /**
+   * Authoritative transform snapshot, read directly from the OBS scene items
+   * (not the params copy, which can be stale when a source's native size
+   * changes asynchronously).
+   */
+  const captureTransformSnapshot = async (ids?: string[]): Promise<TransformSnapshot> => {
+    const all = await invoke<TransformSnapshot>("obs_get_sceneitem_transforms");
+    if (!ids || !ids.length) return all;
+    const wanted = new Set(ids);
+    return Object.fromEntries(Object.entries(all).filter(([id]) => wanted.has(id)));
   };
 
   /** Keeps only the sources whose transform actually differs. */
@@ -5768,30 +5751,30 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const applyTransformSnapshot = async (snapshot: TransformSnapshot) => {
     const failures: string[] = [];
-    for (const [id, params] of Object.entries(snapshot)) {
-      if (!Object.keys(params).length) continue;
+    for (const [id, transform] of Object.entries(snapshot)) {
+      if (!Object.keys(transform).length) continue;
       try {
-        await invoke("obs_update_source", { update: { id, name: "", source_type: "", params } });
+        await invoke<string>("obs_apply_sceneitem_transform", { id, transform });
       } catch (err) {
         failures.push(`${id}: ${String(err)}`);
       }
     }
     await loadSources();
     const nextTransforms = { ...sourceTransforms };
-    for (const [id, params] of Object.entries(snapshot)) {
+    for (const [id, transform] of Object.entries(snapshot)) {
       const payload = nextTransforms[id];
       if (!payload) continue;
-      const num = (key: string) => parseFloat(params[key] ?? "");
+      const num = (key: string) => parseFloat(transform[key] ?? "");
       const updated: PlannerTransformPayload = { ...payload };
-      if (params.pos_x !== undefined) updated.x = num("pos_x") || 0;
-      if (params.pos_y !== undefined) updated.y = num("pos_y") || 0;
-      if (params.item_width !== undefined) updated.w = num("item_width") || 0;
-      if (params.item_height !== undefined) updated.h = num("item_height") || 0;
-      if (params.rot !== undefined) updated.rot = num("rot") || 0;
-      if (params.crop_left !== undefined) updated.cropL = num("crop_left") || 0;
-      if (params.crop_right !== undefined) updated.cropR = num("crop_right") || 0;
-      if (params.crop_top !== undefined) updated.cropT = num("crop_top") || 0;
-      if (params.crop_bottom !== undefined) updated.cropB = num("crop_bottom") || 0;
+      if (transform.pos_x !== undefined) updated.x = num("pos_x") || 0;
+      if (transform.pos_y !== undefined) updated.y = num("pos_y") || 0;
+      if (transform.item_width !== undefined) updated.w = num("item_width") || 0;
+      if (transform.item_height !== undefined) updated.h = num("item_height") || 0;
+      if (transform.rot !== undefined) updated.rot = num("rot") || 0;
+      if (transform.crop_left !== undefined) updated.cropL = num("crop_left") || 0;
+      if (transform.crop_right !== undefined) updated.cropR = num("crop_right") || 0;
+      if (transform.crop_top !== undefined) updated.cropT = num("crop_top") || 0;
+      if (transform.crop_bottom !== undefined) updated.cropB = num("crop_bottom") || 0;
       nextTransforms[id] = updated;
     }
     sourceTransforms = nextTransforms;
@@ -5810,6 +5793,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     name: string;
     sourceType: string;
     params: Record<string, string>;
+    transform: Record<string, string>;
     visible: boolean;
     index: number;
     videoFilters: FilterItem[];
@@ -5827,10 +5811,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       id: source.id,
       name: settings.name || source.name,
       sourceType: settings.source_type || source.source_type,
-      params: {
-        ...(settings.params ?? {}),
-        ...(captureTransformSnapshot([source.id])[source.id] ?? {})
-      },
+      params: settings.params ?? {},
+      transform: (await captureTransformSnapshot([source.id]))[source.id] ?? {},
       visible: source.visible,
       index: Math.max(0, sourcesList.findIndex((s) => s.id === source.id)),
       videoFilters: cloneFilterList(sourceFiltersMap[source.id] ?? []),
@@ -5850,11 +5832,21 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     } catch (err) {
       console.warn(`[history] reorder skipped for ${spec.id}`, err);
     }
-    try {
-      await invoke<string>("obs_fit_source_to_canvas", { sourceId: spec.id });
-    } catch {
-      // Capture sources may report their size later; params carry the last
-      // known transform, so a failed fit here is not fatal for the restore.
+    if (Object.keys(spec.transform).length) {
+      try {
+        // Exact captured transform beats a refit — the source keeps its
+        // original scale and position across undo of a removal.
+        await invoke<string>("obs_apply_sceneitem_transform", { id: spec.id, transform: spec.transform });
+      } catch (err) {
+        console.warn(`[history] transform restore skipped for ${spec.id}`, err);
+      }
+    } else {
+      try {
+        await invoke<string>("obs_fit_source_to_canvas", { sourceId: spec.id });
+      } catch {
+        // Capture sources may report their size later; params carry the last
+        // known transform, so a failed fit here is not fatal for the restore.
+      }
     }
     if (spec.videoFilters.length) {
       sourceFiltersMap = { ...sourceFiltersMap, [spec.id]: spec.videoFilters };
@@ -8261,7 +8253,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       const before = sourcePropertiesSnapshotBefore;
       void (async () => {
         await loadSources();
-        const after = captureTransformSnapshot(Object.keys(before));
+        const after = await captureTransformSnapshot(Object.keys(before));
         sourcePropertiesSnapshotBefore = after;
         recordTransformHistory(
           propertiesSource ? `Transform ${propertiesSource.name}` : "Transform source",

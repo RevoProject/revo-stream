@@ -755,6 +755,20 @@ fn obs_stretch_source_to_canvas(
     sources::source_ops::stretch_source_to_canvas(state, source_id)
 }
 
+#[tauri::command(async)]
+fn obs_get_sceneitem_transforms(state: tauri::State<ObsState>) -> Result<JsonValue, String> {
+    sources::source_ops::get_sceneitem_transforms(state)
+}
+
+#[tauri::command(async)]
+fn obs_apply_sceneitem_transform(
+    state: tauri::State<ObsState>,
+    id: String,
+    transform: std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    sources::source_ops::apply_sceneitem_transform(state, id, transform)
+}
+
 fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
     sources::source_ops::collect_sources(runtime)
 }
@@ -1262,6 +1276,8 @@ pub fn run() {
             obs_list_sources,
             obs_fit_source_to_canvas,
             obs_stretch_source_to_canvas,
+            obs_get_sceneitem_transforms,
+            obs_apply_sceneitem_transform,
             obs_list_external_source_types,
             obs_get_graphic_planner_init,
             obs_set_graphic_planner_init,

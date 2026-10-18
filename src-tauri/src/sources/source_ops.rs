@@ -938,6 +938,132 @@ pub(crate) fn stretch_source_to_canvas(
 	Ok(format!("stretched {source_id} to {canvas_width}x{canvas_height}"))
 }
 
+/// Authoritative scene-item transform read straight from libobs (scale/pos/
+/// rot/crop as stored on the item, plus base and on-canvas dimensions).
+/// Unlike the params copy, these values can never drift from the real state.
+pub(crate) fn get_sceneitem_transforms(
+	state: tauri::State<crate::ObsState>,
+) -> Result<serde_json::Value, String> {
+	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let mut out = serde_json::Map::new();
+
+	let mut capture_item = |id: &str, item: *mut revo_lib::obs::obs_scene_item| {
+		if item.is_null() {
+			return;
+		}
+		unsafe {
+			let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
+			revo_lib::obs::obs_sceneitem_get_scale(item, &mut scale as *mut _);
+			let mut pos: revo_lib::obs::vec2 = std::mem::zeroed();
+			revo_lib::obs::obs_sceneitem_get_pos(item, &mut pos as *mut _);
+			let rot = revo_lib::obs::obs_sceneitem_get_rot(item);
+			let mut crop: revo_lib::obs::obs_sceneitem_crop = std::mem::zeroed();
+			revo_lib::obs::obs_sceneitem_get_crop(item, &mut crop as *mut _);
+			let source = revo_lib::obs::obs_sceneitem_get_source(item);
+			let base_width = if source.is_null() {
+				0
+			} else {
+				revo_lib::obs::obs_source_get_width(source)
+			};
+			let base_height = if source.is_null() {
+				0
+			} else {
+				revo_lib::obs::obs_source_get_height(source)
+			};
+			let scale_x = scale.__bindgen_anon_1.__bindgen_anon_1.x;
+			let scale_y = scale.__bindgen_anon_1.__bindgen_anon_1.y;
+			out.insert(
+				id.to_string(),
+				serde_json::json!({
+					"pos_x": pos.__bindgen_anon_1.__bindgen_anon_1.x.to_string(),
+					"pos_y": pos.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
+					"scale_x": scale_x.to_string(),
+					"scale_y": scale_y.to_string(),
+					"rot": rot.to_string(),
+					"crop_left": crop.left.to_string(),
+					"crop_right": crop.right.to_string(),
+					"crop_top": crop.top.to_string(),
+					"crop_bottom": crop.bottom.to_string(),
+					"base_width": base_width.to_string(),
+					"base_height": base_height.to_string(),
+					"item_width": (base_width as f32 * scale_x).round().to_string(),
+					"item_height": (base_height as f32 * scale_y).round().to_string(),
+				}),
+			);
+		}
+	};
+
+	capture_item("accent", scene.item_accent);
+	capture_item("title", scene.item_text);
+	for (id, item) in scene.custom_items.iter() {
+		capture_item(id, *item);
+	}
+	Ok(serde_json::Value::Object(out))
+}
+
+/// Applies a scene-item transform directly (set_scale/set_pos/set_rot/
+/// set_crop) — no recomputation from the source's current base size, so a
+/// restored transform is exact even when the native size drifted.
+pub(crate) fn apply_sceneitem_transform(
+	state: tauri::State<crate::ObsState>,
+	id: String,
+	transform: std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene(&runtime)?;
+	let item = crate::resolve_scene_item(scene, id.trim())
+		.ok_or_else(|| format!("unknown source id: {id}"))?;
+
+	unsafe {
+		let parse_f = |key: &str| {
+			transform
+				.get(key)
+				.and_then(|v| v.trim().parse::<f32>().ok())
+		};
+		if let (Some(x), Some(y)) = (parse_f("pos_x"), parse_f("pos_y")) {
+			let mut pos: revo_lib::obs::vec2 = std::mem::zeroed();
+			pos.__bindgen_anon_1.__bindgen_anon_1.x = x;
+			pos.__bindgen_anon_1.__bindgen_anon_1.y = y;
+			revo_lib::obs::obs_sceneitem_set_pos(item, &pos as *const _);
+		}
+		if let (Some(x), Some(y)) = (parse_f("scale_x"), parse_f("scale_y")) {
+			let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
+			scale.__bindgen_anon_1.__bindgen_anon_1.x = x;
+			scale.__bindgen_anon_1.__bindgen_anon_1.y = y;
+			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+		}
+		if let Some(rot) = parse_f("rot") {
+			revo_lib::obs::obs_sceneitem_set_rot(item, rot);
+		}
+		let crop_keys = ["crop_left", "crop_right", "crop_top", "crop_bottom"];
+		if crop_keys.iter().any(|key| transform.contains_key(*key)) {
+			let mut crop: revo_lib::obs::obs_sceneitem_crop = std::mem::zeroed();
+			revo_lib::obs::obs_sceneitem_get_crop(item, &mut crop as *mut _);
+			if let Some(v) = transform.get("crop_left").and_then(|v| v.trim().parse::<i32>().ok()) {
+				crop.left = v;
+			}
+			if let Some(v) = transform.get("crop_right").and_then(|v| v.trim().parse::<i32>().ok()) {
+				crop.right = v;
+			}
+			if let Some(v) = transform.get("crop_top").and_then(|v| v.trim().parse::<i32>().ok()) {
+				crop.top = v;
+			}
+			if let Some(v) = transform.get("crop_bottom").and_then(|v| v.trim().parse::<i32>().ok()) {
+				crop.bottom = v;
+			}
+			revo_lib::obs::obs_sceneitem_set_crop(item, &crop as *const _);
+		}
+	}
+	Ok(format!("transform applied to {id}"))
+}
+
 fn parse_boolish(value: &str) -> bool {
 	matches!(
 		value.trim().to_ascii_lowercase().as_str(),
