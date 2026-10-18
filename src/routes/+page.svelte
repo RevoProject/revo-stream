@@ -5592,7 +5592,10 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const snapshotSourceSettings = async (id: string): Promise<SourceSettingsSnapshot | null> => {
     try {
-      return await invoke<SourceSettingsSnapshot>("obs_get_source_settings", { id });
+      const response = await invoke<SourceSettingsSnapshot>("obs_get_source_settings", { id });
+      // Older backend builds omit `id` in the response; the caller always
+      // knows it — inject defensively so restores never send a missing id.
+      return { ...response, id };
     } catch {
       return null;
     }

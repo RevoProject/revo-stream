@@ -510,6 +510,7 @@ pub(crate) fn get_source_settings(
 		params.insert("crop_top".to_string(), crop.top.to_string());
 		params.insert("crop_bottom".to_string(), crop.bottom.to_string());
 		let result = serde_json::json!({
+			"id": id,
 			"name": name,
 			"source_type": source_type,
 			"params": params,
