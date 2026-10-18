@@ -49,28 +49,6 @@
   <div class="actions">
     <div class="nav">
         
-      <button
-        class="force-preview"
-        onclick={undo}
-        disabled={!canUndo}
-        title={undoTitle}
-        aria-label="Undo"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
-        </svg>
-      </button>
-      <button
-        class="force-preview"
-        onclick={redo}
-        disabled={!canRedo}
-        title={redoTitle}
-        aria-label="Redo"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path fill="currentColor" d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8Z" />
-        </svg>
-      </button>
       <button class="force-preview" onclick={forcePreviewResolution} title="Force 1920x1080 Preview">
         1920x1080 Preview
       </button>
@@ -85,6 +63,28 @@
           <span>Realtime</span>
         </label>
       {/if}
+      <button
+        class="history-btn"
+        onclick={undo}
+        disabled={!canUndo}
+        title={undoTitle}
+        aria-label="Undo"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
+        </svg>
+      </button>
+      <button
+        class="history-btn"
+        onclick={redo}
+        disabled={!canRedo}
+        title={redoTitle}
+        aria-label="Redo"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8Z" />
+        </svg>
+      </button>
       <button class="settings" aria-label="Settings" onclick={openSettings}>
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path
@@ -205,6 +205,38 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+  }
+
+  /* Undo / Redo: compact icon controls, always visible next to Settings.
+     Disabled keeps the icon readable (45% opacity) so the controls never
+     disappear from the header. */
+  button.history-btn {
+    background: none;
+    color: var(--icon-color, var(--text));
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 10px;
+    transition: background 0.15s ease, opacity 0.15s ease;
+  }
+
+  button.history-btn svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+  }
+
+  button.history-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  button.history-btn:not(:disabled):hover {
+    background: var(--surface-3);
+    opacity: 0.85;
   }
 
   button.settings svg {
