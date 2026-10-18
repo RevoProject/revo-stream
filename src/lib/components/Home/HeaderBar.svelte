@@ -47,7 +47,7 @@
     </span>
     <div class="logo">
       RevoStream
-      <span class="tagline">Stream. Create. Control.</span>
+      <span class="tagline">Stream. Create. Control</span>
     </div>
     <button
       class="history-btn"
@@ -232,8 +232,8 @@
   }
 
   button.history-btn svg {
-    width: 34px;
-    height: 34px;
+    width: 18px;
+    height: 18px;
     display: block;
   }
 
