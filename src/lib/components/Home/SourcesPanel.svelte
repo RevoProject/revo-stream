@@ -22,11 +22,32 @@
   $: selectedTextSource = selectedSource && selectedSource.source_type?.toLowerCase().includes("text") ? selectedSource : null;
   $: selectedColorSource = selectedSource && selectedSource.source_type?.toLowerCase().includes("color_source") ? selectedSource : null;
   $: selectedImageSource = selectedSource && ((selectedSource.source_type?.toLowerCase().includes("image") ?? false) || (selectedSource.source_type?.toLowerCase().includes("slideshow") ?? false)) ? selectedSource : null;
+  const isWindowCaptureSourceType = (source: DemoSource | undefined | null) => {
+    const t = (source?.source_type ?? "").toLowerCase();
+    return t === "window_capture" || t === "xcomposite_input" || t.includes("window");
+  };
+  const isDisplayCaptureSourceType = (source: DemoSource | undefined | null) => {
+    const t = (source?.source_type ?? "").toLowerCase();
+    return t.includes("xshm") || t.includes("display") || t.includes("screen") || t.includes("monitor_capture");
+  };
   const isDeviceSelectableSourceType = (source: DemoSource | undefined | null) => {
     const type = (source?.source_type ?? "").toLowerCase();
-    return isAudioCaptureSourceType(type) || type.includes("video_capture") || type.includes("v4l2_input");
+    return (
+      isAudioCaptureSourceType(type) ||
+      isWindowCaptureSourceType(source) ||
+      isDisplayCaptureSourceType(source) ||
+      type.includes("video_capture") ||
+      type.includes("v4l2_input")
+    );
   };
   $: selectedDeviceSource = selectedSource && isDeviceSelectableSourceType(selectedSource) ? selectedSource : null;
+  $: selectedWindowSource = selectedSource && isWindowCaptureSourceType(selectedSource) ? selectedSource : null;
+  $: selectedDisplaySource = selectedSource && isDisplayCaptureSourceType(selectedSource) ? selectedSource : null;
+  $: quickDeviceLabel = selectedWindowSource
+    ? "Select Window"
+    : selectedDisplaySource
+      ? "Select display"
+      : "Select device";
 
   const openAddSource = () => dispatch("openAddSource");
   const openInteract = () => {
@@ -163,7 +184,7 @@
       {:else if selectedImageSource}
         <button class="interact" aria-label="Select image file" onclick={openSelectFile}>Select file</button>
       {:else if selectedDeviceSource}
-        <button class="interact" aria-label="Select source device" onclick={openSelectDevice}>Select device</button>
+        <button class="interact" aria-label="Select capture source" onclick={openSelectDevice}>{quickDeviceLabel}</button>
       {/if}
     </div>
     <button class="icon" aria-label="Add source" onclick={openAddSource}>+</button>
