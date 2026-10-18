@@ -384,13 +384,12 @@ pub(crate) fn remove_source(
 		let source = revo_lib::obs::obs_sceneitem_get_source(item_ptr);
 		crate::devices::levels::detach_volmeters_for_source(source);
 		revo_lib::obs::obs_sceneitem_remove(item_ptr);
-		if is_custom {
-			// `obs_scene_add` handed us a scene-item reference that
-			// `custom_items` owned. Without this release the OBS source object
-			// survives the removal and later recreates of the same id collide
-			// with the stale instance (undo/redo recreate).
-			revo_lib::obs::obs_sceneitem_release(item_ptr);
-		}
+		// Both custom and built-in scene items came from `obs_scene_add`,
+		// which hands ownership of one reference to the caller (stored in
+		// `custom_items` / the item fields). Releasing it lets the OBS source
+		// object actually die, so recreating the same id cannot collide with
+		// a stale instance.
+		revo_lib::obs::obs_sceneitem_release(item_ptr);
 	}
 	if !is_custom {
 		match id.as_str() {
@@ -810,7 +809,31 @@ pub(crate) fn create_source_in_scene(
 			scale.__bindgen_anon_1.__bindgen_anon_1.y = 1.0;
 			revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
 		}
-		scene.custom_items.insert(id.to_string(), item);
+		// Built-in items (accent/title) must be stored back into their
+		// dedicated fields — resolve_scene_item checks those FIRST, so leaving
+		// a recreated built-in only in custom_items would keep returning a
+		// null item ("source not available") for every later operation.
+		match id {
+			"accent" => {
+				scene.item_accent = item;
+				if let Some(stale) = scene.custom_items.remove(id) {
+					if stale != item {
+						revo_lib::obs::obs_sceneitem_release(stale);
+					}
+				}
+			}
+			"title" => {
+				scene.item_text = item;
+				if let Some(stale) = scene.custom_items.remove(id) {
+					if stale != item {
+						revo_lib::obs::obs_sceneitem_release(stale);
+					}
+				}
+			}
+			_ => {
+				scene.custom_items.insert(id.to_string(), item);
+			}
+		}
 		crate::devices::levels::attach_volmeter(source);
 		revo_lib::obs::obs_source_release(source);
 	}
