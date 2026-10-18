@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub(crate) enum VideoEncoderPreference {
 	Hardware,
 	Nvenc,
+	NvencLegacy,
 	Software,
 }
 

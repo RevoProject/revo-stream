@@ -2701,6 +2701,12 @@
                   <option value={option.value}>{option.label}</option>
                 {/each}
               </select>
+              {#if encoderPreference === "nvenc_legacy"}
+                <p style="margin:4px 0 0;color:var(--text-muted);font-size:12px;line-height:1.4;">
+                  Uses the non-texture H.264 NVENC path for older Maxwell/Optimus GPUs such as GTX 960M.
+                  A compatible NVIDIA driver is required; unavailable hardware falls back to x264.
+                </p>
+              {/if}
             </div>
             <div class="field">
               <label for="sceneResolution">Scene resolution</label>

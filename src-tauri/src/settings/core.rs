@@ -141,7 +141,7 @@ pub(crate) fn normalize_settings(settings: &mut crate::AppSettings) {
 		.as_deref()
 		.map(|v| v.trim().to_lowercase())
 		.unwrap_or_else(|| "hardware".to_string());
-	settings.encoder_preference = if matches!(encoder_pref.as_str(), "hardware" | "nvenc" | "software") {
+	settings.encoder_preference = if matches!(encoder_pref.as_str(), "hardware" | "nvenc" | "nvenc_legacy" | "software") {
 		Some(encoder_pref)
 	} else {
 		default_encoder_preference()

@@ -1,5 +1,8 @@
 // Encoder/output-related runtime bridge module.
 
+const NVENC_TEXTURE_IDS: &[&str] = &["obs_nvenc_h264_tex"];
+const NVENC_LEGACY_IDS: &[&str] = &["obs_nvenc_h264", "h264_nvenc", "ffmpeg_nvenc"];
+
 pub(crate) fn set_encoder_preference(
 	state: tauri::State<crate::ObsState>,
 	preference: String,
@@ -10,6 +13,9 @@ pub(crate) fn set_encoder_preference(
 		.map_err(|_| "state poisoned".to_string())?;
 	let normalized = preference.trim().to_lowercase();
 	runtime.video_encoder_preference = match normalized.as_str() {
+		"nvenc_legacy" | "nvenc-legacy" | "nvenclegacy" | "nvidia_legacy" => {
+			crate::VideoEncoderPreference::NvencLegacy
+		}
 		"nvenc" | "nvidia" | "obs_nvenc_h264" | "obs_nvenc_h264_tex" => {
 			crate::VideoEncoderPreference::Nvenc
 		}
@@ -32,6 +38,15 @@ pub(crate) fn create_video_encoder(
 				nvenc
 			} else {
 				eprintln!("[encoder] NVENC unavailable; falling back to x264");
+				create_x264_encoder()
+			}
+		}
+		crate::VideoEncoderPreference::NvencLegacy => {
+			let nvenc = create_nvenc_legacy_encoder();
+			if !nvenc.is_null() {
+				nvenc
+			} else {
+				eprintln!("[encoder] legacy NVENC unavailable; falling back to x264");
 				create_x264_encoder()
 			}
 		}
@@ -71,13 +86,25 @@ pub(crate) fn create_hardware_encoder() -> *mut revo_lib::obs::obs_encoder {
 }
 
 fn create_nvenc_encoder() -> *mut revo_lib::obs::obs_encoder {
-	for id in ["obs_nvenc_h264_tex", "obs_nvenc_h264", "h264_nvenc", "ffmpeg_nvenc"] {
+	let texture = create_first_nvenc_encoder(NVENC_TEXTURE_IDS, "revo_video_nvenc");
+	if !texture.is_null() {
+		return texture;
+	}
+	create_nvenc_legacy_encoder()
+}
+
+fn create_nvenc_legacy_encoder() -> *mut revo_lib::obs::obs_encoder {
+	create_first_nvenc_encoder(NVENC_LEGACY_IDS, "revo_video_nvenc_legacy")
+}
+
+fn create_first_nvenc_encoder(ids: &[&str], name: &str) -> *mut revo_lib::obs::obs_encoder {
+	for id in ids {
 		if !encoder_id_available(id) {
 			continue;
 		}
-		let enc = try_create_encoder(id, "revo_video_nvenc");
+		let enc = try_create_encoder(id, name);
 		if !enc.is_null() {
-			eprintln!("[encoder] using NVENC encoder id {id}");
+			eprintln!("[encoder] using NVENC encoder id {id} ({name})");
 			return enc;
 		}
 	}
@@ -93,6 +120,16 @@ pub(crate) fn is_hardware_video_encoder(encoder: *mut revo_lib::obs::obs_encoder
 	["nvenc", "qsv", "vaapi", "amf", "videotoolbox", "ave.avc", "apple."]
 		.iter()
 		.any(|needle| id.contains(needle))
+}
+
+pub(crate) fn is_texture_nvenc_encoder(encoder: *mut revo_lib::obs::obs_encoder) -> bool {
+	if encoder.is_null() {
+		return false;
+	}
+	let id_ptr = unsafe { revo_lib::obs::obs_encoder_get_id(encoder) };
+	super::helpers::cstr_to_string(id_ptr)
+		.to_ascii_lowercase()
+		.ends_with("_tex")
 }
 
 pub(crate) fn encoder_id_available(id: &str) -> bool {
@@ -229,6 +266,18 @@ pub(crate) fn create_audio_encoder() -> *mut revo_lib::obs::obs_encoder {
 			revo_lib::obs::obs_data_release(settings);
 		}
 		enc
+	}
+}
+
+#[cfg(test)]
+mod nvenc_tests {
+	use super::{NVENC_LEGACY_IDS, NVENC_TEXTURE_IDS};
+
+	#[test]
+	fn legacy_nvenc_candidates_never_use_texture_encoder() {
+		assert_eq!(NVENC_TEXTURE_IDS, &["obs_nvenc_h264_tex"]);
+		assert_eq!(NVENC_LEGACY_IDS[0], "obs_nvenc_h264");
+		assert!(NVENC_LEGACY_IDS.iter().all(|id| !id.ends_with("_tex")));
 	}
 }
 

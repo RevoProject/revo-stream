@@ -186,6 +186,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const encoderPreferenceOptions = [
     { value: "hardware", label: "Hardware (if supported)" },
     { value: "nvenc", label: "NVIDIA NVENC (if available)" },
+    { value: "nvenc_legacy", label: "NVIDIA NVENC (legacy / Optimus)" },
     { value: "software", label: "Software (x264)" }
   ];
 
