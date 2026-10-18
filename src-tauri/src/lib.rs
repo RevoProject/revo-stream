@@ -1126,8 +1126,25 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             }
-            let tray = tray_builder.build(app)?;
-            tray.set_visible(initial_minimize_to_tray)?;
+            // libappindicator-sys panics inside its constructor when the system
+            // tray library is missing (libayatana-appindicator3/appindicator3).
+            // A missing tray must degrade to "no tray icon", never kill the app.
+            let tray_build = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tray_builder.build(app)
+            }));
+            match tray_build {
+                Ok(Ok(tray)) => {
+                    if let Err(error) = tray.set_visible(initial_minimize_to_tray) {
+                        eprintln!("[tray] set_visible failed: {error}");
+                    }
+                }
+                Ok(Err(error)) => {
+                    eprintln!("[tray] unavailable: {error}");
+                }
+                Err(_) => {
+                    eprintln!("[tray] unavailable: libappindicator failed to load; continuing without tray icon");
+                }
+            }
 
             #[cfg(debug_assertions)]
             {
