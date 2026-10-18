@@ -57,8 +57,9 @@
       title={`${undoTitle} (right-click for history)`}
       aria-label="Undo"
     >
-      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="1 4 1 10 7 10" />
+        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
       </svg>
     </button>
     <button
@@ -69,8 +70,9 @@
       title={`${redoTitle} (right-click for history)`}
       aria-label="Redo"
     >
-      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8Z" />
+      <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10" />
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
       </svg>
     </button>
   </div>
