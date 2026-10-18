@@ -241,69 +241,33 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const sourceParamSchemas: Record<string, { key: string; label: string; placeholder: string }[]> = {
     browser_source: [
       { key: "url", label: "URL", placeholder: "https://example.com" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
       { key: "width", label: "Width", placeholder: "640" },
       { key: "height", label: "Height", placeholder: "360" },
       { key: "user_agent", label: "Custom user agent (optional)", placeholder: "Leave empty for default" },
       { key: "custom_css", label: "Custom CSS (Interact window)", placeholder: "body { background: transparent; }" },
       { key: "custom_js", label: "Custom JavaScript (Interact window)", placeholder: "console.log('custom script');" }
     ],
-    image_source: [
-      { key: "file", label: "Image path", placeholder: "/path/to/image.png" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
-    ],
-    ffmpeg_source: [
-      { key: "local_file", label: "Media path", placeholder: "/path/to/video.mp4" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
-    ],
+    image_source: [{ key: "file", label: "Image path", placeholder: "/path/to/image.png" }],
+    ffmpeg_source: [{ key: "local_file", label: "Media path", placeholder: "/path/to/video.mp4" }],
     text_ft2_source_v2: [
       { key: "text", label: "Text", placeholder: "Hello world" },
       { key: "color1", label: "Color 1", placeholder: "#ffffff" },
       { key: "font_face", label: "Font", placeholder: "DejaVu Sans" },
-      { key: "font_size", label: "Font size", placeholder: "24" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
+      { key: "font_size", label: "Font size", placeholder: "24" }
     ],
     text_ft2_source: [
       { key: "text", label: "Text", placeholder: "Hello world" },
       { key: "color1", label: "Color 1", placeholder: "#ffffff" },
       { key: "font_face", label: "Font", placeholder: "DejaVu Sans" },
-      { key: "font_size", label: "Font size", placeholder: "24" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
+      { key: "font_size", label: "Font size", placeholder: "24" }
     ],
     color_source_v2: [
       { key: "color", label: "Hex color", placeholder: "#ff0000" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
       { key: "width", label: "Width", placeholder: "640" },
       { key: "height", label: "Height", placeholder: "360" }
     ],
-    window_capture: [
-      { key: "window", label: "Window", placeholder: "Title:Class" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
-    ],
-    xcomposite_input: [
-      { key: "window", label: "Window", placeholder: "Title:Class" },
-      { key: "pos_x", label: "Position X", placeholder: "0" },
-      { key: "pos_y", label: "Position Y", placeholder: "0" },
-      { key: "width", label: "Width", placeholder: "640" },
-      { key: "height", label: "Height", placeholder: "360" }
-    ],
+    window_capture: [{ key: "window", label: "Window", placeholder: "Title:Class" }],
+    xcomposite_input: [{ key: "window", label: "Window", placeholder: "Title:Class" }],
     pulse_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pulse_output_capture: [{ key: "device", label: "Device", placeholder: "default" }],
     pipewire_input_capture: [{ key: "device", label: "Device", placeholder: "default" }],
@@ -311,6 +275,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     alsa_input_capture: [{ key: "device_id", label: "Device", placeholder: "default" }],
     slideshow: [{ key: "files", label: "Files", placeholder: "[]" }]
   };
+
+  const NATIVE_SIZE_SOURCE_TYPES = new Set(["browser_source", "color_source", "color_source_v2"]);
 
     let fontOptions: string[] = ["Inter", "Space Grotesk", "Roboto", "Open Sans"];
     let systemFontsLoaded = false;
@@ -1271,18 +1237,19 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     let sourcePropertySpecs: SourcePropertySpec[] = [];
     $: sourcePropertyKeys = new Set(sourcePropertySpecs.map((p) => p.key));
     $: sourcePropertyEntries = sourcePropertySpecs.map((spec) => [spec.key, editParams[spec.key] ?? ""] as [string, string]);
-    $: dynamicParamEntries = Object.entries(editParams).filter(
-      ([key]) => !(sourceParamSchemas[editType] ?? []).some((field) => field.key === key)
-    );
     const isCropParamKey = (key: string) => {
       const normalized = key.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
       return normalized === "cropleft" || normalized === "cropright" || normalized === "croptop" || normalized === "cropbottom";
     };
+    const TRANSFORM_OWNED_EXTRA_KEYS = new Set(["scale_x", "scale_y", "dims_ready"]);
+    const NATIVE_SIZE_EXTRA_KEYS = new Set(["width", "height"]);
     $: extraParamEntries = Object.entries(editParams).filter(([key]) =>
       isCropParamKey(key) ||
       (
         !(sourceParamSchemas[editType] ?? []).some((field) => field.key === key) &&
-        !sourcePropertyKeys.has(key)
+        !sourcePropertyKeys.has(key) &&
+        !TRANSFORM_OWNED_EXTRA_KEYS.has(key) &&
+        !(NATIVE_SIZE_EXTRA_KEYS.has(key) && !NATIVE_SIZE_SOURCE_TYPES.has(editType))
       )
     );
 

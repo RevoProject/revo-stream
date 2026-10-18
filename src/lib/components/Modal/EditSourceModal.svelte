@@ -427,11 +427,7 @@
   $: isMediaSource = editType === "ffmpeg_source";
 
   type ParamSchemaField = { key: string; label: string; placeholder: string };
-  const paramRowPairs: [string, string][] = [
-    ["pos_x", "pos_y"],
-    ["width", "height"],
-    ["item_width", "item_height"]
-  ];
+  const paramRowPairs: [string, string][] = [["width", "height"]];
   const groupParamRows = (fields: ParamSchemaField[]): ParamSchemaField[][] => {
     const rows: ParamSchemaField[][] = [];
     let index = 0;
