@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OBS_SRC="$RUNNER_TEMP/obs-studio"
+OBS_SRC="${REVO_OBS_SRC:-$RUNNER_TEMP/obs-studio-${REVO_TARGET:?REVO_TARGET is required}}"
 test -f "$OBS_SRC/CMakePresets.json"
 test -f "$OBS_SRC/libobs-metal/CMakeLists.txt"
 test -f "$OBS_SRC/plugins/mac-virtualcam/src/dal-plugin/OBSDALStream.mm"

@@ -91,3 +91,4 @@ find "$ROOT/core/lib" \
 sort
 echo
 echo "macOS runtime layout looks valid"
+bash scripts/macos/verify-macho-architecture.sh "$ROOT" "${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"

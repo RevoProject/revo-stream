@@ -1,15 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
+: "${REVO_TARGET:?REVO_TARGET is required}"
 ROOT="src-tauri/resources/revo-root"
 LIB="$ROOT/core/lib"
 FFMPEG_PREFIX="$(brew --prefix ffmpeg)"
 BREW_PREFIX="$(brew --prefix)"
-SEEN_FILE="$RUNNER_TEMP/revo-seen-dylibs.txt"
-QUEUE_FILE="$RUNNER_TEMP/revo-dylib-queue.txt"
+SEEN_FILE="$RUNNER_TEMP/revo-seen-dylibs-${REVO_TARGET}.txt"
+QUEUE_FILE="$RUNNER_TEMP/revo-dylib-queue-${REVO_TARGET}.txt"
 : > "$SEEN_FILE"
 : > "$QUEUE_FILE"
 mkdir -p "$LIB"
+
+verify_arch() {
+  local file="$1"
+  local real archs
+  real="$(realpath "$file")"
+  archs="$(lipo -archs "$real" 2>/dev/null || true)"
+  case " $archs " in
+    *" $REVO_CMAKE_ARCH "*) ;;
+    *)
+      echo "ERROR: refusing to bundle wrong-architecture dependency"
+      echo "File: $real"
+      echo "Expected: $REVO_CMAKE_ARCH"
+      echo "Found: ${archs:-not a Mach-O dylib}"
+      file "$real" || true
+      exit 1
+      ;;
+  esac
+}
 
 # Preserve the canonical Homebrew FFmpeg names used by the runtime.
 # Homebrew may expose these as symlinks to versioned dylibs.
@@ -20,6 +40,7 @@ do
     echo "Missing FFmpeg library: $src"
     exit 1
   fi
+  verify_arch "$src"
   cp -L "$src" "$LIB/$lib"
 done
 
@@ -61,6 +82,7 @@ while [ "$queue_index" -le "$(wc -l < "$QUEUE_FILE" | tr -d ' ')" ]; do
   [ -n "$src" ] || continue
 
   dst="$LIB/$(basename "$src")"
+  verify_arch "$src"
   cp -L "$src" "$dst"
 
   while IFS= read -r dep; do

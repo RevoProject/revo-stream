@@ -54,4 +54,6 @@ if [ -n "$BAD" ]; then
   exit 1
 fi
 
+bash scripts/macos/verify-macho-architecture.sh "$APP" "${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
+
 echo "Final macOS .app is self-contained"

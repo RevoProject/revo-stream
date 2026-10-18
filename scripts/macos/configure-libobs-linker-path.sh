@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OBS_BUILD="$RUNNER_TEMP/obs-build"
+OBS_BUILD="${REVO_OBS_BUILD:-$RUNNER_TEMP/obs-build-${REVO_TARGET:?REVO_TARGET is required}}"
 echo "============================================================"
 echo "Locate REAL OBS libobs Mach-O binary"
 echo "============================================================"

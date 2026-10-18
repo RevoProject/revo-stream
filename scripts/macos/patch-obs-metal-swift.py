@@ -1,9 +1,6 @@
 import os
 from pathlib import Path
-obs = (
-    Path(os.environ["RUNNER_TEMP"])
-    / "obs-studio"
-)
+obs = Path(os.environ.get("REVO_OBS_SRC", Path(os.environ["RUNNER_TEMP"]) / f"obs-studio-{os.environ['REVO_TARGET']}"))
 path = (
     obs
     / "libobs-metal/CMakeLists.txt"

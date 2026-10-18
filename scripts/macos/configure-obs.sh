@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OBS_SRC="$RUNNER_TEMP/obs-studio"
-OBS_BUILD="$RUNNER_TEMP/obs-build"
+OBS_SRC="${REVO_OBS_SRC:-$RUNNER_TEMP/obs-studio-${REVO_TARGET:?REVO_TARGET is required}}"
+OBS_BUILD="${REVO_OBS_BUILD:-$RUNNER_TEMP/obs-build-${REVO_TARGET:?REVO_TARGET is required}}"
 rm -rf "$OBS_BUILD"
 cmake \
   -S "$OBS_SRC" \
