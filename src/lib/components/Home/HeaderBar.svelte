@@ -20,6 +20,10 @@
   const openSettings = () => dispatch("openSettings");
   const undo = () => dispatch("undo");
   const redo = () => dispatch("redo");
+  const openHistory = (event: MouseEvent) => {
+    event.preventDefault();
+    dispatch("openHistory");
+  };
   const startObs = () => dispatch("startObs");
   const stopObs = () => dispatch("stopObs");
   const startRecording = () => dispatch("startRecording");
@@ -48,8 +52,9 @@
     <button
       class="history-btn"
       onclick={undo}
+      oncontextmenu={openHistory}
       disabled={!canUndo}
-      title={undoTitle}
+      title={`${undoTitle} (right-click for history)`}
       aria-label="Undo"
     >
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -59,8 +64,9 @@
     <button
       class="history-btn"
       onclick={redo}
+      oncontextmenu={openHistory}
       disabled={!canRedo}
-      title={redoTitle}
+      title={`${redoTitle} (right-click for history)`}
       aria-label="Redo"
     >
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

@@ -18,6 +18,7 @@
   import Icon from "../lib/components/UI/Icon.svelte";
   import SourceInfoModal from "../lib/components/Modal/SourceInfoModal.svelte";
   import SourcePropertiesModal from "../lib/components/Modal/SourcePropertiesModal.svelte";
+  import HistoryModal from "../lib/components/Modal/HistoryModal.svelte";
   import FiltersModal from "../lib/components/Filters/FiltersModal.svelte";
   import AudioFiltersModal from "../lib/components/Filters/AudioFiltersModal.svelte";
   import Transitions from "../lib/components/Modules/Transitions.svelte";
@@ -4705,6 +4706,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           console.warn(`[sources] initial fit skipped for ${id}`, err);
           void retrySourceFit(id);
         }
+        await autoSelectFirstDeviceOption({ id, name, visible: true, source_type: newSourceType, locked: false, params: {} });
         await loadSources();
         created = true;
         const added = sourcesList.find((s) => s.id === id);
@@ -5581,6 +5583,22 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const undoLastChange = () => runHistoryStep(undoStack[undoStack.length - 1], "undo");
   const redoLastChange = () => runHistoryStep(redoStack[redoStack.length - 1], "redo");
 
+  let showHistoryModal = false;
+  const openHistoryModal = () => {
+    showHistoryModal = true;
+  };
+  /** Restores the state N steps away (history modal click). */
+  const restoreHistorySteps = async (direction: "undo" | "redo", steps: number) => {
+    for (let index = 0; index < steps; index += 1) {
+      if (direction === "undo" && !canUndo) break;
+      if (direction === "redo" && !canRedo) break;
+      await runHistoryStep(
+        direction === "undo" ? undoStack[undoStack.length - 1] : redoStack[redoStack.length - 1],
+        direction
+      );
+    }
+  };
+
   const TRANSFORM_PARAM_KEYS = [
     "pos_x",
     "pos_y",
@@ -6175,49 +6193,119 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const isAudioDeviceSourceType = (type: string) => isAudioCaptureSourceType(type);
 
-  const openQuickDeviceModal = async (source: DemoSource) => {
-    quickDeviceSource = source;
-    const type = (source.source_type ?? "").toLowerCase();
-    const prefersDeviceId = type.includes("video") || type.includes("v4l2");
-    const audioLike = isAudioDeviceSourceType(type);
-    quickDeviceParamKey = audioLike ? "device" : prefersDeviceId ? "device_id" : "device";
+  /* Quick-select classification: which capture sources get a one-click device
+     picker and which OBS settings key stores the choice. */
+  const isWindowCaptureSourceType = (type: string) => {
+    const t = (type ?? "").toLowerCase();
+    return t === "window_capture" || t === "xcomposite_input" || t.includes("window");
+  };
+  const isDisplayCaptureSourceType = (type: string) => {
+    const t = (type ?? "").toLowerCase();
+    return t.includes("xshm") || t.includes("display") || t.includes("screen") || t.includes("monitor_capture");
+  };
+  const isVideoCaptureSourceType = (type: string) => {
+    const t = (type ?? "").toLowerCase();
+    return t.includes("video_capture") || t.includes("v4l2");
+  };
+  const isQuickSelectableSourceType = (type: string) =>
+    isAudioDeviceSourceType(type) ||
+    isWindowCaptureSourceType(type) ||
+    isDisplayCaptureSourceType(type) ||
+    isVideoCaptureSourceType(type);
 
+  /** Settings keys each capture type writes when a device is picked. */
+  const quickDeviceParamKeysFor = (type: string): string[] => {
+    const t = (type ?? "").toLowerCase();
+    if (isWindowCaptureSourceType(t)) return ["window", "capture_window"];
+    if (isDisplayCaptureSourceType(t)) return ["device"];
+    if (isAudioDeviceSourceType(t)) return ["device", "device_id"];
+    return ["device_id", "device"];
+  };
+
+  const listQuickDeviceOptions = async (source: DemoSource): Promise<{ value: string; label: string }[]> => {
+    if (!backendEnabled) return [];
+    const type = (source.source_type ?? "").toLowerCase();
     let options: { value: string; label: string }[] = [];
-    if (backendEnabled) {
-      try {
-        if (type === "pulse_input_capture" || type.includes("audio_input") || type.includes("audio_capture") || type.includes("audio_line")) {
-          const items = await invoke<{ id: string; name: string }[]>("obs_list_pulse_devices", { kind: "input" });
-          options = items.map((d) => ({ value: d.id, label: d.name }));
-        } else if (type === "pulse_output_capture" || type.includes("audio_output")) {
-          const items = await invoke<{ id: string; name: string }[]>("obs_list_pulse_devices", { kind: "output" });
-          options = items.map((d) => ({ value: d.id, label: d.name }));
-        } else if (type.includes("video") || type.includes("v4l2")) {
-          const items = await invoke<{ id: string; label: string }[]>("obs_list_video_device_picker_items");
-          options = items.map((d) => ({ value: d.id, label: d.label }));
-        }
-      } catch {
-        // fallback below
+    try {
+      if (type === "pulse_input_capture" || type.includes("audio_input") || type.includes("audio_capture") || type.includes("audio_line")) {
+        const items = await invoke<{ id: string; name: string }[]>("obs_list_pulse_devices", { kind: "input" });
+        options = items.map((d) => ({ value: d.id, label: d.name }));
+      } else if (type === "pulse_output_capture" || type.includes("audio_output")) {
+        const items = await invoke<{ id: string; name: string }[]>("obs_list_pulse_devices", { kind: "output" });
+        options = items.map((d) => ({ value: d.id, label: d.name }));
+      } else if (isVideoCaptureSourceType(type)) {
+        const items = await invoke<{ id: string; label: string }[]>("obs_list_video_device_picker_items");
+        options = items.map((d) => ({ value: d.id, label: d.label }));
+      } else if (isWindowCaptureSourceType(type)) {
+        const items = await invoke<{ id: string; label: string }[]>("obs_list_window_picker_items");
+        options = items.map((d) => ({ value: d.id, label: d.label }));
       }
+    } catch {
+      // Native OBS property fallback below.
     }
 
-    if (!options.length && backendEnabled) {
+    if (!options.length) {
+      // OBS property lists are the authoritative device enumeration on
+      // Windows (WASAPI/DirectShow/DXGI/window lists) and the fallback
+      // everywhere our custom listers do not run.
       try {
         const settings = await invoke<{ source_properties?: Array<{ key: string; label: string; kind: string; options?: Array<{ value: string; label: string }> }> }>("obs_get_source_settings", { id: source.id });
         const prop = (settings.source_properties ?? []).find((p) => {
           const key = (p.key ?? "").toLowerCase();
-          return (key.includes("device") || key.includes("input") || key.includes("output")) && (p.options?.length ?? 0) > 0;
+          return (
+            (key.includes("device") ||
+              key.includes("input") ||
+              key.includes("output") ||
+              key === "window" ||
+              key === "capture_window" ||
+              key.includes("display") ||
+              key.includes("screen")) &&
+            (p.options?.length ?? 0) > 0
+          );
         });
         options = (prop?.options ?? []).map((o) => ({ value: o.value, label: o.label }));
       } catch {
         // no-op
       }
     }
+    return options;
+  };
+
+  /** New capture sources start on the first available device instead of an
+      empty selection; silently skipped when nothing is enumerated yet. */
+  const autoSelectFirstDeviceOption = async (source: DemoSource) => {
+    if (!backendEnabled || !isQuickSelectableSourceType(source.source_type ?? "")) return;
+    const keys = quickDeviceParamKeysFor(source.source_type ?? "");
+    const current = String((source.params ?? {})[keys[0]] ?? "").trim();
+    if (current) return;
+    try {
+      const options = await listQuickDeviceOptions(source);
+      const first = options[0]?.value;
+      if (!first) return;
+      const nextParams: Record<string, string> = { ...(source.params ?? {}) };
+      for (const key of keys) nextParams[key] = first;
+      await invoke<string>("obs_update_source", {
+        update: { id: source.id, name: source.name, source_type: source.source_type, params: nextParams }
+      });
+    } catch (err) {
+      console.warn(`[sources] auto device select skipped for ${source.id}`, err);
+    }
+  };
+
+  const openQuickDeviceModal = async (source: DemoSource) => {
+    quickDeviceSource = source;
+    const type = (source.source_type ?? "").toLowerCase();
+    const keys = quickDeviceParamKeysFor(type);
+    quickDeviceParamKey = keys[0];
+
+    const options = await listQuickDeviceOptions(source);
 
     quickDeviceOptions = options.map((o) => ({ value: String(o.value), label: String(o.label) }));
     quickDeviceValue =
       String(
         (source.params ?? {})[quickDeviceParamKey] ??
-        (audioLike ? (source.params ?? {}).device_id : (source.params ?? {}).device) ??
+        (source.params ?? {}).device_id ??
+        (source.params ?? {}).device ??
         quickDeviceOptions[0]?.value ??
         ""
       );
@@ -6229,13 +6317,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const saveQuickDeviceModal = async () => {
     if (!quickDeviceSource) return;
     const source = quickDeviceSource;
-    const nextParams = { ...(source.params ?? {}), [quickDeviceParamKey]: quickDeviceValue };
+    const keys = quickDeviceParamKeysFor(source.source_type ?? "");
+    const nextParams = { ...(source.params ?? {}) };
+    for (const key of keys) nextParams[key] = quickDeviceValue;
     if (isAudioDeviceSourceType(source.source_type ?? "")) {
-      nextParams.device = quickDeviceValue;
-      nextParams.device_id = quickDeviceValue;
       nextParams.monitoring = quickDeviceMonitoring;
-    } else if ((source.source_type ?? "").toLowerCase().includes("video") || (source.source_type ?? "").toLowerCase().includes("v4l2")) {
-      nextParams.device_id = quickDeviceValue;
     }
 
     if (!backendEnabled) {
@@ -7801,6 +7887,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       redoTitle={redoTip}
       on:undo={undoLastChange}
       on:redo={redoLastChange}
+      on:openHistory={openHistoryModal}
       {realtimeRefresh}
       on:toggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
     />
@@ -8010,6 +8097,14 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       propertiesSource = null;
       if (target) void openEditSource(target);
     }}
+  />
+
+  <HistoryModal
+    open={showHistoryModal}
+    undoEntries={undoStack.map((entry) => ({ label: entry.label }))}
+    redoEntries={redoStack.map((entry) => ({ label: entry.label }))}
+    onClose={() => (showHistoryModal = false)}
+    onRestore={(detail) => void restoreHistorySteps(detail.direction, detail.steps)}
   />
 
   <!-- Windows aux-window replacements (in-app modals). Non-Windows keeps the
