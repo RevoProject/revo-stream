@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
 
   export let newSourceType: string;
   export let sourceTypes: { id: string; label: string }[];
@@ -12,6 +12,28 @@
   const dispatch = createEventDispatcher();
   const close = () => dispatch("close");
   const add = () => dispatch("add");
+
+  let creatingSince = 0;
+  let creatingSeconds = 0;
+  let creatingTicker: ReturnType<typeof setInterval> | null = null;
+
+  const watchCreating = (isCreating: boolean) => {
+    if (isCreating && !creatingTicker) {
+      creatingSince = Date.now();
+      creatingSeconds = 0;
+      creatingTicker = setInterval(() => {
+        creatingSeconds = Math.floor((Date.now() - creatingSince) / 1000);
+      }, 1000);
+    } else if (!isCreating && creatingTicker) {
+      clearInterval(creatingTicker);
+      creatingTicker = null;
+      creatingSeconds = 0;
+    }
+  };
+  $: watchCreating(creating);
+  onDestroy(() => {
+    if (creatingTicker) clearInterval(creatingTicker);
+  });
 
   const sourceLabel = (type: { id: string; label: string }) => {
     if (sourceLabels[type.id]) return sourceLabels[type.id];
@@ -76,7 +98,10 @@
     </header>
     <div class="modal-body">
       {#if creating}
-        <p class="source-status" role="status">Creating source... FFmpeg and screen capture sources may take a moment.</p>
+        <p class="source-status" role="status">
+          Creating source...{creatingSeconds > 0 ? ` ${creatingSeconds}s elapsed.` : ""}
+          FFmpeg, screen capture and playlist sources (VLC) may take a while while libobs initializes them.
+        </p>
       {/if}
       {#if loading}
         <p class="source-status" role="status">Loading available sources...</p>

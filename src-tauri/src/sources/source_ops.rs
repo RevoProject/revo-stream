@@ -690,7 +690,7 @@ pub(crate) fn create_source_in_scene(
 			requested_type
 		));
 	}
-	if create_type == "browser_source" {
+		if create_type == "browser_source" {
 		if !crate::sources::browser::is_enabled() {
 			return Err("Built-in Browser is disabled in Settings > Other > Experimental Future".into());
 		}
@@ -728,6 +728,21 @@ pub(crate) fn create_source_in_scene(
 		if create_type == "browser_source" && crate::sources::browser::status(source).is_none() {
 			revo_lib::obs::obs_source_release(source);
 			return Err("Failed to start browser snapshot worker".into());
+		}
+
+		let editable_list_keys = crate::source_editable_list_keys(source);
+		if create.params.keys().any(|key| editable_list_keys.contains(key)) {
+			let live_settings = revo_lib::obs::obs_source_get_settings(source);
+			if !live_settings.is_null() {
+				crate::apply_source_params(
+					live_settings,
+					create_type.as_str(),
+					&create.params,
+					Some(&editable_list_keys),
+				);
+				revo_lib::obs::obs_source_update(source, live_settings);
+				revo_lib::obs::obs_data_release(live_settings);
+			}
 		}
 
 		let item = revo_lib::obs::obs_scene_add(scene.scene, source);
