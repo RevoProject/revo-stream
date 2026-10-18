@@ -329,6 +329,13 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 				"scale_y".to_string(),
 				scale.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 			);
+			params.insert("rot".to_string(), revo_lib::obs::obs_sceneitem_get_rot(item).to_string());
+			let mut crop: revo_lib::obs::obs_sceneitem_crop = std::mem::zeroed();
+			revo_lib::obs::obs_sceneitem_get_crop(item, &mut crop as *mut _);
+			params.insert("crop_left".to_string(), crop.left.to_string());
+			params.insert("crop_right".to_string(), crop.right.to_string());
+			params.insert("crop_top".to_string(), crop.top.to_string());
+			params.insert("crop_bottom".to_string(), crop.bottom.to_string());
 
 			list.push(crate::SourceInfo {
 				id,
@@ -489,6 +496,13 @@ pub(crate) fn get_source_settings(
 			"scale_y".to_string(),
 			scale.__bindgen_anon_1.__bindgen_anon_1.y.to_string(),
 		);
+		params.insert("rot".to_string(), revo_lib::obs::obs_sceneitem_get_rot(item).to_string());
+		let mut crop: revo_lib::obs::obs_sceneitem_crop = std::mem::zeroed();
+		revo_lib::obs::obs_sceneitem_get_crop(item, &mut crop as *mut _);
+		params.insert("crop_left".to_string(), crop.left.to_string());
+		params.insert("crop_right".to_string(), crop.right.to_string());
+		params.insert("crop_top".to_string(), crop.top.to_string());
+		params.insert("crop_bottom".to_string(), crop.bottom.to_string());
 		let result = serde_json::json!({
 			"name": name,
 			"source_type": source_type,
