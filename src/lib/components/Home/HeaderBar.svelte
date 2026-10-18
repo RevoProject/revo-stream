@@ -230,8 +230,8 @@
   }
 
   button.history-btn svg {
-    width: 20px;
-    height: 20px;
+    width: 34px;
+    height: 34px;
     display: block;
   }
 

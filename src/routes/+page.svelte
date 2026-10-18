@@ -241,7 +241,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const sourceParamSchemas: Record<string, { key: string; label: string; placeholder: string }[]> = {
     browser_source: [
-      { key: "url", label: "URL", placeholder: "https://example.com" },
+      { key: "url", label: "URL", placeholder: "https://revostream.in" },
       { key: "width", label: "Width", placeholder: "640" },
       { key: "height", label: "Height", placeholder: "360" },
       { key: "user_agent", label: "Custom user agent (optional)", placeholder: "Leave empty for default" },

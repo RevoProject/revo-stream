@@ -538,7 +538,7 @@ unsafe extern "C" fn name(_: *mut c_void) -> *const c_char {
     c"Browser (Chromium snapshots, video only)".as_ptr()
 }
 unsafe extern "C" fn defaults(settings: *mut obs::obs_data_t) {
-    obs::obs_data_set_default_string(settings, c"url".as_ptr(), c"https://example.com".as_ptr());
+    obs::obs_data_set_default_string(settings, c"url".as_ptr(), c"https://revostream.in".as_ptr());
     obs::obs_data_set_default_int(settings, c"width".as_ptr(), 1280);
     obs::obs_data_set_default_int(settings, c"height".as_ptr(), 720);
 }
