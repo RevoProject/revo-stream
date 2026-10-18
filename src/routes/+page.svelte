@@ -4742,9 +4742,13 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
   };
 
+  const FIT_NO_SIZE_YET = "has no video size yet";
+  const FIT_RETRY_DELAY_MS = 300;
+  const FIT_MAX_ATTEMPTS = 20;
+
   const retrySourceFit = async (id: string) => {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+    for (let attempt = 0; attempt < FIT_MAX_ATTEMPTS; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, FIT_RETRY_DELAY_MS));
       if (!backendEnabled || !isObsRunning || sourcesList.every((source) => source.id !== id)) return;
       try {
         await invoke<string>("obs_fit_source_to_canvas", { sourceId: id });
@@ -4752,7 +4756,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         requestPreviewUpdate();
         return;
       } catch (err) {
-        if (attempt === 3) console.warn(`[sources] fit never applied for ${id}`, err);
+        const waitingForSize = String(err).includes(FIT_NO_SIZE_YET);
+        if (!waitingForSize || attempt === FIT_MAX_ATTEMPTS - 1) {
+          console.warn(`[sources] fit never applied for ${id}`, err);
+          return;
+        }
       }
     }
   };
