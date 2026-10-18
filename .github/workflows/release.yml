@@ -227,9 +227,6 @@ jobs:
       REVO_TARGET: ${{ matrix.target }}
       REVO_ARCH: ${{ matrix.arch }}
       REVO_CMAKE_ARCH: ${{ matrix.cmake_arch }}
-      REVO_OBS_SRC: ${{ runner.temp }}/obs-studio-${{ matrix.target }}
-      REVO_OBS_BUILD: ${{ runner.temp }}/obs-build-${{ matrix.target }}
-      REVO_OBS_INSTALL: ${{ runner.temp }}/obs-install-${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
