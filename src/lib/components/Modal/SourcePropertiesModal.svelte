@@ -28,8 +28,9 @@
   $: if (open && !boundId && source) boundId = source.id;
   $: stillPresent = Boolean(boundId && sources.some((item) => item.id === boundId));
   const number = (value: string) => Number.isFinite(Number.parseFloat(value)) ? Number.parseFloat(value) : 0;
-  $: intrinsicWidth = number(scaleX) > 0 ? number(itemWidth) / number(scaleX) : number(itemWidth);
-  $: intrinsicHeight = number(scaleY) > 0 ? number(itemHeight) / number(scaleY) : number(itemHeight);
+  let nativeWidth = 0;
+  let nativeHeight = 0;
+  let canvasSize = "";
 
   const load = async (id: string) => {
     loading = true;
@@ -49,6 +50,20 @@
       posX = result.params.pos_x ?? "";
       posY = result.params.pos_y ?? "";
       dimsReady = result.params.dims_ready !== "0";
+      try {
+        const [size, resolution] = await Promise.all([
+          invoke<[number, number]>("obs_get_source_size", { sourceId: id }),
+          invoke<string>("obs_get_current_scene_resolution")
+        ]);
+        if (boundId !== id) return;
+        nativeWidth = Number(size?.[0]) || 0;
+        nativeHeight = Number(size?.[1]) || 0;
+        canvasSize = typeof resolution === "string" && /^\d+x\d+$/.test(resolution.trim())
+          ? resolution.trim()
+          : "";
+      } catch {
+        // Informational only; keep transform editors available.
+      }
     } catch (err) {
       if (boundId === id) error = String(err);
     } finally {
@@ -138,7 +153,7 @@
           {#if loading}<p class="status">Loading...</p>{/if}
           <section>
             <h3>Size</h3>
-            <p class="dimensions">Canvas: {Math.round(number(itemWidth))} × {Math.round(number(itemHeight))} · Source: {Math.round(intrinsicWidth)} × {Math.round(intrinsicHeight)}</p>
+            <p class="dimensions">Source: {nativeWidth} × {nativeHeight} · On canvas: {Math.round(number(itemWidth))} × {Math.round(number(itemHeight))}{#if canvasSize} · Output canvas: {canvasSize}{/if}</p>
             <div class="row">
               <label>Width<input type="number" min="1" bind:value={itemWidth} disabled={saving || !dimsReady} /></label>
               <label>Height<input type="number" min="1" bind:value={itemHeight} disabled={saving || !dimsReady} /></label>

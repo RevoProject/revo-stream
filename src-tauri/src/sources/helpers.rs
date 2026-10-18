@@ -504,6 +504,21 @@ pub(crate) fn live_scene_resolution() -> Option<String> {
 	}
 }
 
+pub(crate) fn parse_resolution(raw: &str) -> Option<(u32, u32)> {
+	let (width, height) = raw.trim().split_once('x')?;
+	let width = width.trim().parse::<u32>().ok()?;
+	let height = height.trim().parse::<u32>().ok()?;
+	(width > 0 && height > 0).then_some((width, height))
+}
+
+pub(crate) fn current_canvas_size(cached: &str) -> (u32, u32) {
+	live_scene_resolution()
+		.as_deref()
+		.and_then(parse_resolution)
+		.or_else(|| parse_resolution(cached))
+		.unwrap_or((1920, 1080))
+}
+
 pub(crate) fn apply_scene_item_transform(
 	item: *mut revo_lib::obs::obs_scene_item,
 	source: *mut revo_lib::obs::obs_source,

@@ -17,6 +17,33 @@ fn fit_scale(base_width: u32, base_height: u32, canvas_width: u32, canvas_height
 	)
 }
 
+fn stretch_scale(
+	base_width: u32,
+	base_height: u32,
+	canvas_width: u32,
+	canvas_height: u32,
+) -> Option<(f32, f32)> {
+	if base_width == 0 || base_height == 0 || canvas_width == 0 || canvas_height == 0 {
+		return None;
+	}
+	Some((
+		canvas_width as f32 / base_width as f32,
+		canvas_height as f32 / base_height as f32,
+	))
+}
+
+fn centered_position(
+	canvas_width: u32,
+	canvas_height: u32,
+	item_width: f32,
+	item_height: f32,
+) -> (f32, f32) {
+	(
+		(canvas_width as f32 - item_width) * 0.5,
+		(canvas_height as f32 - item_height) * 0.5,
+	)
+}
+
 pub(crate) fn list_external_source_types(
 	state: tauri::State<crate::ObsState>,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
@@ -81,7 +108,7 @@ pub(crate) fn list_external_source_types(
 
 #[cfg(test)]
 mod source_type_visibility_tests {
-	use super::{fit_scale, should_expose_source_type, OBS_SOURCE_CAP_DISABLED};
+	use super::{centered_position, fit_scale, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
 
 	#[test]
 	fn internal_source_types_are_debug_only() {
@@ -96,6 +123,19 @@ mod source_type_visibility_tests {
 		assert_eq!(fit_scale(2560, 1080, 1920, 1080), Some(0.75));
 		assert_eq!(fit_scale(640, 480, 1920, 1080), Some(1.0));
 		assert_eq!(fit_scale(0, 480, 1920, 1080), None);
+	}
+
+	#[test]
+	fn fit_centers_a_partially_filled_box() {
+		let scale = fit_scale(1920, 1440, 1920, 1080).unwrap();
+		assert_eq!(scale, 0.75);
+		assert_eq!(centered_position(1920, 1080, 1920.0 * scale, 1440.0 * scale), (240.0, 0.0));
+	}
+
+	#[test]
+	fn stretch_fills_canvas_with_independent_axes() {
+		assert_eq!(stretch_scale(640, 480, 1920, 1080), Some((3.0, 2.25)));
+		assert_eq!(stretch_scale(0, 480, 1920, 1080), None);
 	}
 }
 
@@ -760,11 +800,8 @@ pub(crate) fn fit_source_to_canvas(
 	let item = crate::resolve_scene_item(scene, source_id.trim())
 		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
 
-	let (canvas_width, canvas_height) = runtime
-		.scene_resolution
-		.split_once('x')
-		.and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
-		.unwrap_or((1920, 1080));
+	let (canvas_width, canvas_height) =
+		crate::sources::helpers::current_canvas_size(&runtime.scene_resolution);
 
 	unsafe {
 		let source = revo_lib::obs::obs_sceneitem_get_source(item);
@@ -784,6 +821,13 @@ pub(crate) fn fit_source_to_canvas(
 		scale.__bindgen_anon_1.__bindgen_anon_1.x = scale_value;
 		scale.__bindgen_anon_1.__bindgen_anon_1.y = scale_value;
 		revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+		let item_width = base_width as f32 * scale_value;
+		let item_height = base_height as f32 * scale_value;
+		let (pos_x, pos_y) = centered_position(canvas_width, canvas_height, item_width, item_height);
+		let mut pos: revo_lib::obs::vec2 = std::mem::zeroed();
+		pos.__bindgen_anon_1.__bindgen_anon_1.x = pos_x;
+		pos.__bindgen_anon_1.__bindgen_anon_1.y = pos_y;
+		revo_lib::obs::obs_sceneitem_set_pos(item, &pos as *const _);
 	}
 
 	Ok(format!("fitted {source_id} to {canvas_width}x{canvas_height}"))
@@ -800,11 +844,8 @@ pub(crate) fn stretch_source_to_canvas(
 	let scene = crate::current_scene(&runtime)?;
 	let item = crate::resolve_scene_item(scene, source_id.trim())
 		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
-	let (canvas_width, canvas_height) = runtime
-		.scene_resolution
-		.split_once('x')
-		.and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
-		.unwrap_or((1920, 1080));
+	let (canvas_width, canvas_height) =
+		crate::sources::helpers::current_canvas_size(&runtime.scene_resolution);
 
 	unsafe {
 		let source = revo_lib::obs::obs_sceneitem_get_source(item);
@@ -816,10 +857,16 @@ pub(crate) fn stretch_source_to_canvas(
 		}
 		let (base_width, base_height) = wait_for_source_size(source)
 			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
+		let (scale_x, scale_y) = stretch_scale(base_width, base_height, canvas_width, canvas_height)
+			.ok_or_else(|| format!("source {source_id} has no video size yet"))?;
 		let mut scale: revo_lib::obs::vec2 = std::mem::zeroed();
-		scale.__bindgen_anon_1.__bindgen_anon_1.x = canvas_width as f32 / base_width as f32;
-		scale.__bindgen_anon_1.__bindgen_anon_1.y = canvas_height as f32 / base_height as f32;
+		scale.__bindgen_anon_1.__bindgen_anon_1.x = scale_x;
+		scale.__bindgen_anon_1.__bindgen_anon_1.y = scale_y;
 		revo_lib::obs::obs_sceneitem_set_scale(item, &scale as *const _);
+		let mut pos: revo_lib::obs::vec2 = std::mem::zeroed();
+		pos.__bindgen_anon_1.__bindgen_anon_1.x = 0.0;
+		pos.__bindgen_anon_1.__bindgen_anon_1.y = 0.0;
+		revo_lib::obs::obs_sceneitem_set_pos(item, &pos as *const _);
 	}
 	Ok(format!("stretched {source_id} to {canvas_width}x{canvas_height}"))
 }
