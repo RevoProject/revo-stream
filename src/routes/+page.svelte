@@ -3395,7 +3395,17 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         void loadSourceTypeCatalog();
       }
     } catch (err) {
-      if (!browserBackendApplied && builtInBrowserEnabled) builtInBrowserEnabled = false;
+      if (browserBackendApplied && builtInBrowserEnabled) {
+        const persistedEnabled = Boolean(settingsSnapshotBeforeOpen?.built_in_browser_enabled);
+        try {
+          await invoke<void>("app_set_builtin_browser_enabled", { enabled: persistedEnabled });
+          builtInBrowserEnabled = persistedEnabled;
+        } catch (rollbackErr) {
+          console.error("[settings] browser runtime rollback failed", rollbackErr);
+        }
+      } else if (!browserBackendApplied && builtInBrowserEnabled) {
+        builtInBrowserEnabled = false;
+      }
       settingsModalSaved = false;
       showSettings = true;
       showGlobalDialog(`Settings profile save failed: ${String(err)}`, "error");
