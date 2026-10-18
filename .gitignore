@@ -29,3 +29,5 @@ plans/
 .cache/
 *.AppImage
 tmp/
+__pycache__/
+*.pyc
