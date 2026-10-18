@@ -19,7 +19,7 @@ pub(crate) fn list_system_fonts() -> Result<Vec<crate::SourceTypeItem>, String> 
 				// Pobierz pierwszy styl by skonstruowac label
 				let id = family.to_string();
 				let label = family.to_string();
-				out.push(crate::SourceTypeItem { id, label });
+				out.push(crate::SourceTypeItem { id, label, audio_capable: false });
 			}
 		}
 	}

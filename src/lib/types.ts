@@ -4,6 +4,7 @@ export type SourceInfo = {
   name: string;
   visible: boolean;
   source_type: string;
+  audio_capable?: boolean;
   params?: Record<string, string>;
 };
 

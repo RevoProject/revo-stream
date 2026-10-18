@@ -18,6 +18,7 @@ pub(crate) fn list_video_device_picker_items() -> Result<Vec<crate::SourceTypeIt
 		out.push(crate::SourceTypeItem {
 			id: path.clone(),
 			label: path,
+			audio_capable: false,
 		});
 	}
 

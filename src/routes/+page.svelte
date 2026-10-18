@@ -31,6 +31,7 @@
   import QuickDeviceModal from "../lib/components/QuickModal/QuickDeviceModal.svelte";
   import { applyRevoTheme, revoThemeFromLookProfile } from "../lib/theme/revoTheme";
   import type { DemoSource, SceneInfo } from "../lib/types";
+  import { isAudioCaptureSourceType } from "../lib/sourceClassification";
 import GraphicPlannerModal from "../lib/components/Modal/GraphicPlannerModal.svelte";
 import BrowserInteractionModal from "../lib/components/Modal/BrowserInteractionModal.svelte";
 import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte";
@@ -95,6 +96,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   type SourceTypeItem = {
     id: string;
     label: string;
+    audio_capable?: boolean;
   };
   type AudioDevice = { id: string; name: string };
 
@@ -5949,19 +5951,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     quickDeviceOptions = [];
   };
 
-  const isAudioDeviceSourceType = (type: string) => {
-    const t = (type ?? "").toLowerCase();
-    return (
-      t === "pulse_input_capture" ||
-      t === "pulse_output_capture" ||
-      t === "pipewire_input_capture" ||
-      t === "pipewire_output_capture" ||
-      t.includes("audio_input") ||
-      t.includes("audio_output") ||
-      t.includes("audio_capture") ||
-      t.includes("audio_line")
-    );
-  };
+  const isAudioDeviceSourceType = (type: string) => isAudioCaptureSourceType(type);
 
   const openQuickDeviceModal = async (source: DemoSource) => {
     quickDeviceSource = source;
@@ -6077,6 +6067,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const isAudioMixerSource = (source: DemoSource) => {
     const type = (source.source_type ?? "").toLowerCase();
     return (
+      source.audio_capable === true ||
+      isAudioCaptureSourceType(type) ||
       type.includes("audio") ||
       type === "pulse_input_capture" ||
       type === "pulse_output_capture" ||

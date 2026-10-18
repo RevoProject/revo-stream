@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import type { DemoSource } from "../../types";
+  import { isAudioCaptureSourceType, isVideoLikeSourceType } from "../../sourceClassification";
 
   export let sources: DemoSource[] = [];
   // Most important layer at top, least at bottom
@@ -21,20 +22,11 @@
   $: selectedTextSource = selectedSource && selectedSource.source_type?.toLowerCase().includes("text") ? selectedSource : null;
   $: selectedColorSource = selectedSource && selectedSource.source_type?.toLowerCase().includes("color_source") ? selectedSource : null;
   $: selectedImageSource = selectedSource && ((selectedSource.source_type?.toLowerCase().includes("image") ?? false) || (selectedSource.source_type?.toLowerCase().includes("slideshow") ?? false)) ? selectedSource : null;
-  const isDeviceSelectableSourceType = (type: string | undefined) => {
-    const t = (type ?? "").toLowerCase();
-    return (
-      t === "pulse_input_capture" ||
-      t === "pulse_output_capture" ||
-      t.includes("audio_input") ||
-      t.includes("audio_output") ||
-      t.includes("audio_capture") ||
-      t.includes("audio_line") ||
-      t.includes("video_capture") ||
-      t.includes("v4l2_input")
-    );
+  const isDeviceSelectableSourceType = (source: DemoSource | undefined | null) => {
+    const type = (source?.source_type ?? "").toLowerCase();
+    return isAudioCaptureSourceType(type) || type.includes("video_capture") || type.includes("v4l2_input");
   };
-  $: selectedDeviceSource = selectedSource && isDeviceSelectableSourceType(selectedSource.source_type) ? selectedSource : null;
+  $: selectedDeviceSource = selectedSource && isDeviceSelectableSourceType(selectedSource) ? selectedSource : null;
 
   const openAddSource = () => dispatch("openAddSource");
   const openInteract = () => {
@@ -72,16 +64,18 @@
   };
 
   // Neutral source-type glyphs for RevoFuture (display only — no logic change).
-  const sourceTypeIconPath = (type: string | undefined) => {
-    const t = (type ?? "").toLowerCase();
+  const sourceTypeIconPath = (source: DemoSource) => {
+    const t = (source.source_type ?? "").toLowerCase();
+    const audioGlyph = "M4 10v4h3l4 4V6L7 10H4Zm12.5-2a5 5 0 0 1 0 8v-2a3 3 0 0 0 0-4v-2Zm-2-2.5a8 8 0 0 1 0 13v-2a6 6 0 0 0 0-9v-2Z";
     if (t.includes("browser")) return "M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 2c-1.7 0-3.3 3-3.9 8h7.8c-.6-5-2.2-8-3.9-8Zm-4.4 8c.1-.9.3-1.9.5-2.8A8 8 0 0 0 4.1 12H7.6Zm0 2H4.1a8 8 0 0 0 4 4.8c-.2-.9-.4-1.9-.5-2.8Zm1.8 0h5.2c-.6 5-2.2 8-3.9 8s-3.3-3-3.9-8Zm6.8 0h3.5c-.1.9-.3 1.9-.5 2.8a8 8 0 0 0 4-4.8h-3.5Zm0-2h3.5a8 8 0 0 0-4-4.8c.2.9.4 1.9.5 2.8h-.5Zm-3.2-5.8c1.7 0 3.3 3 3.9 8H12V2.2Z";
     if (t.includes("image") || t.includes("slideshow")) return "M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v10h16V7H4Zm2.5 2.2a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4ZM5.4 15.6l3.2-3.6 2 2 3-3.4 4.4 5H5.4Z";
     if (t.includes("text")) return "M5 4h14v2h-5.5v14h-3V6H5V4Z";
     if (t.includes("color")) return "M12 2a10 10 0 0 0 0 20c1.4 0 2.2-.9 2.2-2 0-.6-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8h2.2A4.8 4.8 0 0 0 22 10.7C22 5.9 17.5 2 12 2Zm-5.5 12.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm2.2-5.2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm4.6-2.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm4.3 3.2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z";
     if (t.includes("game")) return "M7 7h10a5 5 0 0 1 4.9 6l-.9 4a2.7 2.7 0 0 1-4.8 1l-1.2-1.5h-4l-1.2 1.5a2.7 2.7 0 0 1-4.8-1l-.9-4A5 5 0 0 1 7 7Zm-.3 2-.6 2.6h2.2v1.6h1.5v-1.6h1.7v1.6h1.5v-1.6h2.2L14.6 9H6.7Zm8.3.2a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Zm2.6 2.6a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z";
     if (t.includes("camera") || t.includes("webcam") || t.includes("video_capture") || t.includes("v4l2") || t === "video") return "M12 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm7 2.2 2.2-1.4a1 1 0 0 1 1.5.9v7.6a1 1 0 0 1-1.5.9L19 15.3v2.2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8.7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v.9ZM12 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z";
-    if (t.includes("pulse") || t.includes("pipewire") || t.includes("alsa") || t.includes("audio")) return "M4 10v4h3l4 4V6L7 10H4Zm12.5-2a5 5 0 0 1 0 8v-2a3 3 0 0 0 0-4v-2Zm-2-2.5a8 8 0 0 1 0 13v-2a6 6 0 0 0 0-9v-2Z";
+    if (t.includes("pulse") || t.includes("pipewire") || t.includes("alsa") || t.includes("audio")) return audioGlyph;
     if (t.includes("ffmpeg") || t.includes("media")) return "M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm7 3.2v7.6l6-3.8-6-3.8Z";
+    if (!isVideoLikeSourceType(t) && (source.audio_capable === true || isAudioCaptureSourceType(t))) return audioGlyph;
     if (t.includes("window") || t.includes("xcomposite") || t.includes("display") || t.includes("screen") || t.includes("capture") || t === "capture") return "M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-7v2h2.5a1 1 0 1 1 0 2h-7a1 1 0 1 1 0-2H10v-2H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 2v9h16V6H4Z";
     return "M12 2.8 21 7.3 12 11.8 3 7.3l9-4.5Zm0 2.2L6.1 7.3 12 10.2l5.9-2.9L12 5ZM3.4 11 12 15.3l8.6-4.3 1.7.9-10.3 5.2L1.7 11.9 3.4 11Z";
   };
@@ -200,7 +194,7 @@
           ondrop={(e) => handleDrop(e, source)}
         >
             <svg class="source-type-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="currentColor" d={sourceTypeIconPath(source.source_type)} />
+              <path fill="currentColor" d={sourceTypeIconPath(source)} />
             </svg>
             <button class="source-name" type="button" title={source.name} onclick={() => selectSource(source)} ondblclick={() => openEdit(source)}>
               {source.name}

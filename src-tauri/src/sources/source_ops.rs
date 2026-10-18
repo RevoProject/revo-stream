@@ -93,7 +93,11 @@ pub(crate) fn list_external_source_types(
 							.to_string()
 					};
 
-					out.push(crate::SourceTypeItem { id, label });
+					out.push(crate::SourceTypeItem {
+						id,
+						label,
+						audio_capable: output_flags & revo_lib::obs::OBS_SOURCE_AUDIO != 0,
+					});
 				}
 			}
 
@@ -325,6 +329,8 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 				},
 				visible: revo_lib::obs::obs_sceneitem_visible(item),
 				source_type,
+				audio_capable:
+					revo_lib::obs::obs_source_get_output_flags(source) & revo_lib::obs::OBS_SOURCE_AUDIO != 0,
 				params,
 			});
 		}

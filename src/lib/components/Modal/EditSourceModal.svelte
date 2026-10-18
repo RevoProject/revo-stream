@@ -2,6 +2,7 @@
   import { createEventDispatcher } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import type { DemoSource } from "../../types";
+  import { isAudioCaptureSourceType } from "../../sourceClassification";
 
   export let editSource: DemoSource | null;
   export let editName: string;
@@ -421,7 +422,7 @@
     { value: "on", label: "On" }
   ];
 
-  $: isAudioSource = editType === "pulse_input_capture" || editType === "pulse_output_capture";
+  $: isAudioSource = isAudioCaptureSourceType(editType);
   $: isTextSource = editType === "text_ft2_source" || editType === "text_ft2_source_v2";
   $: isMediaSource = editType === "ffmpeg_source";
 

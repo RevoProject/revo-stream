@@ -45,6 +45,8 @@ pub(crate) struct SourceInfo {
 	pub(crate) name: String,
 	pub(crate) visible: bool,
 	pub(crate) source_type: String,
+	#[serde(default)]
+	pub(crate) audio_capable: bool,
 	pub(crate) params: HashMap<String, String>,
 }
 
@@ -52,6 +54,8 @@ pub(crate) struct SourceInfo {
 pub(crate) struct SourceTypeItem {
 	pub(crate) id: String,
 	pub(crate) label: String,
+	#[serde(default)]
+	pub(crate) audio_capable: bool,
 }
 
 #[derive(Serialize)]

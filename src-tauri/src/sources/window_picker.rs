@@ -60,7 +60,7 @@ pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, S
 					format!("{} ({})", title, class)
 				};
 
-				out.push(crate::SourceTypeItem { id: value, label });
+				out.push(crate::SourceTypeItem { id: value, label, audio_capable: false });
 			}
 		}
 	}
@@ -106,6 +106,7 @@ pub(crate) fn list_window_picker_items() -> Result<Vec<crate::SourceTypeItem>, S
 					out.push(crate::SourceTypeItem {
 						id: value.clone(),
 						label: format!("{} ({})", title, class),
+						audio_capable: false,
 					});
 				}
 			}
