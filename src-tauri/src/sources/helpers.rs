@@ -81,6 +81,26 @@ pub(crate) fn extract_source_params(
 						params.insert("font_size".to_string(), size.to_string());
 					}
 				}
+				// Flags (bold/italic/underline bitmask) and style live in the
+				// same nested object; without flattening them the round-trip
+				// through string params would reset the text weight.
+				if let Ok(flags_key) = std::ffi::CString::new("flags") {
+					if revo_lib::obs::obs_data_has_user_value(font_obj, flags_key.as_ptr()) {
+						let flags = revo_lib::obs::obs_data_get_int(font_obj, flags_key.as_ptr());
+						params.insert("font_flags".to_string(), flags.to_string());
+					}
+				}
+				if let Ok(style_key) = std::ffi::CString::new("style") {
+					if revo_lib::obs::obs_data_has_user_value(font_obj, style_key.as_ptr()) {
+						let style_ptr = revo_lib::obs::obs_data_get_string(font_obj, style_key.as_ptr());
+						if !style_ptr.is_null() {
+							let style = std::ffi::CStr::from_ptr(style_ptr).to_string_lossy().to_string();
+							if !style.is_empty() {
+								params.insert("font_style".to_string(), style);
+							}
+						}
+					}
+				}
 				revo_lib::obs::obs_data_release(font_obj);
 			}
 		}
@@ -667,57 +687,93 @@ pub(crate) fn apply_source_params(
 				{
 					let font_key = std::ffi::CString::new("font").unwrap();
 
-					let mut current_face = "DejaVu Sans".to_string();
-					let mut current_size: i64 = 24;
-					let current_font = revo_lib::obs::obs_data_get_obj(settings, font_key.as_ptr());
-					if !current_font.is_null() {
-						if let Ok(face_key) = std::ffi::CString::new("face") {
-							let face_ptr = revo_lib::obs::obs_data_get_string(current_font, face_key.as_ptr());
-							if !face_ptr.is_null() {
-								current_face = std::ffi::CStr::from_ptr(face_ptr).to_string_lossy().to_string();
-							}
+				let mut current_face = "DejaVu Sans".to_string();
+				let mut current_size: i64 = 24;
+				let mut current_flags: Option<i64> = None;
+				let mut current_style: Option<String> = None;
+				let current_font = revo_lib::obs::obs_data_get_obj(settings, font_key.as_ptr());
+				if !current_font.is_null() {
+					if let Ok(face_key) = std::ffi::CString::new("face") {
+						let face_ptr = revo_lib::obs::obs_data_get_string(current_font, face_key.as_ptr());
+						if !face_ptr.is_null() {
+							current_face = std::ffi::CStr::from_ptr(face_ptr).to_string_lossy().to_string();
 						}
-						if let Ok(size_key) = std::ffi::CString::new("size") {
-							let size = revo_lib::obs::obs_data_get_int(current_font, size_key.as_ptr());
-							if size > 0 {
-								current_size = size;
-							}
-						}
-						revo_lib::obs::obs_data_release(current_font);
 					}
-
-					let font_settings = revo_lib::obs::obs_data_create();
-					if !font_settings.is_null() {
-						let face_key = std::ffi::CString::new("face").unwrap();
-						let face_val = std::ffi::CString::new(
-							params
-								.get("font_face")
-								.or_else(|| params.get("face"))
-								.map(|v| v.as_str())
-								.unwrap_or(current_face.as_str()),
-						)
-						.unwrap();
-						revo_lib::obs::obs_data_set_string(
-							font_settings,
-							face_key.as_ptr(),
-							face_val.as_ptr(),
-						);
-						if let Some(size) = params
-							.get("font_size")
-							.or_else(|| params.get("size"))
-							.or_else(|| params.get("fontsize"))
-							.and_then(|v| v.parse::<i64>().ok())
-						{
-							let size_key = std::ffi::CString::new("size").unwrap();
-							revo_lib::obs::obs_data_set_int(font_settings, size_key.as_ptr(), size);
-						} else {
-							let size_key = std::ffi::CString::new("size").unwrap();
-							revo_lib::obs::obs_data_set_int(font_settings, size_key.as_ptr(), current_size);
-						}
-						revo_lib::obs::obs_data_set_obj(settings, font_key.as_ptr(), font_settings);
-						revo_lib::obs::obs_data_release(font_settings);
+					if let Ok(size_key) = std::ffi::CString::new("size") {
+					let size = revo_lib::obs::obs_data_get_int(current_font, size_key.as_ptr());
+					if size > 0 {
+						current_size = size;
 					}
 				}
+				if let Ok(flags_key) = std::ffi::CString::new("flags") {
+					let flags = revo_lib::obs::obs_data_get_int(current_font, flags_key.as_ptr());
+					current_flags = Some(flags);
+				}
+				if let Ok(style_key) = std::ffi::CString::new("style") {
+					let style_ptr = revo_lib::obs::obs_data_get_string(current_font, style_key.as_ptr());
+					if !style_ptr.is_null() {
+						let style = std::ffi::CStr::from_ptr(style_ptr).to_string_lossy().to_string();
+						if !style.is_empty() {
+							current_style = Some(style);
+						}
+					}
+				}
+				revo_lib::obs::obs_data_release(current_font);
+			}
+
+			let font_settings = revo_lib::obs::obs_data_create();
+			if !font_settings.is_null() {
+				let face_key = std::ffi::CString::new("face").unwrap();
+				let face_val = std::ffi::CString::new(
+					params
+						.get("font_face")
+						.or_else(|| params.get("face"))
+						.map(|v| v.as_str())
+						.unwrap_or(current_face.as_str()),
+				)
+				.unwrap();
+				revo_lib::obs::obs_data_set_string(
+					font_settings,
+					face_key.as_ptr(),
+					face_val.as_ptr(),
+				);
+				if let Some(size) = params
+					.get("font_size")
+					.or_else(|| params.get("size"))
+					.or_else(|| params.get("fontsize"))
+					.and_then(|v| v.parse::<i64>().ok())
+				{
+					let size_key = std::ffi::CString::new("size").unwrap();
+					revo_lib::obs::obs_data_set_int(font_settings, size_key.as_ptr(), size);
+				} else {
+					let size_key = std::ffi::CString::new("size").unwrap();
+					revo_lib::obs::obs_data_set_int(font_settings, size_key.as_ptr(), current_size);
+				}
+				// Preserve the font weight/italic flags (and style string)
+				// across every update that only carries face/size — without
+				// this the rebuilt font object reset bold/italic text.
+				if let Some(flags) = params
+					.get("font_flags")
+					.and_then(|v| v.trim().parse::<i64>().ok())
+					.or(current_flags)
+				{
+					let flags_key = std::ffi::CString::new("flags").unwrap();
+					revo_lib::obs::obs_data_set_int(font_settings, flags_key.as_ptr(), flags);
+				}
+				if let Some(style) = params
+					.get("font_style")
+					.cloned()
+					.or_else(|| current_style.clone())
+					.filter(|style| !style.is_empty())
+				{
+					let style_key = std::ffi::CString::new("style").unwrap();
+					let style_val = std::ffi::CString::new(style).unwrap();
+					revo_lib::obs::obs_data_set_string(font_settings, style_key.as_ptr(), style_val.as_ptr());
+				}
+				revo_lib::obs::obs_data_set_obj(settings, font_key.as_ptr(), font_settings);
+				revo_lib::obs::obs_data_release(font_settings);
+			}
+		}
 
 				for (key, value) in params {
 					let normalized_key = key
@@ -726,15 +782,17 @@ pub(crate) fn apply_source_params(
 						.collect::<String>()
 						.to_ascii_lowercase();
 
-					if normalized_key == "text"
-						|| normalized_key == "color"
-						|| normalized_key == "color1"
-						|| normalized_key == "font"
-						|| normalized_key == "fontface"
-						|| normalized_key == "fontsize"
-					{
-						continue;
-					}
+				if normalized_key == "text"
+					|| normalized_key == "color"
+					|| normalized_key == "color1"
+					|| normalized_key == "font"
+					|| normalized_key == "fontface"
+					|| normalized_key == "fontsize"
+					|| normalized_key == "fontflags"
+					|| normalized_key == "fontstyle"
+				{
+					continue;
+				}
 
 					if let Ok(key_c) = std::ffi::CString::new(key.as_str()) {
 						if editable_list_keys.is_some_and(|keys| keys.contains(key)) {
