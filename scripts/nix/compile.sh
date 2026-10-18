@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== Building iTVT with Nix ==="
+echo "=== Building RevoStream with Nix ==="
 cd "$(dirname "$0")/../.."
 
 # Enter nix shell and build

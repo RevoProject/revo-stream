@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pakuje binarke revo-ui w jeden plik .sh (self-extracting archive)
 # Uzycie: bash scripts/nix/package-bundle.sh [sciezka-do-binarki]
-# Wynik: iTVT-2.0.0-x86_64-linux.run (jeden plik do dystrybucji)
+# Wynik: RevoStream-2.0.0-x86_64-linux.run (jeden plik do dystrybucji)
 
 set -euo pipefail
 
@@ -17,15 +17,15 @@ fi
 
 VERSION="$(node -p "require('$PROJECT_DIR/package.json').version")-nixos"
 ARCH="$(uname -m)"
-OUTPUT="$PROJECT_DIR/iTVT-${VERSION}-${ARCH}-linux.run"
+OUTPUT="$PROJECT_DIR/RevoStream-${VERSION}-${ARCH}-linux.run"
 
 echo "=== Pakuje ($(stat -c%s "$BINARY") bajtow) ==="
 
-BOUNDARY="__ITVT_ARCHIVE__"
+BOUNDARY="__RevoStream_ARCHIVE__"
 
 cat > "$OUTPUT" << 'EOF'
 #!/usr/bin/env bash
-# iTVT AppBundle — self-extracting one-file launcher for NixOS
+# RevoStream AppBundle — self-extracting one-file launcher for NixOS
 
 set -euo pipefail
 B="$0"
@@ -34,14 +34,14 @@ EXTRACT_ONLY=0
 
 if [ "${1:-}" = "--extract" ]; then
   EXTRACT_ONLY=1
-  TMP_DIR="${2:-/tmp/itvt-extract}"
+  TMP_DIR="${2:-/tmp/RevoStream-extract}"
 else
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TMP_DIR"' EXIT
 fi
 
 # Find and extract embedded archive
-LINE=$(grep -n "^__ITVT_ARCHIVE__$" "$B" | tail -1 | cut -d: -f1)
+LINE=$(grep -n "^__RevoStream_ARCHIVE__$" "$B" | tail -1 | cut -d: -f1)
 LINE=$((LINE + 1))
 mkdir -p "$TMP_DIR"
 tail -n +$LINE "$B" | base64 -d | gzip -d > "$TMP_DIR/revo-ui" 2>/dev/null || {
