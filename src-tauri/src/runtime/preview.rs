@@ -243,8 +243,25 @@ pub(crate) fn take_screenshot(
 			})
 			.and_then(|raw| parse_resolution(&raw));
 
-		let (base_w, base_h) = live_resolution.unwrap_or((640, 360));
-		(base_w.max(160).min(7680), base_h.max(90).min(4320))
+		let (canvas_w, canvas_h) = live_resolution.unwrap_or((640, 360));
+		match (width, height) {
+			// The frontend asks for its display box; render the canvas scaled
+			// into that box while keeping the canvas aspect ratio, so the PNG
+			// never exceeds the requested preview size (and never upscales
+			// past the real canvas resolution).
+			(Some(w), Some(h)) => {
+				let box_w = w.max(160).min(3840) as f32;
+				let box_h = h.max(90).min(2160) as f32;
+				let scale = (box_w / canvas_w as f32)
+					.min(box_h / canvas_h as f32)
+					.min(1.0);
+				let out_w = ((canvas_w as f32 * scale).round() as u32).max(160).min(7680);
+				let out_h = ((canvas_h as f32 * scale).round() as u32).max(90).min(4320);
+				(out_w, out_h)
+			}
+			// No size requested: keep the previous full-canvas behavior.
+			_ => (canvas_w.max(160).min(7680), canvas_h.max(90).min(4320)),
+		}
 	} else {
 		(width.unwrap_or(640).max(160).min(3840), height.unwrap_or(360).max(90).min(2160))
 	};
