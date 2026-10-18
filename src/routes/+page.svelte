@@ -5716,7 +5716,13 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       create: { id: spec.id, name: spec.name, source_type: spec.sourceType, params: spec.params }
     });
     if (!spec.visible) await invoke("obs_set_source_visible", { id: spec.id, visible: false });
-    await invoke("obs_reorder_source", { id: spec.id, toIndex: spec.index });
+    try {
+      // Cosmetic: a failed reorder must not fail the whole recreate — the
+      // source itself is already restored at this point.
+      await invoke("obs_reorder_source", { id: spec.id, toIndex: spec.index });
+    } catch (err) {
+      console.warn(`[history] reorder skipped for ${spec.id}`, err);
+    }
     try {
       await invoke<string>("obs_fit_source_to_canvas", { sourceId: spec.id });
     } catch {

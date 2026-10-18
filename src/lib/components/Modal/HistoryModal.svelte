@@ -80,9 +80,6 @@
               <span class="label">{entry.label}</span>
             </button>
           {/each}
-          {#if redoEntries.length}
-            <div class="marker">Current state</div>
-          {/if}
           {#each undoEntries as entry, index (undoEntries.length - index)}
             <button
               class="entry"
@@ -93,9 +90,6 @@
               <span class="label">{entry.label}</span>
             </button>
           {/each}
-          {#if !redoEntries.length}
-            <div class="marker">Current state</div>
-          {/if}
         {/if}
       </main>
       <footer>
@@ -208,15 +202,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .marker {
-    padding: 0.15rem 0.2rem;
-    color: var(--text-muted);
-    font-size: 0.74rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
   }
 
   .status {
