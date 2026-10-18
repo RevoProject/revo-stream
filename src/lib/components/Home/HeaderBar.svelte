@@ -10,10 +10,16 @@
   export let version: string;
   export let realtimeRefresh: boolean = false;
   export let releaseMode: boolean = false;
+  export let canUndo: boolean = false;
+  export let canRedo: boolean = false;
+  export let undoTitle: string = "Nothing to undo";
+  export let redoTitle: string = "Nothing to redo";
 
   const dispatch = createEventDispatcher();
 
   const openSettings = () => dispatch("openSettings");
+  const undo = () => dispatch("undo");
+  const redo = () => dispatch("redo");
   const startObs = () => dispatch("startObs");
   const stopObs = () => dispatch("stopObs");
   const startRecording = () => dispatch("startRecording");
@@ -43,6 +49,28 @@
   <div class="actions">
     <div class="nav">
         
+      <button
+        class="force-preview"
+        onclick={undo}
+        disabled={!canUndo}
+        title={undoTitle}
+        aria-label="Undo"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z" />
+        </svg>
+      </button>
+      <button
+        class="force-preview"
+        onclick={redo}
+        disabled={!canRedo}
+        title={redoTitle}
+        aria-label="Redo"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8Z" />
+        </svg>
+      </button>
       <button class="force-preview" onclick={forcePreviewResolution} title="Force 1920x1080 Preview">
         1920x1080 Preview
       </button>

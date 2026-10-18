@@ -904,6 +904,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
     const applySourceTransforms = async (newTransforms: Record<string, PlannerTransformPayload>) => {
       const activeSceneName = getActiveSceneName();
+      const beforeTransforms = captureTransformSnapshot();
       sourceTransforms = { ...newTransforms };
       plannerTransformsByScene = {
         ...plannerTransformsByScene,
@@ -990,6 +991,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
           previewDirty = true;
           await refreshPreview(true);
           requestPreviewUpdate();
+          recordTransformHistory(
+            "Graphic Planner save",
+            beforeTransforms,
+            captureTransformSnapshot()
+          );
           showGlobalDialog("Source transforms saved", "info");
         } catch (err) {
           const msg = String(err);
@@ -4701,6 +4707,15 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         }
         await loadSources();
         created = true;
+        const added = sourcesList.find((s) => s.id === id);
+        if (added) {
+          const spec = await captureRemovedSourceSpec(added);
+          recordHistory({
+            label: `Add ${spec.name}`,
+            undo: () => removeSourceById(spec.id),
+            redo: () => recreateSource(spec)
+          });
+        }
       } catch (err) {
         showGlobalDialog(String(err), "error");
       } finally {
@@ -4793,9 +4808,21 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const toggleSourceVisibility = async (source: DemoSource) => {
     if (backendEnabled) {
       try {
-        await invoke("obs_set_source_visible", { id: source.id, visible: !source.visible });
+        const nextVisible = !source.visible;
+        await invoke("obs_set_source_visible", { id: source.id, visible: nextVisible });
         await loadSources();
         requestPreviewUpdate();
+        recordHistory({
+          label: `${nextVisible ? "Show" : "Hide"} ${source.name}`,
+          undo: async () => {
+            await invoke("obs_set_source_visible", { id: source.id, visible: source.visible });
+            await loadSources();
+          },
+          redo: async () => {
+            await invoke("obs_set_source_visible", { id: source.id, visible: nextVisible });
+            await loadSources();
+          }
+        });
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -5408,6 +5435,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const openSourceProperties = (source: DemoSource) => {
     propertiesSource = source;
+    sourcePropertiesSnapshotBefore = captureTransformSnapshot([source.id]);
     showSourceProperties = true;
     closeSourceMenu();
   };
@@ -5492,6 +5520,233 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       : filtersSourceCategory === "video"
         ? "Video Filters"
         : "Graphic Filters";
+
+  /* ==================================================================
+   * Undo / Redo — source-level state history.
+   *
+   * Included:  source transforms (Source Properties + Graphic Planner save),
+   *            add source, remove source, visibility toggle
+   * Excluded:  scene add / remove / rename — deleting a scene destroys its
+   *            child sources, so no faithful restore path exists
+   * Excluded:  recording, streaming, preview resolution, settings — not
+   *            scene-item state and not always reversible
+   *
+   * Every entry restores real OBS state by re-running the same Tauri
+   * commands the UI itself uses, then reloading the source list, so OBS,
+   * the preview and the history agree. A failing command aborts the step:
+   * the entry is not moved between stacks and an error is shown instead of
+   * a fake success. Unlike the upstream rv_edit6 draft, recreate also
+   * re-applies video and audio filters captured at removal time.
+   * ================================================================== */
+  type HistoryEntry = {
+    label: string;
+    undo: () => Promise<void>;
+    redo: () => Promise<void>;
+  };
+
+  const HISTORY_LIMIT = 30;
+  let undoStack: HistoryEntry[] = [];
+  let redoStack: HistoryEntry[] = [];
+  let sourcePropertiesSnapshotBefore: TransformSnapshot = {};
+
+  $: canUndo = undoStack.length > 0;
+  $: canRedo = redoStack.length > 0;
+  $: undoTip = canUndo ? `Undo: ${undoStack[undoStack.length - 1].label}` : "Nothing to undo";
+  $: redoTip = canRedo ? `Redo: ${redoStack[redoStack.length - 1].label}` : "Nothing to redo";
+
+  /** Registers a completed change; a new change drops the redo branch. */
+  const recordHistory = (entry: HistoryEntry) => {
+    undoStack = [...undoStack, entry].slice(-HISTORY_LIMIT);
+    redoStack = [];
+  };
+
+  const runHistoryStep = async (entry: HistoryEntry | undefined, direction: "undo" | "redo") => {
+    if (!entry) return;
+    try {
+      await entry[direction]();
+    } catch (err) {
+      showGlobalDialog(`${direction === "undo" ? "Undo" : "Redo"} failed: ${String(err)}`, "error");
+      return;
+    }
+    if (direction === "undo") {
+      undoStack = undoStack.slice(0, -1);
+      redoStack = [...redoStack, entry];
+    } else {
+      redoStack = redoStack.slice(0, -1);
+      undoStack = [...undoStack, entry];
+    }
+    requestPreviewUpdate();
+  };
+
+  const undoLastChange = () => runHistoryStep(undoStack[undoStack.length - 1], "undo");
+  const redoLastChange = () => runHistoryStep(redoStack[redoStack.length - 1], "redo");
+
+  const TRANSFORM_PARAM_KEYS = [
+    "pos_x",
+    "pos_y",
+    "item_width",
+    "item_height",
+    "scale_x",
+    "scale_y",
+    "rot",
+    "crop_left",
+    "crop_right",
+    "crop_top",
+    "crop_bottom"
+  ];
+
+  type TransformSnapshot = Record<string, Record<string, string>>;
+
+  const captureTransformSnapshot = (ids?: string[]): TransformSnapshot => {
+    const wanted = ids ? new Set(ids) : null;
+    const out: TransformSnapshot = {};
+    for (const source of sourcesList) {
+      if (wanted && !wanted.has(source.id)) continue;
+      const params: Record<string, string> = {};
+      for (const key of TRANSFORM_PARAM_KEYS) {
+        const value = source.params?.[key];
+        if (value !== undefined && value !== "") params[key] = value;
+      }
+      out[source.id] = params;
+    }
+    return out;
+  };
+
+  /** Keeps only the sources whose transform actually differs. */
+  const diffTransformSnapshot = (before: TransformSnapshot, after: TransformSnapshot): [TransformSnapshot, TransformSnapshot] => {
+    const ids = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+      (id) => JSON.stringify(before[id] ?? {}) !== JSON.stringify(after[id] ?? {})
+    );
+    const pick = (snapshot: TransformSnapshot) => Object.fromEntries(ids.map((id) => [id, snapshot[id] ?? {}]));
+    return [pick(before), pick(after)];
+  };
+
+  const applyTransformSnapshot = async (snapshot: TransformSnapshot) => {
+    const failures: string[] = [];
+    for (const [id, params] of Object.entries(snapshot)) {
+      if (!Object.keys(params).length) continue;
+      try {
+        await invoke("obs_update_source", { update: { id, name: "", source_type: "", params } });
+      } catch (err) {
+        failures.push(`${id}: ${String(err)}`);
+      }
+    }
+    await loadSources();
+    const nextTransforms = { ...sourceTransforms };
+    for (const [id, params] of Object.entries(snapshot)) {
+      const payload = nextTransforms[id];
+      if (!payload) continue;
+      const num = (key: string) => parseFloat(params[key] ?? "");
+      const updated: PlannerTransformPayload = { ...payload };
+      if (params.pos_x !== undefined) updated.x = num("pos_x") || 0;
+      if (params.pos_y !== undefined) updated.y = num("pos_y") || 0;
+      if (params.item_width !== undefined) updated.w = num("item_width") || 0;
+      if (params.item_height !== undefined) updated.h = num("item_height") || 0;
+      if (params.rot !== undefined) updated.rot = num("rot") || 0;
+      if (params.crop_left !== undefined) updated.cropL = num("crop_left") || 0;
+      if (params.crop_right !== undefined) updated.cropR = num("crop_right") || 0;
+      if (params.crop_top !== undefined) updated.cropT = num("crop_top") || 0;
+      if (params.crop_bottom !== undefined) updated.cropB = num("crop_bottom") || 0;
+      nextTransforms[id] = updated;
+    }
+    sourceTransforms = nextTransforms;
+    requestPreviewUpdate();
+    if (failures.length) throw new Error(failures.join("; "));
+  };
+
+  const recordTransformHistory = (label: string, before: TransformSnapshot, after: TransformSnapshot) => {
+    const [b, a] = diffTransformSnapshot(before, after);
+    if (!Object.keys(b).length) return;
+    recordHistory({ label, undo: () => applyTransformSnapshot(b), redo: () => applyTransformSnapshot(a) });
+  };
+
+  type RemovedSourceSpec = {
+    id: string;
+    name: string;
+    sourceType: string;
+    params: Record<string, string>;
+    visible: boolean;
+    index: number;
+    videoFilters: FilterItem[];
+    audioFilters: FilterItem[];
+  };
+
+  const captureRemovedSourceSpec = async (source: DemoSource): Promise<RemovedSourceSpec> => {
+    let settings: { name?: string; source_type?: string; params?: Record<string, string> } = {};
+    try {
+      settings = await invoke("obs_get_source_settings", { id: source.id });
+    } catch {
+      settings = {};
+    }
+    return {
+      id: source.id,
+      name: settings.name || source.name,
+      sourceType: settings.source_type || source.source_type,
+      params: {
+        ...(settings.params ?? {}),
+        ...(captureTransformSnapshot([source.id])[source.id] ?? {})
+      },
+      visible: source.visible,
+      index: Math.max(0, sourcesList.findIndex((s) => s.id === source.id)),
+      videoFilters: cloneFilterList(sourceFiltersMap[source.id] ?? []),
+      audioFilters: cloneFilterList(audioSourceFiltersMap[source.id] ?? [])
+    };
+  };
+
+  const recreateSource = async (spec: RemovedSourceSpec) => {
+    await invoke("obs_create_source", {
+      create: { id: spec.id, name: spec.name, source_type: spec.sourceType, params: spec.params }
+    });
+    if (!spec.visible) await invoke("obs_set_source_visible", { id: spec.id, visible: false });
+    await invoke("obs_reorder_source", { id: spec.id, toIndex: spec.index });
+    try {
+      await invoke<string>("obs_fit_source_to_canvas", { sourceId: spec.id });
+    } catch {
+      // Capture sources may report their size later; params carry the last
+      // known transform, so a failed fit here is not fatal for the restore.
+    }
+    if (spec.videoFilters.length) {
+      sourceFiltersMap = { ...sourceFiltersMap, [spec.id]: spec.videoFilters };
+      await applySourceFiltersToBackend(spec.id, spec.videoFilters);
+    }
+    if (spec.audioFilters.length) {
+      audioSourceFiltersMap = { ...audioSourceFiltersMap, [spec.id]: spec.audioFilters };
+      await invoke<string>("obs_set_source_filters", { sourceId: spec.id, filters: cloneFilterList(spec.audioFilters) });
+    }
+    await loadSources();
+    requestPreviewUpdate();
+  };
+
+  const removeSourceById = async (id: string) => {
+    await invoke<string>("obs_remove_source", { id });
+    if (sourceFiltersMap[id]) {
+      const { [id]: _video, ...restVideo } = sourceFiltersMap;
+      sourceFiltersMap = restVideo;
+    }
+    if (audioSourceFiltersMap[id]) {
+      const { [id]: _audio, ...restAudio } = audioSourceFiltersMap;
+      audioSourceFiltersMap = restAudio;
+    }
+    await loadSources();
+    requestPreviewUpdate();
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      const isRedo = key === "y" || (key === "z" && event.shiftKey);
+      const isUndo = key === "z" && !event.shiftKey;
+      if (!isUndo && !isRedo) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || target?.isContentEditable === true) return;
+      if (isUndo && !canUndo) return;
+      if (isRedo && !canRedo) return;
+      event.preventDefault();
+      void (isUndo ? undoLastChange() : redoLastChange());
+    });
+  }
 
   const openSourceFilters = async (source: DemoSource) => {
     closeSourceMenu();
@@ -6767,9 +7022,15 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const removeSource = async (source: DemoSource) => {
     if (backendEnabled) {
       try {
+        const spec = await captureRemovedSourceSpec(source);
         await invoke<string>("obs_remove_source", { id: source.id });
         await loadSources();
         requestPreviewUpdate();
+        recordHistory({
+          label: `Remove ${spec.name}`,
+          undo: () => recreateSource(spec),
+          redo: () => removeSourceById(spec.id)
+        });
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -7534,6 +7795,12 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       on:startStreaming={startStreaming}
       on:stopStreaming={stopStreaming}
       on:forcePreviewResolution={forcePreviewResolution}
+      {canUndo}
+      {canRedo}
+      undoTitle={undoTip}
+      redoTitle={redoTip}
+      on:undo={undoLastChange}
+      on:redo={redoLastChange}
       {realtimeRefresh}
       on:toggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
     />
@@ -7724,8 +7991,18 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       propertiesSource = null;
     }}
     on:changed={() => {
-      void loadSources();
-      requestPreviewUpdate();
+      const before = sourcePropertiesSnapshotBefore;
+      void (async () => {
+        await loadSources();
+        const after = captureTransformSnapshot(Object.keys(before));
+        sourcePropertiesSnapshotBefore = after;
+        recordTransformHistory(
+          propertiesSource ? `Transform ${propertiesSource.name}` : "Transform source",
+          before,
+          after
+        );
+        requestPreviewUpdate();
+      })();
     }}
     on:openFullEditor={() => {
       const target = propertiesSource;
