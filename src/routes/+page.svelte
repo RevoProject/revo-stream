@@ -19,6 +19,7 @@
   import SourceInfoModal from "../lib/components/Modal/SourceInfoModal.svelte";
   import SourcePropertiesModal from "../lib/components/Modal/SourcePropertiesModal.svelte";
   import HistoryModal from "../lib/components/Modal/HistoryModal.svelte";
+  import ConfirmModal from "../lib/components/Modal/ConfirmModal.svelte";
   import FiltersModal from "../lib/components/Filters/FiltersModal.svelte";
   import AudioFiltersModal from "../lib/components/Filters/AudioFiltersModal.svelte";
   import Transitions from "../lib/components/Modules/Transitions.svelte";
@@ -4523,6 +4524,17 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         await invoke<string>("obs_create_scene", { name });
         await loadScenes();
         requestPreviewUpdate();
+        recordHistory({
+          label: `Add scene ${name}`,
+          undo: async () => {
+            await invoke<string>("obs_remove_scene", { name });
+            await loadScenes();
+          },
+          redo: async () => {
+            await invoke<string>("obs_create_scene", { name });
+            await loadScenes();
+          }
+        });
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -4595,9 +4607,21 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       return;
     }
     if (backendEnabled) {
+      const oldName = renamingScene;
       try {
-        await invoke<string>("obs_rename_scene", { oldName: renamingScene, newName: trimmed });
+        await invoke<string>("obs_rename_scene", { oldName, newName: trimmed });
         await loadScenes();
+        recordHistory({
+          label: `Rename scene ${oldName} to ${trimmed}`,
+          undo: async () => {
+            await invoke<string>("obs_rename_scene", { oldName: trimmed, newName: oldName });
+            await loadScenes();
+          },
+          redo: async () => {
+            await invoke<string>("obs_rename_scene", { oldName, newName: trimmed });
+            await loadScenes();
+          }
+        });
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -5672,6 +5696,34 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         direction
       );
     }
+  };
+
+  /** Deletion confirmations — removals always ask first. */
+  let pendingDeleteSource: DemoSource | null = null;
+  let pendingDeleteScene: SceneInfo | null = null;
+
+  const openSourceRemoveConfirm = (source: DemoSource) => {
+    closeSourceMenu();
+    pendingDeleteSource = source;
+  };
+
+  const openSceneRemoveConfirm = (scene: SceneInfo) => {
+    closeSceneMenu();
+    pendingDeleteScene = scene;
+  };
+
+  const confirmPendingDelete = () => {
+    const source = pendingDeleteSource;
+    const scene = pendingDeleteScene;
+    pendingDeleteSource = null;
+    pendingDeleteScene = null;
+    if (source) void removeSource(source);
+    else if (scene) void removeScene(scene);
+  };
+
+  const cancelPendingDelete = () => {
+    pendingDeleteSource = null;
+    pendingDeleteScene = null;
   };
 
   const TRANSFORM_PARAM_KEYS = [
@@ -8235,6 +8287,19 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     onRestore={(detail) => void restoreHistorySteps(detail.direction, detail.steps)}
   />
 
+  <ConfirmModal
+    open={Boolean(pendingDeleteSource || pendingDeleteScene)}
+    title={pendingDeleteSource ? "Delete source" : "Delete scene"}
+    message={pendingDeleteSource
+      ? `Do you want to delete source "${pendingDeleteSource.name}"? This cannot be undone.`
+      : pendingDeleteScene
+        ? `Do you want to delete scene "${pendingDeleteScene.name}"? This cannot be undone.`
+        : ""}
+    confirmLabel="Delete"
+    on:confirm={confirmPendingDelete}
+    on:cancel={cancelPendingDelete}
+  />
+
   <!-- Windows aux-window replacements (in-app modals). Non-Windows keeps the
        native aux windows opened via the backend commands. -->
   <GraphicPlannerModal
@@ -8482,7 +8547,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       <button onclick={() => sourceMenu.source && toggleSourceLock(sourceMenu.source)}>
         <span class="menu-icon" aria-hidden="true"><Icon name={sourceMenu.source?.locked ? "unlock" : "lock"} size={13} /></span>{sourceMenu.source?.locked ? "Unlock" : "Lock"}
       </button>
-      <button class="danger-text" onclick={() => sourceMenu.source && removeSource(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
+      <button class="danger-text" onclick={() => sourceMenu.source && openSourceRemoveConfirm(sourceMenu.source)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => sourceMenu.source && showInfo(sourceMenu.source)}><span class="menu-icon" aria-hidden="true">ⓘ</span>Information</button>
     </div>
     <div
@@ -8501,7 +8566,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       <button onclick={() => sceneMenu.scene && toggleSceneLock(sceneMenu.scene)}>
         <span class="menu-icon" aria-hidden="true"><Icon name={sceneMenu.scene?.locked ? "unlock" : "lock"} size={13} /></span>{sceneMenu.scene?.locked ? "Unlock" : "Lock"}
       </button>
-      <button class="danger-text" onclick={() => sceneMenu.scene && removeScene(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
+      <button class="danger-text" onclick={() => sceneMenu.scene && openSceneRemoveConfirm(sceneMenu.scene)}><span class="menu-icon danger" aria-hidden="true"><Icon name="trash" size={13} /></span>Remove</button>
       <button onclick={() => { const s = sceneMenu.scene; closeSceneMenu(); void openScenePreviewInWindow(s); }}><span class="menu-icon" aria-hidden="true">⛶</span>Scene preview</button>
     </div>
     <div
