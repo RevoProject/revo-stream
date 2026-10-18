@@ -5239,6 +5239,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     const normalizedParams = normalizeSourceParamsForSave(editType, editParams);
     if (backendEnabled) {
       try {
+        const recordEdit = await recordSourceSettingsHistory(current.id, `Edit ${name}`);
         await invoke<string>("obs_update_source", {
           update: {
             id: current.id,
@@ -5249,6 +5250,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         });
         await loadSources();
         requestPreviewUpdate();
+        await recordEdit();
       } catch (err) {
         showGlobalDialog(String(err), "error");
       }
@@ -5544,6 +5546,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     label: string;
     undo: () => Promise<void>;
     redo: () => Promise<void>;
+    squashKey?: string;
   };
 
   const HISTORY_LIMIT = 30;
@@ -5555,6 +5558,78 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   $: canRedo = redoStack.length > 0;
   $: undoTip = canUndo ? `Undo: ${undoStack[undoStack.length - 1].label}` : "Nothing to undo";
   $: redoTip = canRedo ? `Redo: ${redoStack[redoStack.length - 1].label}` : "Nothing to redo";
+
+  type SourceSettingsSnapshot = {
+    id: string;
+    name: string;
+    source_type: string;
+    params: Record<string, string>;
+  };
+
+  const snapshotSourceSettings = async (id: string): Promise<SourceSettingsSnapshot | null> => {
+    try {
+      return await invoke<SourceSettingsSnapshot>("obs_get_source_settings", { id });
+    } catch {
+      return null;
+    }
+  };
+
+  const restoreSourceSettings = async (snapshot: SourceSettingsSnapshot) => {
+    await invoke<string>("obs_update_source", {
+      update: {
+        id: snapshot.id,
+        name: snapshot.name,
+        source_type: snapshot.source_type,
+        params: { ...snapshot.params }
+      }
+    });
+    await loadSources();
+    requestPreviewUpdate();
+  };
+
+  const sameSourceSnapshot = (a: SourceSettingsSnapshot | null, b: SourceSettingsSnapshot | null) =>
+    Boolean(a && b) &&
+    a!.id === b!.id &&
+    a!.name === b!.name &&
+    JSON.stringify(a!.params) === JSON.stringify(b!.params);
+
+  /**
+   * Wraps a source-modifying action: call it first, then fire the returned
+   * recorder. History entry is created only when the backend state actually
+   * differs. `squashKey` merges continuous adjustments (audio mixer) into the
+   * previous entry instead of flooding the stack.
+   */
+  const recordSourceSettingsHistory = async (
+    id: string,
+    label: string,
+    squashKey?: string
+  ): Promise<() => Promise<void>> => {
+    const before = await snapshotSourceSettings(id);
+    return async () => {
+      const after = await snapshotSourceSettings(id);
+      if (!before || !after || sameSourceSnapshot(before, after)) return;
+      if (squashKey) {
+        const top = undoStack[undoStack.length - 1];
+        if (top && top.squashKey === squashKey) {
+          const squashed: HistoryEntry = {
+            label: top.label,
+            undo: top.undo,
+            redo: () => restoreSourceSettings(after),
+            squashKey
+          };
+          undoStack = [...undoStack.slice(0, -1), squashed];
+          redoStack = [];
+          return;
+        }
+      }
+      recordHistory({
+        label,
+        undo: () => restoreSourceSettings(before!),
+        redo: () => restoreSourceSettings(after),
+        squashKey
+      });
+    };
+  };
 
   /** Registers a completed change; a new change drops the redo branch. */
   const recordHistory = (entry: HistoryEntry) => {
@@ -6080,6 +6155,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
 
     try {
+      const recordText = await recordSourceSettingsHistory(textEditSource.id, `Text ${textEditSource.name}`);
       await invoke<string>("obs_update_source", {
         update: {
           id: textEditSource.id,
@@ -6093,6 +6169,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       });
       await loadSources();
       requestPreviewUpdate();
+      await recordText();
       closeTextEditModal();
       showGlobalDialog("Text updated", "info", 1300);
     } catch (err) {
@@ -6173,6 +6250,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
 
     try {
+      const recordColor = await recordSourceSettingsHistory(source.id, `Color ${source.name}`);
       await invoke<string>("obs_update_source", {
         update: {
           id: source.id,
@@ -6183,6 +6261,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       });
       await loadSources();
       requestPreviewUpdate();
+      await recordColor();
       pushQuickColorRecent(color);
       closeQuickColorModal();
       showGlobalDialog("Color updated", "info", 1200);
@@ -6343,6 +6422,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
 
     try {
+      const recordDevice = await recordSourceSettingsHistory(source.id, `Device ${source.name}`);
       await invoke<string>("obs_update_source", {
         update: {
           id: source.id,
@@ -6356,6 +6436,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         updateAudioMixerState(source.id, { monitoring: quickDeviceMonitoring });
       }
       requestPreviewUpdate();
+      await recordDevice();
       closeQuickDeviceModal();
       showGlobalDialog("Device updated", "info", 1200);
     } catch (err) {
@@ -6533,12 +6614,17 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   let audioMixerMuted: Record<string, boolean> = {};
   const toggleAudioMixerMute = async (sourceId: string) => {
     const next = !audioMixerMuted[sourceId];
+    const source = sourcesList.find((s) => s.id === sourceId);
     audioMixerMuted = { ...audioMixerMuted, [sourceId]: next };
     // Persist mute via source params
     try {
+      const recordMute = source
+        ? await recordSourceSettingsHistory(sourceId, `${next ? "Mute" : "Unmute"} ${source.name}`)
+        : null;
       await invoke("obs_update_source", {
         update: { id: sourceId, params: { muted: next ? "true" : "false" } }
       });
+      if (recordMute) await recordMute();
     } catch {}
   };
   // Initialize the muted state from source visibility.
@@ -6709,6 +6795,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
 
     try {
+      const recordMixer = await recordSourceSettingsHistory(
+        source.id,
+        renameTo ? `Rename ${source.name}` : `Mixer ${source.name}`,
+        renameTo ? undefined : `mixer:${sourceId}`
+      );
       await invoke<string>("obs_update_source", {
         update: {
           id: source.id,
@@ -6719,6 +6810,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       });
       await loadSources();
       requestPreviewUpdate();
+      await recordMixer();
     } catch (err) {
       showGlobalDialog(String(err), "error");
     }
@@ -6795,6 +6887,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const saveAudioFiltersModal = async () => {
     if (!audioFiltersSourceId) return;
     const sourceId = audioFiltersSourceId;
+    const before = cloneFilterList(audioSourceFiltersMap[sourceId] ?? []);
     const nextFilters = audioFiltersDraft.map((f) => ({ ...f, params: { ...(f.params ?? {}) } }));
     audioSourceFiltersMap = {
       ...audioSourceFiltersMap,
@@ -6806,6 +6899,20 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         await invoke<string>("obs_set_source_filters", {
           sourceId,
           filters: nextFilters
+        });
+        const target = sourcesList.find((s) => s.id === sourceId);
+        recordHistory({
+          label: `Audio filters ${target?.name ?? sourceId}`,
+          undo: async () => {
+            audioSourceFiltersMap = { ...audioSourceFiltersMap, [sourceId]: before };
+            await invoke<string>("obs_set_source_filters", { sourceId, filters: cloneFilterList(before) });
+            await loadSources();
+          },
+          redo: async () => {
+            audioSourceFiltersMap = { ...audioSourceFiltersMap, [sourceId]: nextFilters };
+            await invoke<string>("obs_set_source_filters", { sourceId, filters: cloneFilterList(nextFilters) });
+            await loadSources();
+          }
         });
       } catch (err) {
         showGlobalDialog(`Audio filters apply failed: ${String(err)}`, "error");
@@ -7023,10 +7130,25 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const commitSourceFilters = async (filtersInput?: FilterItem[]) => {
     const filters = cloneFilterList(filtersInput ?? filtersDraft);
     if (filtersTargetType === "source") {
+      const before = cloneFilterList(sourceFiltersMap[filtersTargetId] ?? []);
       sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: filters };
       if (backendEnabled) {
         try {
           await applySourceFiltersToBackend(filtersTargetId, filters);
+          const target = sourcesList.find((s) => s.id === filtersTargetId);
+          recordHistory({
+            label: `Filters ${target?.name ?? filtersTargetLabel}`,
+            undo: async () => {
+              sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: before };
+              await applySourceFiltersToBackend(filtersTargetId, before);
+              await loadSources();
+            },
+            redo: async () => {
+              sourceFiltersMap = { ...sourceFiltersMap, [filtersTargetId]: filters };
+              await applySourceFiltersToBackend(filtersTargetId, filters);
+              await loadSources();
+            }
+          });
         } catch (err) {
           showGlobalDialog(String(err), "error");
           return;
