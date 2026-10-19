@@ -1,0 +1,264 @@
+name: macOS packaging diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MACOSX_DEPLOYMENT_TARGET: "12.0"
+  NODE_VERSION: 24
+  OBS_VERSION: 32.1.2
+  PNPM_VERSION: 10
+
+jobs:
+  diagnose:
+    name: Diagnose ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple-Silicon-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+          - name: Intel-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+    env:
+      REVO_TARGET: ${{ matrix.target }}
+      REVO_ARCH: ${{ matrix.arch }}
+      REVO_CMAKE_ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Create architecture-isolated directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/revo-macos-$REVO_TARGET"
+          {
+            echo "REVO_OBS_SRC=$ROOT/source/obs-studio"
+            echo "REVO_OBS_BUILD=$ROOT/build/obs"
+            echo "REVO_OBS_INSTALL=$ROOT/install/obs"
+            echo "REVO_DIAGNOSTICS=$ROOT/diagnostics"
+          } >> "$GITHUB_ENV"
+          mkdir -p \
+            "$ROOT/source/obs-studio" \
+            "$ROOT/build/obs" \
+            "$ROOT/install/obs" \
+            "$ROOT/diagnostics/logs"
+
+      - name: Record runner and toolchain provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "target=$REVO_TARGET"
+            echo "expected_arch=$REVO_CMAKE_ARCH"
+            echo "runner_arch=${{ runner.arch }}"
+            echo "uname=$(uname -m)"
+            sw_vers
+            echo
+            rustc -vV
+            echo
+            brew config
+            echo
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+          } 2>&1 | tee "$REVO_DIAGNOSTICS/runner.txt"
+          test "$(uname -m)" = "$REVO_CMAKE_ARCH"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Install project dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile 2>&1 | tee "$REVO_DIAGNOSTICS/logs/pnpm-install.log"
+
+      - name: Install and record FFmpeg dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/install-ffmpeg.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-ffmpeg.log"
+          brew info --json=v2 ffmpeg mpg123 > "$REVO_DIAGNOSTICS/homebrew-formulae.json"
+          "$(brew --prefix ffmpeg)/bin/ffmpeg" -version > "$REVO_DIAGNOSTICS/ffmpeg-version.txt"
+
+      - name: Prepare project sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/install-simde.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-simde.log"
+          bash scripts/macos/verify-simde.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-simde.log"
+          python3 scripts/macos/disable-cef.py
+          python3 scripts/macos/disable-obs-logger.py
+          cargo fetch --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$REVO_DIAGNOSTICS/logs/cargo-fetch.log"
+          python3 scripts/macos/patch-libobs-bindgen.py
+          python3 scripts/macos/patch-libobs-wrapper.py
+          bash scripts/macos/verify-libobs-patches.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-libobs-patches.log"
+
+      - name: Checkout and record OBS provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/checkout-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/checkout-obs.log"
+          {
+            echo "repository=https://github.com/obsproject/obs-studio.git"
+            echo "requested_ref=$OBS_VERSION"
+            echo "commit=$(git -C "$REVO_OBS_SRC" rev-parse HEAD)"
+            git -C "$REVO_OBS_SRC" submodule status --recursive
+          } > "$REVO_DIAGNOSTICS/obs-provenance.txt"
+
+      - name: Patch and configure OBS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/macos/patch-obs-metal-swift.py
+          python3 scripts/macos/patch-obs-virtualcam-warnings.py
+          bash scripts/macos/verify-obs-source-patches.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-source-patches.log"
+          bash scripts/macos/configure-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/configure-obs.log"
+          cp "$REVO_OBS_BUILD/CMakeCache.txt" "$REVO_DIAGNOSTICS/CMakeCache.txt"
+          grep -Ei 'ffmpeg|avcodec|avformat|avutil|swresample|swscale|dependency' \
+            "$REVO_OBS_BUILD/CMakeCache.txt" > "$REVO_DIAGNOSTICS/cmake-ffmpeg-selection.txt" || true
+          bash scripts/macos/verify-obs-ffmpeg-provenance.sh "$REVO_DIAGNOSTICS" \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-ffmpeg-provenance.log"
+
+      - name: Build and install OBS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$REVO_OBS_BUILD" \
+            --config RelWithDebInfo \
+            --parallel "$(sysctl -n hw.ncpu)" \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-obs.log"
+          bash scripts/macos/install-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-obs.log"
+          bash scripts/macos/configure-libobs-linker-path.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/configure-libobs-linker.log"
+          bash scripts/macos/reject-windows-binaries.sh
+
+      - name: Audit OBS build before staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/audit-runtime-dependencies.sh \
+            "$REVO_OBS_BUILD" "$REVO_DIAGNOSTICS" obs-build \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-obs-build.log"
+
+      - name: Stage and audit runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/populate-revo-root.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/populate-revo-root.log"
+          bash scripts/macos/audit-runtime-dependencies.sh \
+            src-tauri/resources/revo-root "$REVO_DIAGNOSTICS" staged-before-ffmpeg \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-before-ffmpeg.log"
+          bash scripts/macos/bundle-ffmpeg-dependencies.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/bundle-ffmpeg.log"
+          for lib in libavcodec.dylib libavformat.dylib libavutil.dylib libswresample.dylib libswscale.dylib; do
+            cmp "$(realpath "$(brew --prefix ffmpeg)/lib/$lib")" \
+              "src-tauri/resources/revo-root/core/lib/$lib"
+          done
+          bash scripts/macos/normalize-runtime-rpaths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-runtime.log"
+          bash scripts/macos/verify-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-runtime.log"
+          bash scripts/macos/audit-runtime-dependencies.sh \
+            src-tauri/resources/revo-root "$REVO_DIAGNOSTICS" staged-final \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-staged-final.log"
+
+      - name: Build and verify application bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm tauri build \
+            --bundles app \
+            --target "$REVO_TARGET" \
+            -- \
+            --no-default-features \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-app.log"
+          bash scripts/macos/normalize-app-dylib-paths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-app.log"
+          bash scripts/macos/verify-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-app.log"
+          APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          bash scripts/macos/audit-runtime-dependencies.sh \
+            "$APP" "$REVO_DIAGNOSTICS" final-app \
+            2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-final-app.log"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$REVO_DIAGNOSTICS/RevoStream-$REVO_TARGET.app.zip"
+
+      - name: CI startup smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          EXE="$APP/Contents/MacOS/revo-ui"
+          open -n "$APP"
+          sleep 15
+          if ! pgrep -f "$EXE" > "$REVO_DIAGNOSTICS/startup-process.txt"; then
+            log show --last 2m --style compact \
+              --predicate 'process == "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" || true
+            echo "ERROR: packaged application did not remain running for the CI smoke window"
+            exit 1
+          fi
+          pkill -f "$EXE" || true
+          echo "Packaging smoke test passed on the hosted runner." > "$REVO_DIAGNOSTICS/startup-result.txt"
+          echo "This is not a GUI/runtime acceptance test on physical hardware." >> "$REVO_DIAGNOSTICS/startup-result.txt"
+
+      - name: Write diagnostic summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# macOS packaging diagnostic"
+            echo
+            echo "- Target: $REVO_TARGET"
+            echo "- Requested architecture: $REVO_CMAKE_ARCH"
+            echo "- Runner: ${{ matrix.runner }} (${{ runner.arch }})"
+            echo "- OBS requested version: $OBS_VERSION"
+            echo "- Commit: ${{ github.sha }}"
+            echo "- Result: ${{ job.status }}"
+            echo "- Artifact: macos-diagnostics-$REVO_TARGET"
+            if [ -f "$REVO_DIAGNOSTICS/obs-provenance.txt" ]; then
+              echo "- OBS commit: $(grep '^commit=' "$REVO_DIAGNOSTICS/obs-provenance.txt" | cut -d= -f2-)"
+            fi
+            if [ -f "$REVO_DIAGNOSTICS/ffmpeg-version.txt" ]; then
+              echo "- FFmpeg: $(head -n 1 "$REVO_DIAGNOSTICS/ffmpeg-version.txt")"
+            fi
+            echo
+            echo "## Validation"
+            echo
+            echo "The job fails before packaging on architecture, dylib collision, OBS/FFmpeg provenance,"
+            echo "consumer-specific rpath, missing FFmpeg symbol, existing runtime verifier, or app verifier failures."
+            echo
+            echo "## Manual Intel Mac test"
+            echo
+            echo "1. Download macos-diagnostics-x86_64-apple-darwin and unzip the nested .app.zip."
+            echo "2. Run: xattr -dr com.apple.quarantine revo-ui.app"
+            echo "3. Run: file revo-ui.app/Contents/MacOS/revo-ui"
+            echo "4. Run: open revo-ui.app and confirm it stays open without a dyld error."
+            echo "5. Initialize OBS features, add a media source, record a short clip, and inspect Console for missing symbols or dylibs."
+            echo
+            echo "A passing CI smoke test proves only that the bundle stayed running on the hosted runner."
+            echo "Physical Intel and Apple Silicon hardware tests are still required before claiming support."
+          } | tee "$REVO_DIAGNOSTICS/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostic reports and application
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-diagnostics-${{ matrix.target }}
+          path: ${{ runner.temp }}/revo-macos-${{ matrix.target }}/diagnostics
+          if-no-files-found: error
+          retention-days: 14
