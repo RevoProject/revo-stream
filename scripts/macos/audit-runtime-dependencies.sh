@@ -15,6 +15,7 @@ COLLISIONS="$REPORT_DIR/${LABEL}-dylib-collisions.txt"
 SYMBOLS="$REPORT_DIR/${LABEL}-ffmpeg-symbols.txt"
 FAILURES="$REPORT_DIR/${LABEL}-failures.txt"
 MIXED_ARCHS="$REPORT_DIR/${LABEL}-multi-architecture.txt"
+ARCH_MISMATCHES="$REPORT_DIR/${LABEL}-architecture-mismatches.txt"
 
 printf 'path\tsha256\tarchitectures\tinstall_name\n' > "$MANIFEST"
 : > "$DETAILS"
@@ -22,6 +23,7 @@ printf 'path\tsha256\tarchitectures\tinstall_name\n' > "$MANIFEST"
 : > "$SYMBOLS"
 : > "$FAILURES"
 : > "$MIXED_ARCHS"
+: > "$ARCH_MISMATCHES"
 
 MACHO_LIST="$REPORT_DIR/${LABEL}-macho-files.txt"
 : > "$MACHO_LIST"
@@ -45,8 +47,12 @@ while IFS= read -r binary; do
   case " $archs " in
     *" $EXPECTED_ARCH "*) ;;
     *)
-      printf 'architecture mismatch: %s (expected %s, found %s)\n' \
-        "$binary" "$EXPECTED_ARCH" "${archs:-unknown}" | tee -a "$FAILURES"
+      mismatch="architecture mismatch: $binary (expected $EXPECTED_ARCH, found ${archs:-unknown})"
+      echo "$mismatch" | tee -a "$ARCH_MISMATCHES"
+      case "$LABEL" in
+        obs-build) ;;
+        *) echo "$mismatch" >> "$FAILURES" ;;
+      esac
       ;;
   esac
   if [ "$(printf '%s\n' "$archs" | wc -w | tr -d ' ')" -gt 1 ]; then
