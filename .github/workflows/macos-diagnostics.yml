@@ -170,6 +170,7 @@ jobs:
             2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-before-ffmpeg.log"
           bash scripts/macos/bundle-ffmpeg-dependencies.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/bundle-ffmpeg.log"
           test -s "$REVO_DIAGNOSTICS/staged-obs-deps-provenance.tsv"
+          bash scripts/macos/thin-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/thin-runtime.log"
           bash scripts/macos/normalize-runtime-rpaths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-runtime.log"
           bash scripts/macos/verify-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-runtime.log"
           bash scripts/macos/audit-runtime-dependencies.sh \
