@@ -105,6 +105,43 @@ if [ -d "$OBS_INSTALL/bin" ]; then
     "$ROOT/core/bin/"
 fi
 # --------------------------------------------------------
+# macOS framework-hosted data
+#
+# The macOS OBS install does not provide share/. libobs keeps its
+# effects and locale inside libobs.framework/Versions/A/Resources and
+# each plugin keeps its data inside the .plugin bundle. The runtime
+# expects the Windows/Linux layout under core/share, so mirror it.
+# --------------------------------------------------------
+LIBOBS_RESOURCES="$ROOT/core/lib/libobs.framework/Versions/A/Resources"
+LIBOBS_SHARE="$ROOT/core/share/obs/libobs"
+if [ ! -f "$LIBOBS_SHARE/default.effect" ] && [ -f "$LIBOBS_RESOURCES/default.effect" ]; then
+  mkdir -p "$LIBOBS_SHARE"
+  rsync -a \
+    --exclude 'Info.plist' \
+    "$LIBOBS_RESOURCES/" \
+    "$LIBOBS_SHARE/"
+  echo "Mirrored libobs framework data into share/obs/libobs"
+fi
+if [ ! -f "$ROOT/core/share/obs/libobs/default.effect" ]; then
+  echo "ERROR: libobs default.effect is missing from the staged runtime"
+  exit 1
+fi
+while IFS= read -r plugin; do
+  [ -n "$plugin" ] || continue
+  module="$(basename "$plugin")"
+  module="${module%.plugin}"
+  resources="$ROOT/core/lib/obs-plugins/$module.plugin/Contents/Resources"
+  data_target="$ROOT/core/share/obs/obs-plugins/$module"
+  if [ -d "$resources" ] && [ -z "$(find "$data_target" -type f -print -quit 2>/dev/null || true)" ]; then
+    mkdir -p "$data_target"
+    rsync -a \
+      --exclude 'Info.plist' \
+      "$resources/" \
+      "$data_target/"
+    echo "Mirrored plugin data for $module"
+  fi
+done < <(find "$ROOT/core/lib/obs-plugins" -maxdepth 1 -type d -name "*.plugin" -print | sort)
+# --------------------------------------------------------
 # Final tree
 # --------------------------------------------------------
 echo
