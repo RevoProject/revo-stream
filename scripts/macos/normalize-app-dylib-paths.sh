@@ -96,6 +96,10 @@ normalize_binary() {
       add_rpath "$binary" "@loader_path/../../../"
       ;;
 
+    "$APP/Contents/Resources/resources/revo-root/core/lib/"*.framework/*)
+      add_rpath "$binary" "@loader_path/.."
+      ;;
+
     "$APP/Contents/Resources/resources/revo-root/core/bin/"*)
       add_rpath "$binary" "@loader_path/../lib"
       ;;

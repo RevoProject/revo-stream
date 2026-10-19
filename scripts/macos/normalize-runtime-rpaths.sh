@@ -68,6 +68,9 @@ while IFS= read -r binary; do
     */*.framework/Versions/*/*)
       add_rpath "$binary" "@loader_path/../../../"
       ;;
+    */*.framework/*)
+      add_rpath "$binary" "@loader_path/.."
+      ;;
     */core/bin/*)
       add_rpath "$binary" "@loader_path/../lib"
       ;;
