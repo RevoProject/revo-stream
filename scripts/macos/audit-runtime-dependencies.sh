@@ -113,9 +113,11 @@ resolve_rpath_dependency() {
 case "$LABEL" in
   staged-final|final-app)
     while IFS= read -r binary; do
+      id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
       while IFS= read -r dependency; do
         dependency="$(printf '%s\n' "$dependency" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
         [ -n "$dependency" ] || continue
+        [ "$dependency" = "$id" ] && continue
         case "$dependency" in
           /System/Library/*|/usr/lib/*) ;;
           @loader_path/*)
@@ -258,9 +260,11 @@ case "$LABEL" in
         grep -E '^_(av_|avcodec_|avformat_|avfilter_|avdevice_|avio_|avpriv_|ff_|swr_|sws_)[A-Za-z0-9_]*$' |
         sort -u > "$CONSUMER_IMPORTS" || true
       [ -s "$CONSUMER_IMPORTS" ] || continue
+      id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
 
       while IFS= read -r dependency; do
         dependency="$(printf '%s\n' "$dependency" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+        [ "$dependency" = "$id" ] && continue
         case "$(basename "$dependency")" in
           libav*.dylib|libsw*.dylib) ;;
           *) continue ;;

@@ -27,21 +27,20 @@ while IFS= read -r -d '' binary; do
   checked=$((checked + 1))
 
   archs="$(lipo -archs "$binary" 2>/dev/null || true)"
-  case " $archs " in
-    *" $EXPECTED_ARCH "*) ;;
-    *)
+  id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
+  if [ "$archs" != "$EXPECTED_ARCH" ]; then
       echo "ERROR: architecture mismatch"
       echo "  file: $binary"
       echo "  expected: $EXPECTED_ARCH"
       echo "  found: ${archs:-unknown}"
       failures=$((failures + 1))
-      ;;
-  esac
+  fi
 
   while IFS= read -r dep; do
     dep="${dep#        }"
     dep="${dep%% (*}"
     [ -n "$dep" ] || continue
+    [ "$dep" = "$id" ] && continue
     case "$dep" in
       /System/Library/*|/usr/lib/*)
         ;;

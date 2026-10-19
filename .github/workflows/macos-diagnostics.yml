@@ -94,13 +94,12 @@ jobs:
         shell: bash
         run: pnpm install --frozen-lockfile 2>&1 | tee "$REVO_DIAGNOSTICS/logs/pnpm-install.log"
 
-      - name: Install and record FFmpeg dependencies
+      - name: Record host media dependencies
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/macos/install-ffmpeg.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-ffmpeg.log"
-          brew info --json=v2 ffmpeg mpg123 > "$REVO_DIAGNOSTICS/homebrew-formulae.json"
-          "$(brew --prefix ffmpeg)/bin/ffmpeg" -version > "$REVO_DIAGNOSTICS/ffmpeg-version.txt"
+          brew install mpg123 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-host-media.log"
+          brew info --json=v2 mpg123 > "$REVO_DIAGNOSTICS/homebrew-formulae.json"
 
       - name: Prepare project sources
         shell: bash
@@ -170,10 +169,7 @@ jobs:
             src-tauri/resources/revo-root "$REVO_DIAGNOSTICS" staged-before-ffmpeg \
             2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-before-ffmpeg.log"
           bash scripts/macos/bundle-ffmpeg-dependencies.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/bundle-ffmpeg.log"
-          for lib in libavcodec.dylib libavformat.dylib libavutil.dylib libswresample.dylib libswscale.dylib; do
-            cmp "$(realpath "$(brew --prefix ffmpeg)/lib/$lib")" \
-              "src-tauri/resources/revo-root/core/lib/$lib"
-          done
+          test -s "$REVO_DIAGNOSTICS/staged-obs-deps-provenance.tsv"
           bash scripts/macos/normalize-runtime-rpaths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-runtime.log"
           bash scripts/macos/verify-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-runtime.log"
           bash scripts/macos/audit-runtime-dependencies.sh \
@@ -233,8 +229,9 @@ jobs:
             if [ -f "$REVO_DIAGNOSTICS/obs-provenance.txt" ]; then
               echo "- OBS commit: $(grep '^commit=' "$REVO_DIAGNOSTICS/obs-provenance.txt" | cut -d= -f2-)"
             fi
-            if [ -f "$REVO_DIAGNOSTICS/ffmpeg-version.txt" ]; then
-              echo "- FFmpeg: $(head -n 1 "$REVO_DIAGNOSTICS/ffmpeg-version.txt")"
+            if [ -f "$REVO_DIAGNOSTICS/obs-ffmpeg-selection.txt" ]; then
+              echo "- $(grep '^CMake FFmpeg version:' "$REVO_DIAGNOSTICS/obs-ffmpeg-selection.txt")"
+              echo "- $(grep '^OBS dependency prefix:' "$REVO_DIAGNOSTICS/obs-ffmpeg-selection.txt")"
             fi
             echo
             echo "## Validation"

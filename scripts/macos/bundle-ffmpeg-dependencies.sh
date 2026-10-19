@@ -5,101 +5,212 @@ set -euo pipefail
 : "${REVO_TARGET:?REVO_TARGET is required}"
 ROOT="src-tauri/resources/revo-root"
 LIB="$ROOT/core/lib"
-FFMPEG_PREFIX="$(brew --prefix ffmpeg)"
-BREW_PREFIX="$(brew --prefix)"
-SEEN_FILE="$RUNNER_TEMP/revo-seen-dylibs-${REVO_TARGET}.txt"
-QUEUE_FILE="$RUNNER_TEMP/revo-dylib-queue-${REVO_TARGET}.txt"
-: > "$SEEN_FILE"
-: > "$QUEUE_FILE"
-mkdir -p "$LIB"
+ROOT_REAL="$(cd "$ROOT" && pwd -P)"
+OBS_BUILD="${REVO_OBS_BUILD:-$RUNNER_TEMP/obs-build-$REVO_TARGET}"
+CACHE="$OBS_BUILD/CMakeCache.txt"
+PREFIX_FILE="$OBS_BUILD/revo-obs-deps-prefix.txt"
+QUEUE_FILE="$RUNNER_TEMP/revo-dylib-queue-${REVO_TARGET}.tsv"
+SEEN_FILE="$RUNNER_TEMP/revo-seen-dylibs-${REVO_TARGET}.tsv"
+REPORT_DIR="${REVO_DIAGNOSTICS:-$RUNNER_TEMP}"
+PROVENANCE="$REPORT_DIR/staged-obs-deps-provenance.tsv"
 
-verify_arch() {
-  local file="$1"
-  local real archs
-  real="$(realpath "$file")"
-  archs="$(lipo -archs "$real" 2>/dev/null || true)"
+test -f "$CACHE" || { echo "ERROR: OBS CMake cache not found: $CACHE"; exit 1; }
+test -f "$PREFIX_FILE" || { echo "ERROR: validated OBS dependency prefix is missing: $PREFIX_FILE"; exit 1; }
+DEPS_PREFIX="$(cat "$PREFIX_FILE")"
+test -d "$DEPS_PREFIX/lib" || { echo "ERROR: OBS dependency lib directory is missing: $DEPS_PREFIX/lib"; exit 1; }
+mkdir -p "$LIB" "$REPORT_DIR"
+: > "$QUEUE_FILE"
+: > "$SEEN_FILE"
+printf 'load_name\tsource\tsource_realpath\tdestination\tsource_architectures\tdestination_architecture\tsource_slice_sha256\tdestination_sha256\n' > "$PROVENANCE"
+
+thin_to() {
+  local source="$1"
+  local destination="$2"
+  local archs
+  archs="$(lipo -archs "$source" 2>/dev/null || true)"
   case " $archs " in
     *" $REVO_CMAKE_ARCH "*) ;;
-    *)
-      echo "ERROR: refusing to bundle wrong-architecture dependency"
-      echo "File: $real"
-      echo "Expected: $REVO_CMAKE_ARCH"
-      echo "Found: ${archs:-not a Mach-O dylib}"
-      file "$real" || true
-      exit 1
-      ;;
+    *) echo "ERROR: $source does not contain $REVO_CMAKE_ARCH (found: ${archs:-not Mach-O})"; exit 1 ;;
   esac
+  if [ "$archs" = "$REVO_CMAKE_ARCH" ]; then
+    cp "$source" "$destination"
+  else
+    lipo "$source" -thin "$REVO_CMAKE_ARCH" -output "$destination"
+  fi
+  test "$(lipo -archs "$destination")" = "$REVO_CMAKE_ARCH"
 }
 
-# Preserve the canonical Homebrew FFmpeg names used by the runtime.
-# Homebrew may expose these as symlinks to versioned dylibs.
-for lib in             libavcodec.dylib             libavformat.dylib             libavutil.dylib             libswresample.dylib             libswscale.dylib
-do
-  src="$FFMPEG_PREFIX/lib/$lib"
-  if [ ! -e "$src" ]; then
-    echo "Missing FFmpeg library: $src"
-    exit 1
-  fi
-  verify_arch "$src"
-  cp -L "$src" "$LIB/$lib"
-done
+slice_hash() {
+  local source="$1"
+  local temp="$RUNNER_TEMP/revo-slice-${REVO_TARGET}-$$"
+  thin_to "$source" "$temp"
+  shasum -a 256 "$temp" | cut -d ' ' -f 1
+  rm -f "$temp"
+}
 
 enqueue() {
-  local f="$1"
-  [ -e "$f" ] || return 0
-  local real
-  real="$(realpath "$f")"
-  [ -f "$real" ] || return 0
-  if ! grep -Fqx "$real" "$SEEN_FILE" 2>/dev/null; then
-    printf '%s\n' "$real" >> "$SEEN_FILE"
-    printf '%s\n' "$f" >> "$QUEUE_FILE"
+  local source="$1"
+  local destination_name="$2"
+  local real existing
+  [ -e "$source" ] || { echo "ERROR: dependency source is missing: $source"; exit 1; }
+  real="$(realpath "$source")"
+  case "$real" in
+    "$DEPS_PREFIX"/*) ;;
+    *) echo "ERROR: refusing dependency outside validated OBS prefix: $real"; exit 1 ;;
+  esac
+  existing="$(awk -F '\t' -v name="$destination_name" '$1 == name { print $2; exit }' "$SEEN_FILE")"
+  if [ -n "$existing" ]; then
+    if [ "$existing" != "$real" ] && [ "$(slice_hash "$existing")" != "$(slice_hash "$real")" ]; then
+      echo "ERROR: conflicting providers for $destination_name"
+      echo "  $existing"
+      echo "  $real"
+      exit 1
+    fi
+    return 0
   fi
+  printf '%s\t%s\n' "$destination_name" "$real" >> "$SEEN_FILE"
+  printf '%s\t%s\n' "$source" "$destination_name" >> "$QUEUE_FILE"
 }
 
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  enqueue "$f"
+resolve_dependency() {
+  local consumer="$1"
+  local dependency="$2"
+  local relative candidate raw_rpath
+  case "$dependency" in
+    /System/Library/*|/usr/lib/*) return 1 ;;
+    "$DEPS_PREFIX"/*)
+      printf '%s\n' "$dependency"
+      return 0
+      ;;
+    @loader_path/*)
+      candidate="$(dirname "$consumer")/${dependency#@loader_path/}"
+      case "$(realpath "$candidate" 2>/dev/null || true)" in
+        "$DEPS_PREFIX"/*) printf '%s\n' "$candidate"; return 0 ;;
+      esac
+      ;;
+    @rpath/*)
+      relative="${dependency#@rpath/}"
+      while IFS= read -r raw_rpath; do
+        raw_rpath="$(printf '%s\n' "$raw_rpath" | sed -E 's/^[[:space:]]*path ([^ ]+).*/\1/')"
+        case "$raw_rpath" in
+          @loader_path*) candidate="$(dirname "$consumer")${raw_rpath#@loader_path}/$relative" ;;
+          /*) candidate="$raw_rpath/$relative" ;;
+          *) continue ;;
+        esac
+        case "$(realpath "$candidate" 2>/dev/null || true)" in
+          "$DEPS_PREFIX"/*) printf '%s\n' "$candidate"; return 0 ;;
+        esac
+      done < <(otool -l "$consumer" 2>/dev/null | awk '/cmd LC_RPATH/{show=1; next} show && /path /{print; show=0}')
+      candidate="$DEPS_PREFIX/lib/$relative"
+      [ -e "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+      ;;
+  esac
+  return 1
+}
+
+staged_dependency_exists() {
+  local consumer="$1"
+  local dependency="$2"
+  local relative candidate raw_rpath
+  case "$dependency" in
+    @loader_path/*)
+      candidate="$(dirname "$consumer")/${dependency#@loader_path/}"
+      [ -e "$candidate" ]
+      return
+      ;;
+    @rpath/*)
+      relative="${dependency#@rpath/}"
+      [ -e "$LIB/$relative" ] && return 0
+      while IFS= read -r raw_rpath; do
+        raw_rpath="$(printf '%s\n' "$raw_rpath" | sed -E 's/^[[:space:]]*path ([^ ]+).*/\1/')"
+        case "$raw_rpath" in
+          @loader_path*) candidate="$(dirname "$consumer")${raw_rpath#@loader_path}/$relative" ;;
+          /*) candidate="$raw_rpath/$relative" ;;
+          *) continue ;;
+        esac
+        case "$(realpath "$candidate" 2>/dev/null || true)" in
+          "$ROOT_REAL"/*) return 0 ;;
+        esac
+      done < <(otool -l "$consumer" 2>/dev/null | awk '/cmd LC_RPATH/{show=1; next} show && /path /{print; show=0}')
+      ;;
+  esac
+  return 1
+}
+
+enqueue_consumer_dependencies() {
+  local consumer="$1"
+  local dependency source id
+  id="$(otool -D "$consumer" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
+  while IFS= read -r dependency; do
+    dependency="$(printf '%s\n' "$dependency" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+    [ -n "$dependency" ] || continue
+    [ "$dependency" = "$id" ] && continue
+    source="$(resolve_dependency "$consumer" "$dependency" || true)"
+    if [ -n "$source" ]; then
+      enqueue "$source" "$(basename "$dependency")"
+      continue
+    fi
+    case "$dependency" in
+      /System/Library/*|/usr/lib/*) ;;
+      @rpath/*|@loader_path/*)
+        staged_dependency_exists "$consumer" "$dependency" || {
+          echo "ERROR: unresolved dependency for $consumer: $dependency"
+          exit 1
+        }
+        ;;
+      /*) echo "ERROR: dependency escapes validated OBS set: $consumer -> $dependency"; exit 1 ;;
+    esac
+  done < <(otool -L "$consumer" 2>/dev/null | tail -n +2)
+}
+
+while IFS='=' read -r key source; do
+  [ -n "$source" ] || continue
+  component="${key#FFmpeg_}"
+  component="${component%%_LIBRARY*}"
+  enqueue "$source" "lib${component}.dylib"
 done < <(
-  find "$FFMPEG_PREFIX/lib" -maxdepth 1 \( -type f -o -type l \) -name "*.dylib" -print | sort
+  awk -F= '$1 ~ /^FFmpeg_(avcodec|avformat|avutil|avfilter|avdevice|postproc|swresample|swscale)_LIBRARY(:|_(RELEASE|RELWITHDEBINFO|DEBUG|MINSIZEREL):)/ && $2 ~ /^\// { print $1 "=" $2 }' "$CACHE" |
+    sort -u
 )
 
-while IFS= read -r binary; do
-  [ -n "$binary" ] || continue
-  while IFS= read -r dep; do
-    dep="${dep#        }"
-    dep="${dep%% (*}"
-    case "$dep" in
-      "$BREW_PREFIX"/*) enqueue "$dep" ;;
-    esac
-  done < <(otool -L "$binary" 2>/dev/null | tail -n +2)
-done < <(find "$ROOT" -type f \
-  \( -perm -111 -o -name "*.dylib" \) -print)
+while IFS= read -r -d '' consumer; do
+  file "$consumer" 2>/dev/null | grep -q "Mach-O" || continue
+  enqueue_consumer_dependencies "$consumer"
+done < <(find "$ROOT" -type f -print0)
 
 queue_index=1
 while [ "$queue_index" -le "$(wc -l < "$QUEUE_FILE" | tr -d ' ')" ]; do
-  src="$(sed -n "${queue_index}p" "$QUEUE_FILE")"
+  entry="$(sed -n "${queue_index}p" "$QUEUE_FILE")"
   queue_index=$((queue_index + 1))
-  [ -n "$src" ] || continue
+  source="${entry%%	*}"
+  destination_name="${entry#*	}"
+  real="$(realpath "$source")"
+  destination="$LIB/$destination_name"
+  source_archs="$(lipo -archs "$real")"
+  source_slice_sha="$(slice_hash "$real")"
 
-  dst="$LIB/$(basename "$src")"
-  verify_arch "$src"
-  cp -L "$src" "$dst"
-
-  while IFS= read -r dep; do
-    dep="${dep#        }"
-    dep="${dep%% (*}"
-    case "$dep" in
-      "$BREW_PREFIX"/*) enqueue "$dep" ;;
-    esac
-  done < <(otool -L "$src" 2>/dev/null | tail -n +2)
-done
-
-for lib in             libavcodec.dylib             libavformat.dylib             libavutil.dylib             libswresample.dylib             libswscale.dylib
-do
-  test -f "$LIB/$lib" || {
-    echo "ERROR: canonical FFmpeg dylib was not staged: $LIB/$lib"
+  if [ -f "$destination" ] && [ "$(slice_hash "$destination")" != "$source_slice_sha" ]; then
+    echo "ERROR: staged $destination_name conflicts with the CMake-selected OBS dependency"
     exit 1
-  }
+  fi
+  thin_to "$real" "$destination"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$destination_name" "$source" "$real" "$destination" "$source_archs" "$REVO_CMAKE_ARCH" \
+    "$source_slice_sha" "$(shasum -a 256 "$destination" | cut -d ' ' -f 1)" >> "$PROVENANCE"
+
+  install_name="$(otool -D "$real" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
+  case "$install_name" in
+    @rpath/*|@loader_path/*|"$DEPS_PREFIX"/*)
+      alias_name="$(basename "$install_name")"
+      [ "$alias_name" = "$destination_name" ] || enqueue "$real" "$alias_name"
+      ;;
+  esac
+  enqueue_consumer_dependencies "$real"
 done
 
-find "$LIB" -maxdepth 1 \( -type f -o -type l \) -name "*.dylib" -print | sort
+for lib in libavcodec.dylib libavformat.dylib libavutil.dylib libswresample.dylib libswscale.dylib; do
+  test -f "$LIB/$lib" || { echo "ERROR: canonical FFmpeg dylib was not staged: $LIB/$lib"; exit 1; }
+done
+
+echo "Staged CMake-selected OBS dependency closure from $DEPS_PREFIX"
+find "$LIB" -maxdepth 1 -type f -name "*.dylib" -print | sort
