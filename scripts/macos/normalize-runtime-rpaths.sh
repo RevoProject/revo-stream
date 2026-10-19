@@ -65,7 +65,7 @@ while IFS= read -r binary; do
     */obs-plugins/*.plugin/Contents/MacOS/*)
       add_rpath "$binary" "@loader_path/../../../.."
       ;;
-    */libobs.framework/Versions/*/*)
+    */*.framework/Versions/*/*)
       add_rpath "$binary" "@loader_path/../../../"
       ;;
     */core/bin/*)

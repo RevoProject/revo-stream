@@ -8,6 +8,7 @@ REPORT_DIR="${1:?usage: verify-obs-ffmpeg-provenance.sh <report-directory>}"
 CACHE="$OBS_BUILD/CMakeCache.txt"
 EXPECTED_DEPS_PARENT="$(cd "$OBS_SRC/.deps" && pwd -P)"
 EXPECTED_ARCHIVE_SHA256="9403bb43fb0a9bb215739a5659ca274fe884dbbbcd22bd9ca781c961fb041c42"
+EXPECTED_QT_ARCHIVE_SHA256="990f11638b80a4509e14e8c315f6e4caa0861e37fcd3113a256fbff835ffca29"
 
 test -f "$CACHE" || { echo "ERROR: OBS CMake cache not found: $CACHE"; exit 1; }
 mkdir -p "$REPORT_DIR"
@@ -86,12 +87,16 @@ fi
 if ! grep -Fq "\"macos-universal\": \"$EXPECTED_ARCHIVE_SHA256\"" "$OBS_SRC/CMakePresets.json"; then
   echo "OBS CMake preset does not contain the expected obs-deps archive hash" | tee -a "$FAILURES"
 fi
+if ! grep -Fq "\"macos-universal\": \"$EXPECTED_QT_ARCHIVE_SHA256\"" "$OBS_SRC/CMakePresets.json"; then
+  echo "OBS CMake preset does not contain the expected Qt dependency archive hash" | tee -a "$FAILURES"
+fi
 
 version="$(awk -F= '$1 ~ /^FFmpeg_VERSION:/ { print $2; exit }' "$CACHE")"
 {
   echo "OBS source: $OBS_SRC"
   echo "OBS dependency prefix: $DEPS_PREFIX"
   echo "OBS dependency archive SHA-256: $EXPECTED_ARCHIVE_SHA256"
+  echo "OBS Qt dependency archive SHA-256: $EXPECTED_QT_ARCHIVE_SHA256"
   echo "CMake FFmpeg version: ${version:-unknown}"
 } | tee "$REPORT_DIR/obs-ffmpeg-selection.txt"
 
