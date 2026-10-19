@@ -406,6 +406,17 @@ jobs:
             --no-default-features
 
       # ----------------------------------------------------------
+      # Ensure the full staged runtime (including core/share) is
+      # inside the .app — the Tauri bundler has dropped staged
+      # subdirectories before.
+      # ----------------------------------------------------------
+      - name: Ensure bundled runtime resources
+        shell: bash
+        env:
+          REVO_TARGET: ${{ matrix.target }}
+        run: bash scripts/macos/ensure-app-resources.sh
+
+      # ----------------------------------------------------------
       # Normalize final .app Mach-O dependencies
       # ----------------------------------------------------------
       - name: Normalize final macOS app dylib paths
