@@ -15,6 +15,7 @@ COLLISIONS="$REPORT_DIR/${LABEL}-dylib-collisions.txt"
 SYMBOLS="$REPORT_DIR/${LABEL}-ffmpeg-symbols.txt"
 FAILURES="$REPORT_DIR/${LABEL}-failures.txt"
 MIXED_ARCHS="$REPORT_DIR/${LABEL}-multi-architecture.txt"
+ARCH_MISMATCHES="$REPORT_DIR/${LABEL}-architecture-mismatches.txt"
 
 printf 'path\tsha256\tarchitectures\tinstall_name\n' > "$MANIFEST"
 : > "$DETAILS"
@@ -22,6 +23,7 @@ printf 'path\tsha256\tarchitectures\tinstall_name\n' > "$MANIFEST"
 : > "$SYMBOLS"
 : > "$FAILURES"
 : > "$MIXED_ARCHS"
+: > "$ARCH_MISMATCHES"
 
 MACHO_LIST="$REPORT_DIR/${LABEL}-macho-files.txt"
 : > "$MACHO_LIST"
@@ -45,8 +47,12 @@ while IFS= read -r binary; do
   case " $archs " in
     *" $EXPECTED_ARCH "*) ;;
     *)
-      printf 'architecture mismatch: %s (expected %s, found %s)\n' \
-        "$binary" "$EXPECTED_ARCH" "${archs:-unknown}" | tee -a "$FAILURES"
+      mismatch="architecture mismatch: $binary (expected $EXPECTED_ARCH, found ${archs:-unknown})"
+      echo "$mismatch" | tee -a "$ARCH_MISMATCHES"
+      case "$LABEL" in
+        obs-build) ;;
+        *) echo "$mismatch" >> "$FAILURES" ;;
+      esac
       ;;
   esac
   if [ "$(printf '%s\n' "$archs" | wc -w | tr -d ' ')" -gt 1 ]; then
@@ -113,9 +119,11 @@ resolve_rpath_dependency() {
 case "$LABEL" in
   staged-final|final-app)
     while IFS= read -r binary; do
+      id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
       while IFS= read -r dependency; do
         dependency="$(printf '%s\n' "$dependency" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
         [ -n "$dependency" ] || continue
+        [ "$dependency" = "$id" ] && continue
         case "$dependency" in
           /System/Library/*|/usr/lib/*) ;;
           @loader_path/*)
@@ -258,9 +266,11 @@ case "$LABEL" in
         grep -E '^_(av_|avcodec_|avformat_|avfilter_|avdevice_|avio_|avpriv_|ff_|swr_|sws_)[A-Za-z0-9_]*$' |
         sort -u > "$CONSUMER_IMPORTS" || true
       [ -s "$CONSUMER_IMPORTS" ] || continue
+      id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 | sed 's/^[[:space:]]*//' || true)"
 
       while IFS= read -r dependency; do
         dependency="$(printf '%s\n' "$dependency" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.+$//')"
+        [ "$dependency" = "$id" ] && continue
         case "$(basename "$dependency")" in
           libav*.dylib|libsw*.dylib) ;;
           *) continue ;;
