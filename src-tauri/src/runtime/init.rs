@@ -267,13 +267,22 @@ pub(crate) fn start(
 		// libobs dlopens the graphics module string directly and macOS
 		// dyld neither appends .dylib nor searches the staged core/lib,
 		// so record the absolute path of the preferred staged module.
-		for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
-			let candidate = core_dir.join("lib").join(module);
-			if candidate.is_file() {
-				std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
-				eprintln!("[init] graphics module: {}", candidate.display());
-				break;
+		// An externally provided REVO_GRAPHICS_MODULE wins, allowing CI
+		// and advanced users to force the OpenGL fallback.
+		if std::env::var_os("REVO_GRAPHICS_MODULE").is_none() {
+			for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
+				let candidate = core_dir.join("lib").join(module);
+				if candidate.is_file() {
+					std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
+					eprintln!("[init] graphics module: {}", candidate.display());
+					break;
+				}
 			}
+		} else {
+			eprintln!(
+				"[init] graphics module override: {}",
+				std::env::var("REVO_GRAPHICS_MODULE").unwrap_or_default()
+			);
 		}
 	}
 	let conf_dir = if !cfg!(debug_assertions) || cfg!(any(target_os = "windows", target_os = "macos")) {

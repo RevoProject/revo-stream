@@ -211,6 +211,7 @@ jobs:
           if ! kill -0 "$APP_PID" 2>/dev/null; then
             wait "$APP_PID" 2>/dev/null || true
             tail -n 120 "$REVO_DIAGNOSTICS/startup-stderr.log" > "$REVO_DIAGNOSTICS/startup-stderr-tail.log" || true
+            cp ~/Library/Logs/DiagnosticReports/revo-ui*.ips "$REVO_DIAGNOSTICS/" 2>/dev/null || true
             log show --last 3m --style compact \
               --predicate 'process == "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" || true
             echo "ERROR: packaged application did not remain running for the CI smoke window"
