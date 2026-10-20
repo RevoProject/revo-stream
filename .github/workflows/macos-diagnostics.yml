@@ -2,6 +2,15 @@ name: macOS packaging diagnostics
 
 on:
   workflow_dispatch:
+    inputs:
+      targets:
+        description: Which targets to build
+        type: choice
+        default: both
+        options:
+          - both
+          - intel-only
+          - arm64-only
 
 permissions:
   contents: read
@@ -24,10 +33,17 @@ jobs:
             runner: macos-15
             target: aarch64-apple-darwin
             arch: arm64
+            selected: true
           - name: Intel-x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
             arch: x86_64
+            selected: true
+    if: >-
+      github.event_name == 'push' ||
+      inputs.targets == 'both' ||
+      (inputs.targets == 'intel-only' && matrix.target == 'x86_64-apple-darwin') ||
+      (inputs.targets == 'arm64-only' && matrix.target == 'aarch64-apple-darwin')
     env:
       REVO_TARGET: ${{ matrix.target }}
       REVO_ARCH: ${{ matrix.arch }}
@@ -52,6 +68,16 @@ jobs:
             "$ROOT/build/obs" \
             "$ROOT/install/obs" \
             "$ROOT/diagnostics/logs"
+
+      - name: Restore OBS build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.REVO_OBS_BUILD }}
+            ${{ env.REVO_OBS_INSTALL }}
+          key: macos-obsbuild-${{ matrix.target }}-${{ env.OBS_VERSION }}-${{ hashFiles('scripts/macos/checkout-obs.sh', 'scripts/macos/configure-obs.sh', 'scripts/macos/install-obs.sh', 'scripts/macos/patch-obs-metal-swift.py', 'scripts/macos/patch-obs-virtualcam-warnings.py', 'scripts/macos/verify-obs-source-patches.sh', 'scripts/macos/install-simde.sh', 'scripts/macos/verify-simde.sh') }}
+          restore-keys: |
+            macos-obsbuild-${{ matrix.target }}-${{ env.OBS_VERSION }}-
 
       - name: Record runner and toolchain provenance
         shell: bash
@@ -125,6 +151,12 @@ jobs:
             echo "commit=$(git -C "$REVO_OBS_SRC" rev-parse HEAD)"
             git -C "$REVO_OBS_SRC" submodule status --recursive
           } > "$REVO_DIAGNOSTICS/obs-provenance.txt"
+
+      - name: Restore OBS dependency archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.REVO_OBS_SRC }}/.deps
+          key: macos-obsdeps-${{ matrix.target }}-${{ env.OBS_VERSION }}-v1
 
       - name: Patch and configure OBS
         shell: bash
