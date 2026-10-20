@@ -186,6 +186,7 @@ fn write_websocket_config(conf_dir: &std::path::Path, password: &str) -> Result<
 }
 
 pub(crate) fn start(
+	app: tauri::AppHandle,
 	state: tauri::State<crate::ObsState>,
 	root_dir: Option<String>,
 ) -> Result<String, String> {
@@ -267,12 +268,21 @@ pub(crate) fn start(
 		// libobs dlopens the graphics module string directly and macOS
 		// dyld neither appends .dylib nor searches the staged core/lib,
 		// so record the absolute path of the preferred staged module.
-		for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
-			let candidate = core_dir.join("lib").join(module);
-			if candidate.is_file() {
-				std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
-				eprintln!("[init] graphics module: {}", candidate.display());
-				break;
+		// An externally provided REVO_GRAPHICS_MODULE wins, allowing CI
+		// and advanced users to force the OpenGL fallback.
+		if let Some(existing) = std::env::var_os("REVO_GRAPHICS_MODULE") {
+			eprintln!(
+				"[init] graphics module override: {}",
+				existing.to_string_lossy()
+			);
+		} else {
+			for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
+				let candidate = core_dir.join("lib").join(module);
+				if candidate.is_file() {
+					std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
+					eprintln!("[init] graphics module: {}", candidate.display());
+					break;
+				}
 			}
 		}
 	}
@@ -416,9 +426,29 @@ pub(crate) fn start(
             std::ptr::null_mut(),
         );
 
+		#[cfg(target_os = "macos")]
+		{
+			// libobs hotkey platform init (HIToolbox/TSM) asserts the main
+			// dispatch queue — dispatch obs_startup to the main thread and
+			// block this worker until it finishes.
+			let (tx, rx) = std::sync::mpsc::channel::<bool>();
+			app.run_on_main_thread(move || {
+				let ok = unsafe {
+					revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut())
+				};
+				let _ = tx.send(ok);
+			})
+			.map_err(|e| format!("failed to dispatch obs_startup to main thread: {e}"))?;
+			eprintln!("[init] obs_startup dispatched to main thread");
+			if !rx.recv().map_err(|e| format!("main thread obs_startup dropped: {e}"))? {
+				return Err("obs_startup failed".to_string());
+			}
+		}
+		#[cfg(not(target_os = "macos"))]
 		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
 			return Err("obs_startup failed".to_string());
 		}
+		eprintln!("[init] obs_startup ok");
 
 		let data_share_c = obs_path(&data_share_dir, true)?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
@@ -459,9 +489,14 @@ pub(crate) fn start(
 		}
 	}
 
+	eprintln!(
+		"[init] calling reset_video_audio with module: {}",
+		super::helpers::graphics_module_name()
+	);
 	if !reset_video_audio() {
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
+	eprintln!("[init] reset_video_audio ok");
 
 	unsafe {
 		let mut candidates: Vec<ModuleCandidate> = Vec::new();
@@ -628,7 +663,7 @@ pub(crate) fn start(
 	Ok("OBS initialized".to_string())
 }
 
-pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, String> {
+pub(crate) fn shutdown(app: tauri::AppHandle, state: tauri::State<crate::ObsState>) -> Result<String, String> {
 	let mut runtime = state
 		.runtime
 		.lock()
@@ -648,7 +683,25 @@ pub(crate) fn shutdown(state: tauri::State<crate::ObsState>) -> Result<String, S
 			revo_lib::obs::obs_source_release(runtime.transition_source);
 			runtime.transition_source = std::ptr::null_mut();
 		}
+		#[cfg(target_os = "macos")]
+		{
+			// Match obs_startup: teardown touches HIToolbox on macOS.
+			let (tx, rx) = std::sync::mpsc::channel::<()>();
+			app.run_on_main_thread(move || {
+				unsafe {
+					revo_lib::obs::obs_shutdown();
+				}
+				let _ = tx.send(());
+			})
+			.map_err(|e| format!("failed to dispatch obs_shutdown to main thread: {e}"))?;
+			rx.recv().map_err(|e| format!("main thread obs_shutdown dropped: {e}"))?;
+		}
+		#[cfg(not(target_os = "macos"))]
 		revo_lib::obs::obs_shutdown();
+		#[cfg(not(target_os = "macos"))]
+		{
+			let _ = &app;
+		}
 	}
 	runtime.initialized = false;
 	revo_lib::runtime::set_initialized(false);

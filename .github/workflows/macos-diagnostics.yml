@@ -190,6 +190,7 @@ jobs:
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           bash scripts/macos/ensure-app-resources.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/ensure-app-resources.log"
           bash scripts/macos/normalize-app-dylib-paths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-app.log"
+          bash scripts/macos/codesign-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/codesign-app.log"
           bash scripts/macos/verify-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-app.log"
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           bash scripts/macos/audit-runtime-dependencies.sh \
@@ -203,15 +204,35 @@ jobs:
           set -euo pipefail
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           EXE="$APP/Contents/MacOS/revo-ui"
-          open -n "$APP"
+          # Runner VMs expose a paravirtualized GPU that can hard-crash Metal
+          # device creation. Force the OpenGL module for the CI smoke window;
+          # real hardware keeps the Metal preference.
+          export REVO_GRAPHICS_MODULE="$APP/Contents/Resources/resources/revo-root/core/lib/libobs-opengl.dylib"
+          test -f "$REVO_GRAPHICS_MODULE"
+          # Run the binary directly so all backend stderr (init diagnostics,
+          # libobs log lines, panics) is captured for the failure report.
+          "$EXE" > "$REVO_DIAGNOSTICS/startup-stderr.log" 2>&1 &
+          APP_PID=$!
           sleep 15
-          if ! pgrep -f "$EXE" > "$REVO_DIAGNOSTICS/startup-process.txt"; then
-            log show --last 2m --style compact \
-              --predicate 'process == "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" || true
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            STATUS=unknown
+            wait "$APP_PID" 2>/dev/null || STATUS=$?
+            echo "process exit status: $STATUS" | tee "$REVO_DIAGNOSTICS/startup-exit-status.txt"
+            sleep 25
+            ls -la ~/Library/Logs/DiagnosticReports/ | tail -20 > "$REVO_DIAGNOSTICS/diagnostic-reports-list.txt" 2>&1 || true
+            find ~/Library/Logs/DiagnosticReports -maxdepth 2 -name "*revo*" -type f -print0 2>/dev/null |
+              while IFS= read -r -d '' report; do
+                cp "$report" "$REVO_DIAGNOSTICS/" || true
+              done
+            tail -n 120 "$REVO_DIAGNOSTICS/startup-stderr.log" > "$REVO_DIAGNOSTICS/startup-stderr-tail.log" || true
+            log show --last 5m --style compact \
+              --predicate 'process == "revo-ui" OR eventMessage CONTAINS[c] "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" 2>&1 || true
             echo "ERROR: packaged application did not remain running for the CI smoke window"
+            echo "--- last backend stderr lines ---"
+            tail -n 40 "$REVO_DIAGNOSTICS/startup-stderr.log" || true
             exit 1
           fi
-          pkill -f "$EXE" || true
+          kill "$APP_PID" 2>/dev/null || true
           echo "Packaging smoke test passed on the hosted runner." > "$REVO_DIAGNOSTICS/startup-result.txt"
           echo "This is not a GUI/runtime acceptance test on physical hardware." >> "$REVO_DIAGNOSTICS/startup-result.txt"
 

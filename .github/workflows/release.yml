@@ -423,6 +423,12 @@ jobs:
         shell: bash
         run: bash scripts/macos/normalize-app-dylib-paths.sh
 
+      - name: Re-sign macOS app ad-hoc
+        shell: bash
+        env:
+          REVO_TARGET: ${{ matrix.target }}
+        run: bash scripts/macos/codesign-app.sh
+
       - name: Verify final macOS app
         shell: bash
         run: bash scripts/macos/verify-app.sh

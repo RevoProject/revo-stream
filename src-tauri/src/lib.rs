@@ -328,7 +328,7 @@ fn open_debug_console(app: tauri::AppHandle) -> Result<(), String> {
 fn app_close_all_windows(app: tauri::AppHandle, state: tauri::State<ObsState>) -> Result<(), String> {
     use tauri::Manager;
 
-    if let Err(err) = runtime::init::shutdown(state) {
+    if let Err(err) = runtime::init::shutdown(app.clone(), state) {
         eprintln!("[shutdown] failed before closing application windows: {err}");
     }
 
@@ -715,13 +715,17 @@ fn themes_import_archive(
 }
 
 #[tauri::command(async)]
-fn obs_start(state: tauri::State<ObsState>, root_dir: Option<String>) -> Result<String, String> {
-    runtime::init::start(state, root_dir)
+fn obs_start(
+    app: tauri::AppHandle,
+    state: tauri::State<ObsState>,
+    root_dir: Option<String>,
+) -> Result<String, String> {
+    runtime::init::start(app, state, root_dir)
 }
 
 #[tauri::command(async)]
-fn obs_shutdown(state: tauri::State<ObsState>) -> Result<String, String> {
-    runtime::init::shutdown(state)
+fn obs_shutdown(app: tauri::AppHandle, state: tauri::State<ObsState>) -> Result<String, String> {
+    runtime::init::shutdown(app, state)
 }
 
 #[tauri::command]
@@ -1130,7 +1134,7 @@ pub fn run() {
                     "tray-show" => restore_main_window(app),
                     "tray-quit" => {
                         let state = app.state::<ObsState>();
-                        if let Err(error) = runtime::init::shutdown(state) {
+                        if let Err(error) = runtime::init::shutdown(app.clone(), state) {
                             eprintln!("[shutdown] failed from tray menu: {error}");
                         }
                         app.exit(0);
@@ -1219,7 +1223,7 @@ pub fn run() {
                     }
                     if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                         let state = app_handle_for_close.state::<ObsState>();
-                        if let Err(err) = runtime::init::shutdown(state) {
+                        if let Err(err) = runtime::init::shutdown(app_handle_for_close.clone(), state) {
                             eprintln!("[shutdown] failed during main window close: {err}");
                         }
 
