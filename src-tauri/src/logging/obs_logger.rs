@@ -75,6 +75,8 @@ pub(crate) unsafe extern "C" fn obs_log_handler(
 		return;
 	}
 
+	eprintln!("[libobs:{level}] {message}");
+
 	crate::logging::debug::push_debug_log_entry(
 		format!("libobs:{level}"),
 		Some(serde_json::json!({
