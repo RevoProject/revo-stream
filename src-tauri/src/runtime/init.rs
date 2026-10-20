@@ -302,8 +302,12 @@ pub(crate) fn start(
 	} else {
 		data_plugin_data_dir.clone()
 	};
+	#[cfg(target_os = "macos")]
+	let bundled_plugins_dir = bundled_plugins_dir.join("%module%.plugin/Contents/MacOS");
 	let runtime_plugins_dir = crate::settings::core::runtime_plugins_dir()
 		.unwrap_or_else(|_| std::path::PathBuf::from("data/plugins"));
+	#[cfg(target_os = "macos")]
+	let runtime_plugins_dir = runtime_plugins_dir.join("%module%.plugin/Contents/MacOS");
 	let legacy_runtime_plugins_dir = crate::settings::core::legacy_runtime_plugins_dir().unwrap_or_else(|_| {
 		if cfg!(debug_assertions) {
 			std::path::PathBuf::from("src-tauri/data/plugins")
@@ -615,14 +619,17 @@ pub(crate) fn start(
 		}
 
 		revo_lib::obs::obs_post_load_modules();
-		let capture_types = [
+		let mut capture_types = [
 			"xshm_input_v2",
 			"xshm_input",
 			"xcomposite_input",
 			"window_capture",
 			"monitor_capture",
 			"pipewire_screen_capture",
-		];
+		]
+		.to_vec();
+		#[cfg(target_os = "macos")]
+		capture_types.extend(["screen_capture", "display_capture"]);
 		let mut registered_capture_types = Vec::new();
 		for expected in capture_types {
 			let id = std::ffi::CString::new(expected).unwrap();
