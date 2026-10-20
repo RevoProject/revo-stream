@@ -203,15 +203,22 @@ jobs:
           set -euo pipefail
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           EXE="$APP/Contents/MacOS/revo-ui"
-          open -n "$APP"
+          # Run the binary directly so all backend stderr (init diagnostics,
+          # libobs log lines, panics) is captured for the failure report.
+          "$EXE" > "$REVO_DIAGNOSTICS/startup-stderr.log" 2>&1 &
+          APP_PID=$!
           sleep 15
-          if ! pgrep -f "$EXE" > "$REVO_DIAGNOSTICS/startup-process.txt"; then
-            log show --last 2m --style compact \
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            wait "$APP_PID" 2>/dev/null || true
+            tail -n 120 "$REVO_DIAGNOSTICS/startup-stderr.log" > "$REVO_DIAGNOSTICS/startup-stderr-tail.log" || true
+            log show --last 3m --style compact \
               --predicate 'process == "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" || true
             echo "ERROR: packaged application did not remain running for the CI smoke window"
+            echo "--- last backend stderr lines ---"
+            tail -n 40 "$REVO_DIAGNOSTICS/startup-stderr.log" || true
             exit 1
           fi
-          pkill -f "$EXE" || true
+          kill "$APP_PID" 2>/dev/null || true
           echo "Packaging smoke test passed on the hosted runner." > "$REVO_DIAGNOSTICS/startup-result.txt"
           echo "This is not a GUI/runtime acceptance test on physical hardware." >> "$REVO_DIAGNOSTICS/startup-result.txt"
 
