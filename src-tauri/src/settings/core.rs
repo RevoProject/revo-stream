@@ -569,7 +569,12 @@ pub(crate) fn is_valid_root(root: &std::path::PathBuf) -> bool {
 		return true;
 	}
 	let direct_effect = root.join("share/obs/libobs/default.effect");
-	direct_effect.exists()
+	if direct_effect.exists() {
+		return true;
+	}
+	// macOS staging mirrors the framework-hosted effects into core/share.
+	let core_effect = root.join("core/share/obs/libobs/default.effect");
+	core_effect.exists()
 }
 
 pub(crate) fn find_root_from(start: &std::path::PathBuf) -> Option<std::path::PathBuf> {
