@@ -2,15 +2,6 @@ name: macOS packaging diagnostics
 
 on:
   workflow_dispatch:
-    inputs:
-      targets:
-        description: Which targets to build
-        type: choice
-        default: both
-        options:
-          - both
-          - intel-only
-          - arm64-only
 
 permissions:
   contents: read
@@ -33,17 +24,10 @@ jobs:
             runner: macos-15
             target: aarch64-apple-darwin
             arch: arm64
-            selected: true
           - name: Intel-x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
             arch: x86_64
-            selected: true
-    if: >-
-      github.event_name == 'push' ||
-      inputs.targets == 'both' ||
-      (inputs.targets == 'intel-only' && matrix.target == 'x86_64-apple-darwin') ||
-      (inputs.targets == 'arm64-only' && matrix.target == 'aarch64-apple-darwin')
     env:
       REVO_TARGET: ${{ matrix.target }}
       REVO_ARCH: ${{ matrix.arch }}
