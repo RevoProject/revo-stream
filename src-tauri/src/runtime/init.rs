@@ -262,6 +262,20 @@ pub(crate) fn start(
 	} else {
 		core_ffmpeg_bin.clone()
 	};
+	#[cfg(target_os = "macos")]
+	{
+		// libobs dlopens the graphics module string directly and macOS
+		// dyld neither appends .dylib nor searches the staged core/lib,
+		// so record the absolute path of the preferred staged module.
+		for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
+			let candidate = core_dir.join("lib").join(module);
+			if candidate.is_file() {
+				std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
+				eprintln!("[init] graphics module: {}", candidate.display());
+				break;
+			}
+		}
+	}
 	let conf_dir = if !cfg!(debug_assertions) || cfg!(any(target_os = "windows", target_os = "macos")) {
 		crate::settings::core::runtime_data_dir()?.join("conf")
 	} else {
@@ -392,8 +406,12 @@ pub(crate) fn start(
 	}
 
 	unsafe {
-		#[cfg(any(target_os = "windows", all(target_os = "linux", target_arch = "x86_64")))]
-		revo_lib::obs::base_set_log_handler(
+	#[cfg(any(
+		target_os = "windows",
+		all(target_os = "linux", target_arch = "x86_64"),
+		target_os = "macos"
+	))]
+	revo_lib::obs::base_set_log_handler(
             Some(crate::logging::obs_logger::obs_log_handler),
             std::ptr::null_mut(),
         );

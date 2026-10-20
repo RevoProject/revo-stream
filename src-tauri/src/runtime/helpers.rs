@@ -63,14 +63,37 @@ pub(crate) fn stop_streaming_internal(runtime: &mut crate::ObsRuntime) {
 }
 
 pub(crate) fn graphics_module() -> std::ffi::CString {
-	std::ffi::CString::new(if cfg!(windows) { "libobs-d3d11" } else { "libobs-opengl" }).unwrap()
+	std::ffi::CString::new(graphics_module_name()).unwrap()
+}
+
+pub(crate) fn graphics_module_name() -> String {
+	if cfg!(windows) {
+		return "libobs-d3d11".to_string();
+	}
+	if cfg!(target_os = "macos") {
+		// libobs loads the module with a raw dlopen of this string and
+		// macOS dyld does not append .dylib or search the staged revo-root
+		// core/lib, so obs_start records the absolute staged module path
+		// in REVO_GRAPHICS_MODULE and we pass it verbatim.
+		if let Ok(module) = std::env::var("REVO_GRAPHICS_MODULE") {
+			if !module.trim().is_empty() {
+				return module;
+			}
+		}
+		return "libobs-opengl".to_string();
+	}
+	"libobs-opengl".to_string()
 }
 
 #[cfg(test)]
 #[test]
 fn graphics_backend_matches_platform() {
-	let expected = if cfg!(windows) { "libobs-d3d11" } else { "libobs-opengl" };
-	assert_eq!(graphics_module().to_str().unwrap(), expected);
+	let expected = if cfg!(windows) {
+		"libobs-d3d11"
+	} else {
+		"libobs-opengl"
+	};
+	assert_eq!(graphics_module_name(), expected);
 }
 
 pub(crate) fn reset_video_with_resolution(width: u32, height: u32) -> bool {

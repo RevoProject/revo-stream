@@ -3042,7 +3042,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         appInitializationMessage = "Starting core...";
         await startObsInternal(true);
         if (!isObsRunning) {
-          throw new Error("RevoStream core could not be started.");
+          throw new Error(appInitializationError || "RevoStream core could not be started.");
         }
       };
       const maybeOpenAuxWindowModal = async () => {
