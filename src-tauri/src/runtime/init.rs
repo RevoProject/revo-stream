@@ -267,24 +267,20 @@ pub(crate) fn start(
 	{
 		// libobs dlopens the graphics module string directly and macOS
 		// dyld neither appends .dylib nor searches the staged core/lib,
-		// so record the absolute path of the preferred staged module.
-		// An externally provided REVO_GRAPHICS_MODULE wins, allowing CI
-		// and advanced users to force the OpenGL fallback.
+		// so record absolute paths of the staged modules. A previously
+		// winning module (or an external override) is tried first.
+		let mut candidates: Vec<String> = Vec::new();
 		if let Some(existing) = std::env::var_os("REVO_GRAPHICS_MODULE") {
-			eprintln!(
-				"[init] graphics module override: {}",
-				existing.to_string_lossy()
-			);
-		} else {
-			for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
-				let candidate = core_dir.join("lib").join(module);
-				if candidate.is_file() {
-					std::env::set_var("REVO_GRAPHICS_MODULE", &candidate);
-					eprintln!("[init] graphics module: {}", candidate.display());
-					break;
-				}
+			candidates.push(existing.to_string_lossy().into_owned());
+		}
+		for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
+			let candidate = core_dir.join("lib").join(module);
+			if candidate.is_file() {
+				candidates.push(candidate.display().to_string());
 			}
 		}
+		std::env::set_var("REVO_GRAPHICS_MODULE_CANDIDATES", candidates.join("\n"));
+		eprintln!("[init] graphics module candidates: {}", candidates.join(" | "));
 	}
 	let conf_dir = if !cfg!(debug_assertions) || cfg!(any(target_os = "windows", target_os = "macos")) {
 		crate::settings::core::runtime_data_dir()?.join("conf")
@@ -490,10 +486,33 @@ pub(crate) fn start(
 	}
 
 	eprintln!(
-		"[init] calling reset_video_audio with module: {}",
-		super::helpers::graphics_module_name()
+		"[init] calling reset_video_audio with candidates: {:?}",
+		super::helpers::graphics_module_candidates()
+			.iter()
+			.map(|c| c.to_string_lossy().into_owned())
+			.collect::<Vec<_>>()
 	);
 	if !reset_video_audio() {
+		// obs_startup already created the core, so retrying without a
+		// teardown would hit "Tried to call obs_startup more than once".
+		eprintln!("[init] reset_video_audio failed, releasing obs core");
+		#[cfg(target_os = "macos")]
+		{
+			let (tx, rx) = std::sync::mpsc::channel::<()>();
+			app.run_on_main_thread(move || {
+				unsafe {
+					revo_lib::obs::obs_shutdown();
+				}
+				let _ = tx.send(());
+			})
+			.map_err(|e| format!("failed to dispatch obs_shutdown to main thread: {e}"))?;
+			rx.recv()
+				.map_err(|e| format!("main thread obs_shutdown dropped: {e}"))?;
+		}
+		#[cfg(not(target_os = "macos"))]
+		unsafe {
+			revo_lib::obs::obs_shutdown();
+		}
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
 	eprintln!("[init] reset_video_audio ok");
@@ -823,9 +842,7 @@ pub(crate) fn cleanup_scene(runtime: &mut crate::ObsRuntime) {
 
 pub(crate) fn reset_video_audio() -> bool {
 	unsafe {
-		let graphics_module = super::helpers::graphics_module();
 		let mut ovi: revo_lib::obs::obs_video_info = std::mem::zeroed();
-		ovi.graphics_module = graphics_module.as_ptr();
 		ovi.fps_num = 30;
 		ovi.fps_den = 1;
 		ovi.base_width = 1280;
@@ -839,15 +856,31 @@ pub(crate) fn reset_video_audio() -> bool {
 		ovi.range = revo_lib::obs::video_range_type_VIDEO_RANGE_PARTIAL;
 		ovi.scale_type = revo_lib::obs::obs_scale_type_OBS_SCALE_BICUBIC;
 
-		let video_ok = revo_lib::obs::obs_reset_video(&mut ovi as *mut _)
-			== revo_lib::obs::OBS_VIDEO_SUCCESS as i32;
+		// Try each staged graphics module; on macOS the VM/hardware split
+		// makes Metal device creation flaky, so fall back to OpenGL.
+		let candidates = super::helpers::graphics_module_candidates();
+		let mut video_ok = false;
+		for module in &candidates {
+			ovi.graphics_module = module.as_ptr();
+			let code = revo_lib::obs::obs_reset_video(&mut ovi as *mut _);
+			eprintln!(
+				"[init] obs_reset_video with {} -> {code}",
+				module.to_string_lossy()
+			);
+			if code == revo_lib::obs::OBS_VIDEO_SUCCESS as i32 {
+				std::env::set_var("REVO_GRAPHICS_MODULE", module.to_string_lossy().as_ref());
+				video_ok = true;
+				break;
+			}
+		}
+		if !video_ok {
+			return false;
+		}
 
 		let mut oai: revo_lib::obs::obs_audio_info = std::mem::zeroed();
 		oai.samples_per_sec = 48_000;
 		oai.speakers = revo_lib::obs::speaker_layout_SPEAKERS_STEREO;
-		let audio_ok = revo_lib::obs::obs_reset_audio(&oai as *const _);
-
-		video_ok && audio_ok
+		revo_lib::obs::obs_reset_audio(&oai as *const _)
 	}
 }
 

@@ -63,26 +63,41 @@ pub(crate) fn stop_streaming_internal(runtime: &mut crate::ObsRuntime) {
 }
 
 pub(crate) fn graphics_module() -> std::ffi::CString {
-	std::ffi::CString::new(graphics_module_name()).unwrap()
+	let candidates = graphics_module_candidates();
+	candidates
+		.into_iter()
+		.next()
+		.unwrap_or_else(|| std::ffi::CString::new("libobs-opengl").unwrap())
 }
 
-pub(crate) fn graphics_module_name() -> String {
+pub(crate) fn graphics_module_candidates() -> Vec<std::ffi::CString> {
 	if cfg!(windows) {
-		return "libobs-d3d11".to_string();
+		return vec![std::ffi::CString::new("libobs-d3d11").unwrap()];
 	}
+	let mut names: Vec<String> = Vec::new();
 	if cfg!(target_os = "macos") {
-		// libobs loads the module with a raw dlopen of this string and
-		// macOS dyld does not append .dylib or search the staged revo-root
-		// core/lib, so obs_start records the absolute staged module path
-		// in REVO_GRAPHICS_MODULE and we pass it verbatim.
+		// The winning module from a previous successful reset is tried
+		// first; init records the staged Metal/OpenGL paths after it.
 		if let Ok(module) = std::env::var("REVO_GRAPHICS_MODULE") {
 			if !module.trim().is_empty() {
-				return module;
+				names.push(module);
 			}
 		}
-		return "libobs-opengl".to_string();
+		if let Ok(candidates) = std::env::var("REVO_GRAPHICS_MODULE_CANDIDATES") {
+			for candidate in candidates.split('\n') {
+				if !candidate.trim().is_empty() && !names.contains(&candidate.to_string()) {
+					names.push(candidate.to_string());
+				}
+			}
+		}
 	}
-	"libobs-opengl".to_string()
+	if names.is_empty() {
+		names.push("libobs-opengl".to_string());
+	}
+	names
+		.into_iter()
+		.map(|name| std::ffi::CString::new(name).unwrap())
+		.collect()
 }
 
 #[cfg(test)]
@@ -93,7 +108,11 @@ fn graphics_backend_matches_platform() {
 	} else {
 		"libobs-opengl"
 	};
-	assert_eq!(graphics_module_name(), expected);
+	let candidates = graphics_module_candidates();
+	assert_eq!(
+		candidates.first().map(|c| c.to_str().unwrap().to_string()),
+		Some(expected.to_string())
+	);
 }
 
 pub(crate) fn reset_video_with_resolution(width: u32, height: u32) -> bool {
