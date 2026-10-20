@@ -215,8 +215,8 @@ jobs:
           APP_PID=$!
           sleep 15
           if ! kill -0 "$APP_PID" 2>/dev/null; then
-            wait "$APP_PID" 2>/dev/null
-            STATUS=$?
+            STATUS=unknown
+            wait "$APP_PID" 2>/dev/null || STATUS=$?
             echo "process exit status: $STATUS" | tee "$REVO_DIAGNOSTICS/startup-exit-status.txt"
             sleep 25
             ls -la ~/Library/Logs/DiagnosticReports/ | tail -20 > "$REVO_DIAGNOSTICS/diagnostic-reports-list.txt" 2>&1 || true
