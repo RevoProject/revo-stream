@@ -715,13 +715,17 @@ fn themes_import_archive(
 }
 
 #[tauri::command(async)]
-fn obs_start(state: tauri::State<ObsState>, root_dir: Option<String>) -> Result<String, String> {
-    runtime::init::start(state, root_dir)
+fn obs_start(
+    app: tauri::AppHandle,
+    state: tauri::State<ObsState>,
+    root_dir: Option<String>,
+) -> Result<String, String> {
+    runtime::init::start(app, state, root_dir)
 }
 
 #[tauri::command(async)]
-fn obs_shutdown(state: tauri::State<ObsState>) -> Result<String, String> {
-    runtime::init::shutdown(state)
+fn obs_shutdown(app: tauri::AppHandle, state: tauri::State<ObsState>) -> Result<String, String> {
+    runtime::init::shutdown(app, state)
 }
 
 #[tauri::command]
