@@ -215,11 +215,18 @@ jobs:
           APP_PID=$!
           sleep 15
           if ! kill -0 "$APP_PID" 2>/dev/null; then
-            wait "$APP_PID" 2>/dev/null || true
+            wait "$APP_PID" 2>/dev/null
+            STATUS=$?
+            echo "process exit status: $STATUS" | tee "$REVO_DIAGNOSTICS/startup-exit-status.txt"
+            sleep 25
+            ls -la ~/Library/Logs/DiagnosticReports/ | tail -20 > "$REVO_DIAGNOSTICS/diagnostic-reports-list.txt" 2>&1 || true
+            find ~/Library/Logs/DiagnosticReports -maxdepth 2 -name "*revo*" -type f -print0 2>/dev/null |
+              while IFS= read -r -d '' report; do
+                cp "$report" "$REVO_DIAGNOSTICS/" || true
+              done
             tail -n 120 "$REVO_DIAGNOSTICS/startup-stderr.log" > "$REVO_DIAGNOSTICS/startup-stderr-tail.log" || true
-            cp ~/Library/Logs/DiagnosticReports/revo-ui*.ips "$REVO_DIAGNOSTICS/" 2>/dev/null || true
-            log show --last 3m --style compact \
-              --predicate 'process == "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" || true
+            log show --last 5m --style compact \
+              --predicate 'process == "revo-ui" OR eventMessage CONTAINS[c] "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" 2>&1 || true
             echo "ERROR: packaged application did not remain running for the CI smoke window"
             echo "--- last backend stderr lines ---"
             tail -n 40 "$REVO_DIAGNOSTICS/startup-stderr.log" || true
