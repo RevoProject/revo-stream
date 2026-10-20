@@ -204,6 +204,11 @@ jobs:
           set -euo pipefail
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           EXE="$APP/Contents/MacOS/revo-ui"
+          # Runner VMs expose a paravirtualized GPU that can hard-crash Metal
+          # device creation. Force the OpenGL module for the CI smoke window;
+          # real hardware keeps the Metal preference.
+          export REVO_GRAPHICS_MODULE="$APP/Contents/Resources/resources/revo-root/core/lib/libobs-opengl.dylib"
+          test -f "$REVO_GRAPHICS_MODULE"
           # Run the binary directly so all backend stderr (init diagnostics,
           # libobs log lines, panics) is captured for the failure report.
           "$EXE" > "$REVO_DIAGNOSTICS/startup-stderr.log" 2>&1 &

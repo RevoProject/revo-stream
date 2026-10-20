@@ -269,7 +269,12 @@ pub(crate) fn start(
 		// so record the absolute path of the preferred staged module.
 		// An externally provided REVO_GRAPHICS_MODULE wins, allowing CI
 		// and advanced users to force the OpenGL fallback.
-		if std::env::var_os("REVO_GRAPHICS_MODULE").is_none() {
+		if let Some(existing) = std::env::var_os("REVO_GRAPHICS_MODULE") {
+			eprintln!(
+				"[init] graphics module override: {}",
+				existing.to_string_lossy()
+			);
+		} else {
 			for module in ["libobs-metal.dylib", "libobs-opengl.dylib"] {
 				let candidate = core_dir.join("lib").join(module);
 				if candidate.is_file() {
@@ -278,11 +283,6 @@ pub(crate) fn start(
 					break;
 				}
 			}
-		} else {
-			eprintln!(
-				"[init] graphics module override: {}",
-				std::env::var("REVO_GRAPHICS_MODULE").unwrap_or_default()
-			);
 		}
 	}
 	let conf_dir = if !cfg!(debug_assertions) || cfg!(any(target_os = "windows", target_os = "macos")) {
@@ -428,6 +428,7 @@ pub(crate) fn start(
 		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
 			return Err("obs_startup failed".to_string());
 		}
+		eprintln!("[init] obs_startup ok");
 
 		let data_share_c = obs_path(&data_share_dir, true)?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
@@ -468,9 +469,14 @@ pub(crate) fn start(
 		}
 	}
 
+	eprintln!(
+		"[init] calling reset_video_audio with module: {}",
+		super::helpers::graphics_module_name()
+	);
 	if !reset_video_audio() {
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
+	eprintln!("[init] reset_video_audio ok");
 
 	unsafe {
 		let mut candidates: Vec<ModuleCandidate> = Vec::new();
