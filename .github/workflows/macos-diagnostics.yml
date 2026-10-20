@@ -190,6 +190,7 @@ jobs:
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           bash scripts/macos/ensure-app-resources.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/ensure-app-resources.log"
           bash scripts/macos/normalize-app-dylib-paths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-app.log"
+          bash scripts/macos/codesign-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/codesign-app.log"
           bash scripts/macos/verify-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-app.log"
           APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           bash scripts/macos/audit-runtime-dependencies.sh \
