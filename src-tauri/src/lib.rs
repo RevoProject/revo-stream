@@ -4,6 +4,7 @@ pub mod sources;
 pub mod settings;
 pub mod devices;
 pub mod logging;
+pub mod permissions;
 pub mod utils;
 pub mod ui;
 pub mod models;
@@ -1286,6 +1287,9 @@ pub fn run() {
             obs_get_graphic_planner_init,
             obs_set_graphic_planner_init,
             obs_list_pulse_devices,
+            permissions::macos_permissions_status,
+            permissions::macos_request_screen_capture,
+            permissions::macos_open_privacy_pane,
             obs_list_alsa_devices,
             obs_get_settings_select_options,
             obs_list_window_picker_items,

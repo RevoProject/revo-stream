@@ -31,6 +31,7 @@
   import QuickTextEditModal from "../lib/components/QuickModal/QuickTextEditModal.svelte";
   import QuickColorModal from "../lib/components/QuickModal/QuickColorModal.svelte";
   import QuickDeviceModal from "../lib/components/QuickModal/QuickDeviceModal.svelte";
+  import PermissionsOnboarding from "../lib/components/PermissionsOnboarding.svelte";
   import { applyRevoTheme, revoThemeFromLookProfile } from "../lib/theme/revoTheme";
   import type { DemoSource, SceneInfo } from "../lib/types";
   import { isAudioCaptureSourceType, filterGraphicPlannerSources } from "../lib/sourceClassification";
@@ -8347,6 +8348,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     normalizeColor={normalizeQuickHexColor}
     {handleBackdropKey}
   />
+
+  <PermissionsOnboarding />
 
   <QuickDeviceModal
     open={showQuickDeviceModal && Boolean(quickDeviceSource)}
