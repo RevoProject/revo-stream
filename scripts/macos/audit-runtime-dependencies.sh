@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="${1:?usage: audit-runtime-dependencies.sh <root> <report-directory> <label>}"
 REPORT_DIR="${2:?usage: audit-runtime-dependencies.sh <root> <report-directory> <label>}"
 LABEL="${3:?usage: audit-runtime-dependencies.sh <root> <report-directory> <label>}"
-EXPECTED_ARCH="${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
 
 # Normalize project architecture labels to canonical names reported by lipo.
 case "${REVO_CMAKE_ARCH}" in
@@ -12,6 +11,8 @@ case "${REVO_CMAKE_ARCH}" in
   arm64|aarch64) REVO_CMAKE_ARCH=arm64 ;;
 esac
 export REVO_CMAKE_ARCH
+
+EXPECTED_ARCH="${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
 
 test -d "$ROOT" || { echo "ERROR: audit root does not exist: $ROOT"; exit 1; }
 mkdir -p "$REPORT_DIR"

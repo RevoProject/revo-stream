@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="${1:-src-tauri/resources/revo-root}"
-EXPECTED_ARCH="${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
 
 # Normalize project architecture labels to canonical names reported by lipo.
 case "${REVO_CMAKE_ARCH}" in
@@ -10,6 +9,8 @@ case "${REVO_CMAKE_ARCH}" in
   arm64|aarch64) REVO_CMAKE_ARCH=arm64 ;;
 esac
 export REVO_CMAKE_ARCH
+
+EXPECTED_ARCH="${REVO_CMAKE_ARCH:?REVO_CMAKE_ARCH is required}"
 REPORT_DIR="${REVO_DIAGNOSTICS:-$RUNNER_TEMP}"
 REPORT="$REPORT_DIR/thinned-runtime.tsv"
 
