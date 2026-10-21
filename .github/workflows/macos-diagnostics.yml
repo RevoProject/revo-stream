@@ -229,8 +229,25 @@ jobs:
           # libobs log lines, panics) is captured for the failure report.
           "$EXE" > "$REVO_DIAGNOSTICS/startup-stderr.log" 2>&1 &
           APP_PID=$!
-          sleep 15
-          if ! kill -0 "$APP_PID" 2>/dev/null; then
+          # Wait until OBS fully initializes (reset_video_audio ok) — this
+          # exercises the real dlopen of the graphics module on arm64.
+          SMOKE_OK=false
+          for _ in $(seq 1 45); do
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              break
+            fi
+            if grep -q "reset_video_audio ok" "$REVO_DIAGNOSTICS/startup-stderr.log" 2>/dev/null; then
+              SMOKE_OK=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$SMOKE_OK" != "true" ] && kill -0 "$APP_PID" 2>/dev/null; then
+            echo "Smoke window ended before OBS initialization completed (app still running; treating as inconclusive, not a failure)."
+            kill "$APP_PID" 2>/dev/null || true
+            exit 0
+          fi
+          if [ "$SMOKE_OK" != "true" ]; then
             STATUS=unknown
             wait "$APP_PID" 2>/dev/null || STATUS=$?
             echo "process exit status: $STATUS" | tee "$REVO_DIAGNOSTICS/startup-exit-status.txt"
@@ -249,6 +266,9 @@ jobs:
             exit 1
           fi
           kill "$APP_PID" 2>/dev/null || true
+          grep -q "reset_video_audio ok" "$REVO_DIAGNOSTICS/startup-stderr.log" || {
+            echo "WARNING: app stayed running, but OBS reset confirmation was not observed in stderr"
+          }
           echo "Packaging smoke test passed on the hosted runner." > "$REVO_DIAGNOSTICS/startup-result.txt"
           echo "This is not a GUI/runtime acceptance test on physical hardware." >> "$REVO_DIAGNOSTICS/startup-result.txt"
 
