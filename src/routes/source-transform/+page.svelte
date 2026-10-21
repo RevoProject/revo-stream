@@ -64,6 +64,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import GraphicPlanner from "$lib/components/Modules/GraphicPlanner.svelte";
+  import { filterGraphicPlannerSources } from "$lib/sourceClassification";
   import { applyRevoTheme, revoThemeFromLookProfile } from "$lib/theme/revoTheme";
   import type { DemoSource } from "$lib/types";
 
@@ -337,16 +338,16 @@
               sceneResolution = init.scene_resolution;
             }
             sceneName = String(init.scene_name ?? "").trim();
-            sources = init?.sources ?? [];
+            sources = filterGraphicPlannerSources(init?.sources ?? []);
 
             if (sources.length === 0) {
               try {
                 const directSources = await invoke<DemoSource[]>("obs_list_sources");
                 if (Array.isArray(directSources) && directSources.length > 0) {
-                  sources = directSources;
+                  sources = filterGraphicPlannerSources(directSources);
                   await invoke("obs_set_graphic_planner_init", {
                     init: {
-                      sources: directSources,
+                      sources: filterGraphicPlannerSources(directSources),
                       scene_resolution: sceneResolution,
                       selected_source_id: null
                     }

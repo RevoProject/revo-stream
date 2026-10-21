@@ -26,3 +26,7 @@ export function isVideoLikeSourceType(type: string | undefined): boolean {
     value.includes("game_capture")
   );
 }
+
+export function filterGraphicPlannerSources<T extends { source_type: string }>(sources: T[]): T[] {
+  return sources.filter((source) => !isAudioCaptureSourceType(source.source_type));
+}

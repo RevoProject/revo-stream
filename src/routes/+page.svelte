@@ -33,7 +33,7 @@
   import QuickDeviceModal from "../lib/components/QuickModal/QuickDeviceModal.svelte";
   import { applyRevoTheme, revoThemeFromLookProfile } from "../lib/theme/revoTheme";
   import type { DemoSource, SceneInfo } from "../lib/types";
-  import { isAudioCaptureSourceType } from "../lib/sourceClassification";
+  import { isAudioCaptureSourceType, filterGraphicPlannerSources } from "../lib/sourceClassification";
 import GraphicPlannerModal from "../lib/components/Modal/GraphicPlannerModal.svelte";
 import BrowserInteractionModal from "../lib/components/Modal/BrowserInteractionModal.svelte";
 import DebugConsoleModal from "../lib/components/Modal/DebugConsoleModal.svelte";
@@ -1070,7 +1070,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         }
         await invoke('obs_set_graphic_planner_init', {
           init: {
-            sources: sourcesList,
+            sources: filterGraphicPlannerSources(sourcesList),
             scene_resolution: plannerSceneResolution,
             selected_source_id: source?.id ?? null,
             scene_name: activeSceneName
