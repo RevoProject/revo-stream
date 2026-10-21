@@ -259,7 +259,15 @@ jobs:
           bash scripts/macos/configure-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/configure-obs.log"
           cp "$REVO_OBS_BUILD/CMakeCache.txt" "$REVO_DIAGNOSTICS/CMakeCache.txt"
           grep -Ei 'ffmpeg|avcodec|avformat|avutil|swresample|swscale|dependency' "$REVO_OBS_BUILD/CMakeCache.txt" > "$REVO_DIAGNOSTICS/cmake-ffmpeg-selection.txt" || true
-          bash scripts/macos/verify-obs-ffmpeg-provenance.sh "$REVO_DIAGNOSTICS" 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-ffmpeg-provenance.log"
+          # CMake/runtime scripts use the project label "x64", while macOS tools
+          # such as lipo report the actual CPU name "x86_64". Pass the canonical
+          # CPU name to the provenance validator so it checks the architecture
+          # reported by lipo instead of rejecting a valid universal binary.
+          if [[ "$REVO_CMAKE_ARCH" == "x64" ]]; then
+            REVO_CMAKE_ARCH=x86_64 bash scripts/macos/verify-obs-ffmpeg-provenance.sh "$REVO_DIAGNOSTICS" 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-ffmpeg-provenance.log"
+          else
+            bash scripts/macos/verify-obs-ffmpeg-provenance.sh "$REVO_DIAGNOSTICS" 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-ffmpeg-provenance.log"
+          fi
       - name: Build and install OBS
         shell: bash
         run: |
