@@ -1,10 +1,7 @@
 name: Release
 on:
   push:
-    tags:
-      # Repo tags use plain semver (0.4.0), keep v-prefixed for compatibility.
-      - "*.*.*"
-      - "v*.*.*"
+    tags: ["*.*.*", "v*.*.*"]
   workflow_dispatch:
     inputs:
       publish_dev_release:
@@ -15,8 +12,6 @@ on:
 permissions:
   contents: read
 concurrency:
-  # Manual dispatches are globally serialized so dev-release jobs cannot race
-  # on the same-minute tag. Tag pushes keep a per-ref group.
   group: ${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || format('release-{0}', github.ref) }}
   cancel-in-progress: false
 env:
@@ -24,9 +19,8 @@ env:
   NODE_VERSION: 24
   OBS_VERSION: 32.1.2
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
-  # Ubuntu 24.04 / glibc 2.39 is the Linux runtime baseline. RPM packages
-  # require a compatible RPM distribution, not an arbitrary older Linux host.
   linux:
     name: Linux x64 (AppImage, DEB, RPM, portable)
     runs-on: ubuntu-24.04
@@ -37,30 +31,20 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Record build metadata
-        shell: bash
-        run: |
-          {
-            echo "### Linux x64 build metadata"
-            echo ""
-            echo "- Commit: `${{ github.sha }}`"
-            echo "- Ref: `${{ github.ref_name }}`"
-            echo "- Run: `${{ github.run_id }}`"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v5
+        name: Checkout
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
+        name: Setup Node
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
+        name: Setup Rust
       - name: Install Linux build and packaging dependencies
         run: bash scripts/linux/install-dependencies.sh
       - name: Install frontend dependencies
@@ -72,10 +56,7 @@ jobs:
       - name: Stage OBS libraries, plugins and helper dependencies
         run: bash scripts/linux/prepare-runtime.sh "$RUNNER_TEMP/obs-install"
       - name: Build Linux AppImage, DEB and RPM
-        run: |
-          pnpm tauri build \
-            --config src-tauri/tauri.release-linux.conf.json \
-            --bundles appimage,deb,rpm -- --no-default-features
+        run: pnpm tauri build --config src-tauri/tauri.release-linux.conf.json --bundles appimage,deb,rpm -- --no-default-features
       - name: Create portable AppDir archive and self-extracting launcher
         run: bash scripts/linux/package-portable.sh
       - name: Verify Linux release files and generate checksums
@@ -92,78 +73,42 @@ jobs:
             src-tauri/target/release/bundle/*-linux-x64-portable.tar.gz
             src-tauri/target/release/bundle/*-linux-x64.run
             src-tauri/target/release/bundle/*-linux-x64-SHA256SUMS.txt
-  # ============================================================
-  # WINDOWS
-  # ============================================================
+
   windows:
     name: Windows x64
     runs-on: windows-2022
     steps:
-      # ----------------------------------------------------------
-      # Checkout / toolchain
-      # ----------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Record build metadata
-        shell: bash
-        run: |
-          {
-            echo "### Windows x64 build metadata"
-            echo ""
-            echo "- Commit: `${{ github.sha }}`"
-            echo "- Ref: `${{ github.ref_name }}`"
-            echo "- Run: `${{ github.run_id }}`"
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v5
+        name: Checkout
+      - uses: pnpm/action-setup@v4
+        name: Setup pnpm
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
+        name: Setup Node
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
+        name: Setup Rust
         with:
           toolchain: stable
-      - name: Show tool versions
-        run: |
-          node --version
-          pnpm --version
-          cargo --version
-          rustc --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      # ----------------------------------------------------------
-      # CEF
-      # ----------------------------------------------------------
       - name: Disable CEF for CI build
         shell: bash
         run: python3 scripts/release/disable-cef.py
-      # ----------------------------------------------------------
-      # Runtime resources
-      # ----------------------------------------------------------
       - name: Prepare revo-root
         shell: pwsh
         run: ./scripts/windows/prepare-revo-root.ps1
-      # ----------------------------------------------------------
-      # Rust dependencies
-      # ----------------------------------------------------------
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml
-      # ----------------------------------------------------------
-      # libobs-bootstrapper
-      # ----------------------------------------------------------
       - name: Patch libobs-bootstrapper dummy DLL feature
         shell: pwsh
         run: ./scripts/windows/patch-libobs-bootstrapper.ps1
       - name: Install cargo-obs-build
         run: cargo install cargo-obs-build --version 2.0.3 --locked
-      # ----------------------------------------------------------
-      # OBS runtime
-      # ----------------------------------------------------------
       - name: Bootstrap OBS
         working-directory: src-tauri
         shell: pwsh
@@ -171,44 +116,26 @@ jobs:
       - name: Verify Windows OBS runtime
         shell: pwsh
         run: ./scripts/windows/verify-obs-runtime.ps1
-      # ----------------------------------------------------------
-      # Prepare complete Windows runtime
-      # ----------------------------------------------------------
       - name: Populate Windows revo-root
         shell: pwsh
         run: ./scripts/windows/prepare-runtime.ps1
-      # ----------------------------------------------------------
-      # Verify Windows runtime before Tauri
-      # ----------------------------------------------------------
       - name: Verify Windows runtime
         shell: pwsh
         run: ./scripts/windows/verify-runtime.ps1
-      # ----------------------------------------------------------
-      # Tauri
-      # ----------------------------------------------------------
       - name: Build Windows MSI
         run: pnpm tauri build --bundles msi -- --no-default-features
-      # ----------------------------------------------------------
-      # Verify MSI
-      # ----------------------------------------------------------
       - name: Verify Windows MSI
         shell: pwsh
         run: ./scripts/windows/verify-msi.ps1
       - name: Smoke test Windows MSI
         shell: pwsh
         run: ./scripts/windows/smoke-test-msi.ps1
-      # ----------------------------------------------------------
-      # Portable ZIP
-      # ----------------------------------------------------------
       - name: Create Windows Portable ZIP
         shell: pwsh
         run: ./scripts/windows/create-portable-zip.ps1
       - name: Smoke test Windows portable
         shell: pwsh
         run: ./scripts/windows/smoke-test-portable.ps1
-      # ----------------------------------------------------------
-      # Upload Windows artifacts
-      # ----------------------------------------------------------
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -216,17 +143,16 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/revo-ui-windows-x64.zip
-  # ============================================================
-  # macOS
-  # ============================================================
+
   macos:
     name: macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
     env:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
       REVO_TARGET: ${{ matrix.target }}
       REVO_ARCH: ${{ matrix.arch }}
-      REVO_CMAKE_ARCH: ${{ matrix.cmake_arch }}
+      REVO_CMAKE_ARCH: ${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -234,231 +160,201 @@ jobs:
           - arch: arm64
             runner: macos-15
             target: aarch64-apple-darwin
-            cmake_arch: arm64
           - arch: x64
-            # Intel runner: native x86_64 Homebrew/FFmpeg for the x86_64
-            # bundle (deployment target 12.0 keeps macOS 13 compatibility).
             runner: macos-15-intel
             target: x86_64-apple-darwin
-            cmake_arch: x86_64
     steps:
-      # ----------------------------------------------------------
-      # Checkout / toolchain
-      # ----------------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Record build metadata
+      - uses: actions/checkout@v5
+        name: Checkout
+      - name: Create architecture-isolated directories
         shell: bash
         run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/revo-macos-$REVO_TARGET"
           {
-            echo "### macOS ${{ matrix.arch }} build metadata"
-            echo ""
-            echo "- Commit: `${{ github.sha }}`"
-            echo "- Ref: `${{ github.ref_name }}`"
-            echo "- Run: `${{ github.run_id }}`"
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+            echo "REVO_OBS_SRC=$ROOT/source/obs-studio"
+            echo "REVO_OBS_BUILD=$ROOT/build/obs"
+            echo "REVO_OBS_INSTALL=$ROOT/install/obs"
+            echo "REVO_DIAGNOSTICS=$ROOT/diagnostics"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$ROOT/source/obs-studio" "$ROOT/build/obs" "$ROOT/install/obs" "$ROOT/diagnostics/logs"
+      - name: Record runner and toolchain provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "target=$REVO_TARGET"
+            echo "expected_arch=$REVO_CMAKE_ARCH"
+            echo "runner_arch=${{ runner.arch }}"
+            echo "uname=$(uname -m)"
+            sw_vers
+            rustc -vV
+            brew config
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+          } 2>&1 | tee "$REVO_DIAGNOSTICS/runner.txt"
+          test "$(uname -m)" = "$REVO_CMAKE_ARCH"
+      - uses: pnpm/action-setup@v4
+        name: Setup pnpm
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
+        name: Setup Node
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
+        name: Setup Rust target
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - name: Show tool versions
-        run: |
-          node --version
-          pnpm --version
-          cargo --version
-          rustc --version
-          cmake --version
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      # ----------------------------------------------------------
-      # SIMDe
-      # ----------------------------------------------------------
-      - name: Install SIMDe
+      - name: Install project dependencies
         shell: bash
-        run: bash scripts/macos/install-simde.sh
-      - name: Verify SIMDe
-        shell: bash
-        run: bash scripts/macos/verify-simde.sh
-      # ----------------------------------------------------------
-      # CEF
-      # ----------------------------------------------------------
-      # ----------------------------------------------------------
-      # FFmpeg
-      # ----------------------------------------------------------
-      - name: Install FFmpeg
-        shell: bash
-        run: bash scripts/macos/install-ffmpeg.sh
-      - name: Disable CEF for CI build
-        shell: bash
-        run: python3 scripts/macos/disable-cef.py
-
-      - name: Disable OBS logger on non-Linux CI
-        shell: bash
-        run: python3 scripts/macos/disable-obs-logger.py
-
-      - name: Fetch Rust dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml
-      # ----------------------------------------------------------
-      # libobs bindgen
-      # ----------------------------------------------------------
-      - name: Patch libobs bindgen for macOS
-        shell: bash
-        run: python3 scripts/macos/patch-libobs-bindgen.py
-
-      - name: Patch libobs-wrapper for macOS
-        shell: bash
-        run: python3 scripts/macos/patch-libobs-wrapper.py
-
-      - name: Verify libobs patches
-        shell: bash
-        run: bash scripts/macos/verify-libobs-patches.sh
-
-      - name: Prepare revo-root
+        run: pnpm install --frozen-lockfile 2>&1 | tee "$REVO_DIAGNOSTICS/logs/pnpm-install.log"
+      - name: Install host media dependency
         shell: bash
         run: |
-          rm -rf src-tauri/resources/revo-root
-          mkdir -p src-tauri/resources/revo-root
-      # ----------------------------------------------------------
-      # OBS Studio
-      # ----------------------------------------------------------
-      - name: Checkout OBS Studio
-        shell: bash
-        run: bash scripts/macos/checkout-obs.sh
-
-      - name: Patch OBS libobs-metal Swift
-        shell: bash
-        run: python3 scripts/macos/patch-obs-metal-swift.py
-
-      - name: Patch OBS macOS virtual camera warnings
-        shell: bash
-        run: python3 scripts/macos/patch-obs-virtualcam-warnings.py
-
-      - name: Verify OBS source patches
-        shell: bash
-        run: bash scripts/macos/verify-obs-source-patches.sh
-
-      - name: Configure OBS Studio
-        shell: bash
-        run: bash scripts/macos/configure-obs.sh
-
-      - name: Build OBS Studio
+          set -euo pipefail
+          brew install mpg123 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-host-media.log"
+          brew info --json=v2 mpg123 > "$REVO_DIAGNOSTICS/homebrew-formulae.json"
+      - name: Prepare project sources
         shell: bash
         run: |
-          cmake \
-            --build "${REVO_OBS_BUILD:-$RUNNER_TEMP/obs-build-$REVO_TARGET}" \
-            --config RelWithDebInfo \
-            --parallel "$(sysctl -n hw.ncpu)"
-      # ----------------------------------------------------------
-      # OBS install
-      # ----------------------------------------------------------
-      - name: Install OBS Studio
-        shell: bash
-        run: bash scripts/macos/install-obs.sh
-
-      - name: Configure libobs linker path
-        shell: bash
-        run: bash scripts/macos/configure-libobs-linker-path.sh
-
-      - name: Inspect macOS OBS build
-        shell: bash
-        run: bash scripts/macos/inspect-obs-build.sh
-
-      - name: Reject Windows OBS binaries
-        shell: bash
-        run: bash scripts/macos/reject-windows-binaries.sh
-
-      - name: Populate macOS revo-root
-        shell: bash
-        run: bash scripts/macos/populate-revo-root.sh
-
-      - name: Bundle macOS FFmpeg dependencies
-        shell: bash
-        run: bash scripts/macos/bundle-ffmpeg-dependencies.sh
-
-      - name: Normalize macOS runtime rpaths
-        shell: bash
-        run: bash scripts/macos/normalize-runtime-rpaths.sh
-
-      - name: Verify macOS runtime
-        shell: bash
-        run: bash scripts/macos/verify-runtime.sh
-
-      - name: Build macOS app
+          set -euo pipefail
+          bash scripts/macos/install-simde.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-simde.log"
+          bash scripts/macos/verify-simde.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-simde.log"
+          python3 scripts/macos/disable-cef.py
+          python3 scripts/macos/disable-obs-logger.py
+          cargo fetch --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$REVO_DIAGNOSTICS/logs/cargo-fetch.log"
+          python3 scripts/macos/patch-libobs-bindgen.py
+          python3 scripts/macos/patch-libobs-wrapper.py
+          bash scripts/macos/verify-libobs-patches.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-libobs-patches.log"
+      - name: Checkout and record OBS provenance
         shell: bash
         run: |
-          pnpm tauri build \
-            --bundles app \
-            --target "${{ matrix.target }}" \
-            -- \
-            --no-default-features
-
-      # ----------------------------------------------------------
-      # Ensure the full staged runtime (including core/share) is
-      # inside the .app — the Tauri bundler has dropped staged
-      # subdirectories before.
-      # ----------------------------------------------------------
-      - name: Ensure bundled runtime resources
+          set -euo pipefail
+          bash scripts/macos/checkout-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/checkout-obs.log"
+          {
+            echo "repository=https://github.com/obsproject/obs-studio.git"
+            echo "requested_ref=$OBS_VERSION"
+            echo "commit=$(git -C "$REVO_OBS_SRC" rev-parse HEAD)"
+            git -C "$REVO_OBS_SRC" submodule status --recursive
+          } > "$REVO_DIAGNOSTICS/obs-provenance.txt"
+      - name: Patch and configure OBS
         shell: bash
-        env:
-          REVO_TARGET: ${{ matrix.target }}
-        run: bash scripts/macos/ensure-app-resources.sh
-
-      # ----------------------------------------------------------
-      # Normalize final .app Mach-O dependencies
-      # ----------------------------------------------------------
-      - name: Normalize final macOS app dylib paths
+        run: |
+          set -euo pipefail
+          python3 scripts/macos/patch-obs-metal-swift.py
+          python3 scripts/macos/patch-obs-virtualcam-warnings.py
+          bash scripts/macos/verify-obs-source-patches.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-source-patches.log"
+          bash scripts/macos/configure-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/configure-obs.log"
+          cp "$REVO_OBS_BUILD/CMakeCache.txt" "$REVO_DIAGNOSTICS/CMakeCache.txt"
+          grep -Ei 'ffmpeg|avcodec|avformat|avutil|swresample|swscale|dependency' "$REVO_OBS_BUILD/CMakeCache.txt" > "$REVO_DIAGNOSTICS/cmake-ffmpeg-selection.txt" || true
+          bash scripts/macos/verify-obs-ffmpeg-provenance.sh "$REVO_DIAGNOSTICS" 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-obs-ffmpeg-provenance.log"
+      - name: Build and install OBS
         shell: bash
-        run: bash scripts/macos/normalize-app-dylib-paths.sh
-
-      - name: Re-sign macOS app ad-hoc
+        run: |
+          set -euo pipefail
+          cmake --build "$REVO_OBS_BUILD" --config RelWithDebInfo --parallel "$(sysctl -n hw.ncpu)" 2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-obs.log"
+          bash scripts/macos/install-obs.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/install-obs.log"
+          bash scripts/macos/configure-libobs-linker-path.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/configure-libobs-linker.log"
+          bash scripts/macos/reject-windows-binaries.sh
+      - name: Audit OBS build before staging
         shell: bash
-        env:
-          REVO_TARGET: ${{ matrix.target }}
-        run: bash scripts/macos/codesign-app.sh
-
-      - name: Verify final macOS app
+        run: bash scripts/macos/audit-runtime-dependencies.sh "$REVO_OBS_BUILD" "$REVO_DIAGNOSTICS" obs-build 2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-obs-build.log"
+      - name: Stage and audit runtime
         shell: bash
-        run: bash scripts/macos/verify-app.sh
-
-      - name: Build macOS DMG from normalized app
+        run: |
+          set -euo pipefail
+          bash scripts/macos/populate-revo-root.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/populate-revo-root.log"
+          bash scripts/macos/audit-runtime-dependencies.sh src-tauri/resources/revo-root "$REVO_DIAGNOSTICS" staged-before-ffmpeg 2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-before-ffmpeg.log"
+          bash scripts/macos/bundle-ffmpeg-dependencies.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/bundle-ffmpeg.log"
+          test -s "$REVO_DIAGNOSTICS/staged-obs-deps-provenance.tsv"
+          bash scripts/macos/thin-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/thin-runtime.log"
+          bash scripts/macos/normalize-runtime-rpaths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-runtime.log"
+          bash scripts/macos/verify-runtime.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-runtime.log"
+          bash scripts/macos/audit-runtime-dependencies.sh src-tauri/resources/revo-root "$REVO_DIAGNOSTICS" staged-final 2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-staged-final.log"
+      - name: Build and verify application bundle
         shell: bash
-        run: bash scripts/macos/build-dmg.sh
-
-      - name: Verify macOS DMG
+        run: |
+          set -euo pipefail
+          pnpm tauri build --bundles app --target "$REVO_TARGET" -- --no-default-features 2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-app.log"
+          APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          bash scripts/macos/ensure-app-resources.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/ensure-app-resources.log"
+          bash scripts/macos/normalize-app-dylib-paths.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/normalize-app.log"
+          bash scripts/macos/codesign-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/codesign-app.log"
+          bash scripts/macos/verify-app.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-app.log"
+          APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          bash scripts/macos/audit-runtime-dependencies.sh "$APP" "$REVO_DIAGNOSTICS" final-app 2>&1 | tee "$REVO_DIAGNOSTICS/logs/audit-final-app.log"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$REVO_DIAGNOSTICS/RevoStream-$REVO_TARGET.app.zip"
+      - name: CI startup smoke test
         shell: bash
-        run: bash scripts/macos/verify-dmg.sh
-
-      - name: Upload macOS artifact
+        run: |
+          set -euo pipefail
+          APP="$(find "src-tauri/target/$REVO_TARGET/release/bundle/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          EXE="$APP/Contents/MacOS/revo-ui"
+          export REVO_GRAPHICS_MODULE="$APP/Contents/Resources/resources/revo-root/core/lib/libobs-opengl.dylib"
+          test -f "$REVO_GRAPHICS_MODULE"
+          "$EXE" > "$REVO_DIAGNOSTICS/startup-stderr.log" 2>&1 &
+          APP_PID=$!
+          sleep 15
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            STATUS=unknown
+            wait "$APP_PID" 2>/dev/null || STATUS=$?
+            echo "process exit status: $STATUS" > "$REVO_DIAGNOSTICS/startup-exit-status.txt"
+            sleep 10
+            tail -n 120 "$REVO_DIAGNOSTICS/startup-stderr.log" > "$REVO_DIAGNOSTICS/startup-stderr-tail.log" || true
+            log show --last 5m --style compact --predicate 'process == "revo-ui" OR eventMessage CONTAINS[c] "revo-ui"' > "$REVO_DIAGNOSTICS/startup-system.log" 2>&1 || true
+            echo "::error::Packaged app did not remain running during CI smoke test"
+            tail -n 40 "$REVO_DIAGNOSTICS/startup-stderr.log" || true
+            exit 1
+          fi
+          kill "$APP_PID" 2>/dev/null || true
+          echo "CI process smoke test passed; physical Mac testing is still required." > "$REVO_DIAGNOSTICS/startup-result.txt"
+      - name: Build and verify DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/macos/build-dmg.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-dmg.log"
+          bash scripts/macos/verify-dmg.sh 2>&1 | tee "$REVO_DIAGNOSTICS/logs/verify-dmg.log"
+      - name: Upload macOS release artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-  # ============================================================
-  # RELEASE (tag pushes only)
-  # ============================================================
+          if-no-files-found: error
+      - name: Write macOS diagnostic summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# macOS release build diagnostic"
+            echo
+            echo "- Target: $REVO_TARGET"
+            echo "- Architecture: $REVO_CMAKE_ARCH"
+            echo "- Runner: ${{ matrix.runner }} (${{ runner.arch }})"
+            echo "- OBS requested version: $OBS_VERSION"
+            echo "- Commit: ${{ github.sha }}"
+            echo "- Job status: ${{ job.status }}"
+          } | tee "$REVO_DIAGNOSTICS/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload macOS diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-diagnostics-${{ matrix.target }}
+          path: ${{ runner.temp }}/revo-macos-${{ matrix.target }}/diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
   release:
     name: Create GitHub Release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs:
-      - linux
-      - windows
-      - macos
+    needs: [linux, windows, macos]
     steps:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -482,11 +378,7 @@ jobs:
           path: release/macos-x64
       - name: Show release files
         shell: bash
-        run: |
-          find release \
-            -type f \
-            -print |
-          sort
+        run: find release -type f -print | sort
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -502,10 +394,7 @@ jobs:
             release/macos-arm64/**/*.dmg
             release/macos-x64/**/*.dmg
           generate_release_notes: true
-  # ============================================================
-  # DEV RELEASE (manual dispatch, optional, default ON)
-  # Tag format: build-YYYYMMDD-HHMM (UTC, 24h)
-  # ============================================================
+
   dev-release:
     name: Publish dev release
     if: github.event_name == 'workflow_dispatch' && inputs.publish_dev_release
@@ -513,10 +402,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
-    needs:
-      - linux
-      - windows
-      - macos
+    needs: [linux, windows, macos]
     steps:
       - name: Checkout full history
         uses: actions/checkout@v5
@@ -544,11 +430,7 @@ jobs:
           path: release/macos-x64
       - name: Show dev release files
         shell: bash
-        run: |
-          find release \
-            -type f \
-            -print |
-          sort
+        run: find release -type f -print | sort
       - name: Resolve dev build tag
         id: devtag
         shell: bash
@@ -561,7 +443,7 @@ jobs:
           fi
           REMOTE_TAG_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | cut -f1 || true)"
           if [ -n "${REMOTE_TAG_SHA}" ]; then
-            echo "::error::Tag ${TAG} already exists on the remote (created by another run) — refusing to overwrite."
+            echo "::error::Tag ${TAG} already exists on the remote — refusing to overwrite."
             exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -575,7 +457,6 @@ jobs:
           DEST="release/dev"
           rm -rf "$DEST"
           mkdir -p "$DEST"
-
           copy_one() {
             local root="$1" pattern="$2" target="$3"
             mapfile -d '' matches < <(find "$root" -type f -name "$pattern" -print0)
@@ -585,7 +466,6 @@ jobs:
             fi
             cp "${matches[0]}" "$DEST/$target"
           }
-
           PREFIX="revo-ui-${DEV_TAG}"
           copy_one release/windows '*.msi' "${PREFIX}-windows-x64.msi"
           copy_one release/windows '*.zip' "${PREFIX}-windows-x64.zip"
@@ -596,16 +476,9 @@ jobs:
           copy_one release/linux '*.rpm' "${PREFIX}-linux-x64.rpm"
           copy_one release/linux '*-linux-x64-portable.tar.gz' "${PREFIX}-linux-x64-portable.tar.gz"
           copy_one release/linux '*-linux-x64.run' "${PREFIX}-linux-x64.run"
-
           (
             cd "$DEST"
-            sha256sum \
-              "${PREFIX}-linux-x64.AppImage" \
-              "${PREFIX}-linux-x64.deb" \
-              "${PREFIX}-linux-x64.rpm" \
-              "${PREFIX}-linux-x64-portable.tar.gz" \
-              "${PREFIX}-linux-x64.run" \
-              > "${PREFIX}-linux-x64-SHA256SUMS.txt"
+            sha256sum "${PREFIX}-linux-x64.AppImage" "${PREFIX}-linux-x64.deb" "${PREFIX}-linux-x64.rpm" "${PREFIX}-linux-x64-portable.tar.gz" "${PREFIX}-linux-x64.run" > "${PREFIX}-linux-x64-SHA256SUMS.txt"
           )
           find "$DEST" -type f -print | sort
       - name: Build release notes
@@ -622,9 +495,9 @@ jobs:
           fi
           {
             echo "## ⚠️ Development build — not for production use"
-            echo ""
+            echo
             echo "This is an automated developer build of RevoStream. It may be unstable and **should not be used in production**."
-            echo ""
+            echo
             echo "- Build tag: \`${DEV_TAG}\`"
             echo "- Commit: \`${{ github.sha }}\`"
             echo "- Workflow run: \`${{ github.run_id }}\`"
@@ -633,16 +506,15 @@ jobs:
             else
               echo "- Changes since: no previous release tag found in history"
             fi
-            echo ""
+            echo
             echo "### Commits"
-            echo ""
+            echo
             if [ -n "${COMMIT_LIST}" ]; then
               printf '%s\n' "${COMMIT_LIST}" | head -n 200
             else
               echo "_No commits found._"
             fi
           } > dev-notes.md
-          echo "--- dev-notes.md ---"
           cat dev-notes.md
       - name: Re-verify tag is still free
         shell: bash
@@ -673,10 +545,10 @@ jobs:
         run: |
           {
             echo "### Dev release published"
-            echo ""
+            echo
             echo "- Tag: \`${DEV_TAG}\`"
             echo "- Commit: \`${{ github.sha }}\`"
-            echo ""
+            echo
             echo "Published files:"
             echo '```'
             find release/dev -type f -print | sort
