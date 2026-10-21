@@ -1,6 +1,7 @@
 <script lang="ts">
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { createEventDispatcher } from "svelte";
+  import { isAudioCaptureSourceType } from "../../sourceClassification";
   import Icon from "../UI/Icon.svelte";
 
   type FilterItem = {
@@ -24,6 +25,8 @@
 
   export let active = false;
   export let targetType: "source" | "scene" = "source";
+  export let sourceCategory: "graphic" | "image" | "video" | "audio" | undefined = undefined;
+  export let sourceType = "";
   export let targetId = "";
   export let title = "";
   export let filters: FilterItem[] = [];
@@ -125,6 +128,29 @@
     scroll: "Scroll",
     custom: "Custom"
   };
+
+  const audioKindOptions = [
+    { value: "gain", label: "Gain" },
+    { value: "custom", label: "Custom" }
+  ];
+  const graphicKindOptions = [
+    { value: "color_correction", label: "Color correction" },
+    { value: "chroma_key", label: "Chroma key" },
+    { value: "crop_pad", label: "Crop/Pad" },
+    { value: "sharpness", label: "Sharpness" },
+    { value: "scroll", label: "Scroll" },
+    { value: "custom", label: "Custom" }
+  ];
+
+  $: audioTarget =
+    sourceCategory === "audio" || isAudioCaptureSourceType(sourceType);
+  $: kindOptions = audioTarget ? audioKindOptions : graphicKindOptions;
+  $: if (audioTarget && !audioKindOptions.some((k) => k.value === newKind)) {
+    newKind = "gain";
+  }
+  $: if (!audioTarget && !graphicKindOptions.some((k) => k.value === newKind)) {
+    newKind = "color_correction";
+  }
 
   const addFilter = () => {
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -365,13 +391,9 @@
 
     <div class="filters-sidebar-add">
       <select bind:value={newKind}>
-        <option value="color_correction">Color correction</option>
-        <option value="chroma_key">Chroma key</option>
-        <option value="crop_pad">Crop/Pad</option>
-        <option value="gain">Gain</option>
-        <option value="sharpness">Sharpness</option>
-        <option value="scroll">Scroll</option>
-        <option value="custom">Custom</option>
+        {#each kindOptions as kind}
+          <option value={kind.value}>{kind.label}</option>
+        {/each}
       </select>
       <button class="primary" onclick={addFilter}>Add Filter</button>
     </div>

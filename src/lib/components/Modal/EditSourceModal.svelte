@@ -520,19 +520,34 @@
   })();
   $: schemaKeys = new Set((sourceParamSchemas[editType] ?? []).map((s: {key:string}) => s.key));
   $: sourcePropertyByKey = new Map(sourcePropertySpecs.map((spec) => [spec.key, spec]));
+  const transformParamKeys = new Set([
+    "pos_x",
+    "pos_y",
+    "item_width",
+    "item_height",
+    "scale_x",
+    "scale_y",
+    "rot",
+    "crop_left",
+    "crop_right",
+    "crop_top",
+    "crop_bottom"
+  ]);
   $: visibleSourcePropertyEntries = sourcePropertyEntries.filter(
     ([key]) =>
       !schemaKeys.has(key) &&
       !(isTextSource && isManagedTextKey(key)) &&
       !(isMediaSource && isManagedMediaKey(key)) &&
-      !(isAudioSource && isManagedAudioDeviceKey(key))
+      !(isAudioSource && isManagedAudioDeviceKey(key)) &&
+      !(isAudioSource && transformParamKeys.has(normalizeKey(key)))
   );
   $: visibleExtraParamEntries = extraParamEntries.filter(
     ([key]) =>
       !schemaKeys.has(key) &&
       !(isTextSource && isManagedTextKey(key)) &&
       !(isMediaSource && isManagedMediaKey(key)) &&
-      !(isAudioSource && isManagedAudioDeviceKey(key))
+      !(isAudioSource && isManagedAudioDeviceKey(key)) &&
+      !(isAudioSource && transformParamKeys.has(normalizeKey(key)))
   );
   const resolvePropertySpec = (key: string) => {
     const direct = sourcePropertyByKey.get(key);
@@ -667,6 +682,7 @@
               targetType="source"
               targetId={editSource?.id ?? ""}
               title={filtersTitle}
+              sourceCategory={isAudioSource ? "audio" : undefined}
               {filters}
               on:change={(e) => dispatch("filtersLiveChange", e.detail)}
               on:save={(e) => dispatch("filtersSave", e.detail)}

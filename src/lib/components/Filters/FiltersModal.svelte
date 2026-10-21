@@ -13,13 +13,15 @@
 
   export let open = false;
   export let targetType: "source" | "scene" = "source";
-  export let sourceCategory: "graphic" | "image" | "video" = "graphic";
+  export let sourceCategory: "graphic" | "image" | "video" | "audio" = "graphic";
+  export let sourceType = "";
   export let targetId = "";
   export let targetLabel = "";
   export let filters: FilterItem[] = [];
 
   const sourceFiltersTitle = () => {
     if (targetType !== "source") return "Scene Filters";
+    if (sourceCategory === "audio") return "Audio Filters";
     if (sourceCategory === "image") return "Image Filters";
     if (sourceCategory === "video") return "Video Filters";
     return "Graphic Filters";
@@ -51,6 +53,7 @@
         active={open}
         {targetType}
         {targetId}
+        {sourceType}
         {filters}
         on:change={(e) => dispatch("liveChange", e.detail)}
         on:save={(e) => dispatch("save", e.detail)}

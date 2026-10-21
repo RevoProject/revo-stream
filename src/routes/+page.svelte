@@ -1310,7 +1310,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     let filtersTargetLabel = "";
     let filtersDraft: FilterItem[] = [];
     let filtersSnapshotBeforeOpen: FilterItem[] | null = null;
-    let filtersSourceCategory: "graphic" | "image" | "video" = "graphic";
+    let filtersSourceCategory: "graphic" | "image" | "video" | "audio" = "graphic";
+    let filtersTargetSource: DemoSource | null = null;
     let editSourceInitialTab: "General" | "Filters" | "Other" = "General";
     let routeFiltersViaEditor = false;
     let sourceFiltersLiveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -5902,7 +5903,14 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       return;
     }
     const type = (source.source_type ?? "").toLowerCase();
-    filtersSourceCategory = isImageSourceLike(type) ? "image" : isVideoSourceLike(type) ? "video" : "graphic";
+    filtersSourceCategory = isAudioCaptureSourceType(type)
+      ? "audio"
+      : isImageSourceLike(type)
+        ? "image"
+        : isVideoSourceLike(type)
+          ? "video"
+          : "graphic";
+    filtersTargetSource = source;
     filtersTargetType = "source";
     filtersTargetId = source.id;
     filtersTargetLabel = source.name;
@@ -8232,6 +8240,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     open={showFiltersModal}
     targetType={filtersTargetType}
     sourceCategory={filtersSourceCategory}
+    sourceType={filtersTargetType === "source" ? (filtersTargetSource?.source_type ?? "") : ""}
     targetId={filtersTargetId}
     targetLabel={filtersTargetLabel}
     filters={filtersDraft}
