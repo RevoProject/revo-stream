@@ -122,8 +122,8 @@ jobs:
       - name: Verify Windows runtime
         shell: pwsh
         run: ./scripts/windows/verify-runtime.ps1
-      - name: Build Windows MSI
-        run: pnpm tauri build --bundles msi -- --no-default-features
+      - name: Build Windows MSI and NSIS
+        run: pnpm tauri build --bundles msi,nsis -- --no-default-features
       - name: Verify Windows MSI
         shell: pwsh
         run: ./scripts/windows/verify-msi.ps1
