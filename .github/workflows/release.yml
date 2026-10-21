@@ -194,14 +194,14 @@ jobs:
             xcrun --sdk macosx --show-sdk-version
           } 2>&1 | tee "$REVO_DIAGNOSTICS/runner.txt"
           case "$REVO_CMAKE_ARCH:$(uname -m)" in
-  arm64:arm64|x64:x86_64)
-            echo "Runner architecture matches expected architecture."
-            ;;
-          *)
-           echo "::error::Architecture mismatch: expected=$REVO_CMAKE_ARCH, uname=$(uname -m)"
-           exit 1
-           ;;
-        esac
+            arm64:arm64|x64:x86_64)
+              echo "Runner architecture matches expected architecture."
+              ;;
+            *)
+              echo "::error::Architecture mismatch: expected=$REVO_CMAKE_ARCH, uname=$(uname -m)"
+              exit 1
+              ;;
+          esac
       - uses: pnpm/action-setup@v4
         name: Setup pnpm
         with:
