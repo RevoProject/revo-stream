@@ -407,6 +407,7 @@ jobs:
             release/linux/**/*-linux-x64.run
             release/linux/**/*-linux-x64-SHA256SUMS.txt
             release/windows/**/*.msi
+            release/windows/**/*.exe
             release/windows/**/*.zip
             release/macos-arm64/**/*.dmg
             release/macos-x64/**/*.dmg
