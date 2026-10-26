@@ -13,6 +13,7 @@
   import SettingsModal from "../lib/components/Modal/SettingsModal.svelte";
   import PluginsModal from "../lib/components/Modal/PluginsModal.svelte";
   import AddSourceModal from "../lib/components/Modal/AddSourceModal.svelte";
+  import SourceInstanceModal from "../lib/components/Modal/SourceInstanceModal.svelte";
   import AddSceneModal from "../lib/components/Modal/AddSceneModal.svelte";
   import EditSourceModal from "../lib/components/Modal/EditSourceModal.svelte";
   import Icon from "../lib/components/UI/Icon.svelte";
@@ -1219,6 +1220,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     );
     let showAddSource = false;
     let addSourceBusy = false;
+    let showSourceInstanceModal = false;
+    let reusableSourcesLoading = false;
+    let reusableSourcesError = "";
+    let reusableSourceRequest = 0;
+    let reusableSources: Array<{ name: string; source_type: string; thumbnail?: string }> = [];
   let graphicPlannerModalOpen = false;
   let browserInteractionModalOpen = false;
   let debugConsoleModalOpen = false;
@@ -4696,11 +4702,13 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
 
   const closeAddSourceModal = () => {
     showAddSource = false;
+    showSourceInstanceModal = false;
+    reusableSourceRequest += 1;
     void unfreezePreviewFromModal();
   };
 
-  const addSource = async () => {
-    if (addSourceBusy) return;
+  const addSource = async (): Promise<boolean> => {
+    if (addSourceBusy) return false;
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
     const escapedType = newSourceType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const suffixPattern = new RegExp(`^${escapedType}_(\\d+)$`);
@@ -4757,11 +4765,13 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     }
     if (created) {
       showAddSource = false;
+      showSourceInstanceModal = false;
       // Restore live preview (renders the current scene, not a stale frame)
       // before requesting an update for the newly added source.
       await unfreezePreviewFromModal();
       requestPreviewUpdate();
     }
+    return created;
   };
 
   const FIT_NO_SIZE_YET = "has no video size yet";
@@ -4832,6 +4842,99 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     sourceTypesError = "";
     void loadSourceTypeCatalog();
     await freezePreviewForModal();
+  };
+
+  const addSourceTypeLabel = () => {
+    const type = [...availableSourceTypes, ...externalSourceTypes].find((item) => item.id === newSourceType);
+    return type?.label || newSourceType.replaceAll("_", " ") || "Source";
+  };
+
+  const openSourceInstanceModal = async () => {
+    showAddSource = false;
+    showSourceInstanceModal = true;
+    reusableSourcesError = "";
+    reusableSources = [];
+    const request = ++reusableSourceRequest;
+    if (!backendEnabled || !isObsRunning) return;
+    reusableSourcesLoading = true;
+    try {
+      const listed = await invoke<Array<{ name: string; source_type: string }>>(
+        "obs_list_reusable_sources",
+        { sourceType: newSourceType }
+      );
+      if (request !== reusableSourceRequest) return;
+      reusableSources = listed.map((item) => ({ ...item, thumbnail: "" }));
+      // Render thumbnails serially: libobs graphics is serialized anyway and
+      // progressive cards avoid a burst of concurrent GPU capture requests.
+      for (const item of listed) {
+        if (request !== reusableSourceRequest) return;
+        try {
+          const thumbnail = await invoke<string>("obs_take_source_thumbnail", {
+            sourceName: item.name,
+            width: 320,
+            height: 180
+          });
+          reusableSources = reusableSources.map((entry) =>
+            entry.name === item.name ? { ...entry, thumbnail } : entry
+          );
+        } catch {
+          // Keep a placeholder for sources that have not produced a frame.
+        }
+      }
+    } catch (err) {
+      if (request === reusableSourceRequest) reusableSourcesError = String(err);
+    } finally {
+      if (request === reusableSourceRequest) reusableSourcesLoading = false;
+    }
+  };
+
+  const backToSourceTypes = () => {
+    reusableSourceRequest += 1;
+    showSourceInstanceModal = false;
+    showAddSource = true;
+  };
+
+  const createNewSourceFromChoice = async () => {
+    showSourceInstanceModal = false;
+    if (!(await addSource())) showSourceInstanceModal = true;
+  };
+
+  const addExistingSourceFromChoice = async (item: { name: string; source_type: string }) => {
+    if (addSourceBusy) return;
+    addSourceBusy = true;
+    const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+    try {
+      await invoke<string>("obs_add_existing_source", { id, sourceName: item.name });
+      await loadSources();
+      try {
+        await invoke<string>("obs_fit_source_to_canvas", { sourceId: id });
+      } catch (err) {
+        console.warn(`[sources] existing source fit skipped for ${id}`, err);
+      }
+      await loadSources();
+      const added = sourcesList.find((source) => source.id === id);
+      const transform = (await captureTransformSnapshot([id]))[id] ?? {};
+      recordHistory({
+        label: `Add existing ${item.name}`,
+        undo: () => removeSourceById(id),
+        redo: async () => {
+          await invoke<string>("obs_add_existing_source", { id, sourceName: item.name });
+          if (Object.keys(transform).length) {
+            await invoke<string>("obs_apply_sceneitem_transform", { id, transform });
+          }
+          await loadSources();
+        }
+      });
+      if (!added) console.warn(`[sources] reused source ${id} was not returned after add`);
+      showSourceInstanceModal = false;
+      showAddSource = false;
+      await unfreezePreviewFromModal();
+      requestPreviewUpdate();
+    } catch (err) {
+      showGlobalDialog(String(err), "error");
+    } finally {
+      addSourceBusy = false;
+    }
   };
   const toggleSourceVisibility = async (source: DemoSource) => {
     if (backendEnabled) {
@@ -8188,7 +8291,21 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       error={sourceTypesError}
       creating={addSourceBusy}
       on:close={closeAddSourceModal}
-      on:add={addSource}
+      on:add={openSourceInstanceModal}
+    />
+  {/if}
+
+  {#if showSourceInstanceModal}
+    <SourceInstanceModal
+      sourceTypeLabel={addSourceTypeLabel()}
+      items={reusableSources}
+      loading={reusableSourcesLoading}
+      creating={addSourceBusy}
+      error={reusableSourcesError}
+      on:close={closeAddSourceModal}
+      on:back={backToSourceTypes}
+      on:createNew={() => void createNewSourceFromChoice()}
+      on:select={(event) => void addExistingSourceFromChoice(event.detail)}
     />
   {/if}
 

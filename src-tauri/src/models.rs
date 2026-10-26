@@ -58,6 +58,12 @@ pub(crate) struct SourceTypeItem {
 	pub(crate) audio_capable: bool,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub(crate) struct ReusableSourceInfo {
+	pub(crate) name: String,
+	pub(crate) source_type: String,
+}
+
 #[derive(Serialize)]
 pub(crate) struct AudioDevice {
 	pub(crate) id: String,

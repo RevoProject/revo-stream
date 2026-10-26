@@ -985,6 +985,33 @@ fn obs_take_screenshot(
     runtime::preview::take_screenshot(state, width, height, source_id)
 }
 
+#[tauri::command(async)]
+fn obs_list_reusable_sources(
+    state: tauri::State<ObsState>,
+    source_type: String,
+) -> Result<Vec<ReusableSourceInfo>, String> {
+    sources::source_ops::list_reusable_sources(state, source_type)
+}
+
+#[tauri::command(async)]
+fn obs_add_existing_source(
+    state: tauri::State<ObsState>,
+    id: String,
+    source_name: String,
+) -> Result<String, String> {
+    sources::source_ops::add_existing_source(state, id, source_name)
+}
+
+#[tauri::command(async)]
+fn obs_take_source_thumbnail(
+    state: tauri::State<ObsState>,
+    source_name: String,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<String, String> {
+    runtime::preview::take_source_thumbnail(state, source_name, width, height)
+}
+
 /// Freeze/unfreeze scene-level preview rendering. While frozen,
 /// `obs_take_screenshot` returns the retained last good frame without any
 /// render, GPU or encode work. Single-source screenshots and active
@@ -1311,6 +1338,9 @@ pub fn run() {
             obs_set_encoder_preference,
             obs_get_source_size,
             obs_take_screenshot,
+            obs_list_reusable_sources,
+            obs_add_existing_source,
+            obs_take_source_thumbnail,
             obs_preview_set_freeze,
             obs_get_audio_levels,
             obs_reorder_scene,

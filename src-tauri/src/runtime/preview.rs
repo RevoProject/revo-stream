@@ -360,6 +360,49 @@ pub(crate) fn take_screenshot(
 	encoded
 }
 
+pub(crate) fn take_source_thumbnail(
+	state: tauri::State<crate::ObsState>,
+	source_name: String,
+	width: Option<u32>,
+	height: Option<u32>,
+) -> Result<String, String> {
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.source_thumbnail",
+	)
+	.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized || runtime.preview_view.is_null() {
+		return Err("OBS not initialized".to_string());
+	}
+	let name = std::ffi::CString::new(source_name.trim())
+		.map_err(|_| "invalid source name".to_string())?;
+	unsafe {
+		let source = revo_lib::obs::obs_get_source_by_name(name.as_ptr());
+		if source.is_null() {
+			return Err(format!("existing source not found: {source_name}"));
+		}
+		let box_w = width.unwrap_or(320).clamp(160, 1280);
+		let box_h = height.unwrap_or(180).clamp(90, 720);
+		let base_w = revo_lib::obs::obs_source_get_width(source);
+		let base_h = revo_lib::obs::obs_source_get_height(source);
+		let (out_w, out_h) = if base_w > 0 && base_h > 0 {
+			let scale = (box_w as f32 / base_w as f32)
+				.min(box_h as f32 / base_h as f32)
+				.min(1.0);
+			(
+				((base_w as f32 * scale).round() as u32).max(1),
+				((base_h as f32 * scale).round() as u32).max(1),
+			)
+		} else {
+			(box_w, box_h)
+		};
+		let captured = capture_view_pixels(&mut runtime, out_w, out_h, source);
+		revo_lib::obs::obs_source_release(source);
+		drop(runtime);
+		encode_preview_frame(captured?)
+	}
+}
+
 /// PNG-encode + base64 a captured frame into a data URI. Pure function — no
 /// OBS state, no locks. Consumes the frame.
 fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, String> {

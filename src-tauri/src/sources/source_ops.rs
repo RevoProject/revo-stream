@@ -110,6 +110,96 @@ pub(crate) fn list_external_source_types(
 	Ok(out)
 }
 
+struct ReusableSourceContext {
+	wanted_type: String,
+	items: Vec<crate::ReusableSourceInfo>,
+}
+
+unsafe extern "C" fn collect_reusable_source(
+	param: *mut std::os::raw::c_void,
+	source: *mut revo_lib::obs::obs_source_t,
+) -> bool {
+	if param.is_null() || source.is_null() {
+		return true;
+	}
+	if revo_lib::obs::obs_source_get_type(source)
+		!= revo_lib::obs::obs_source_type_OBS_SOURCE_TYPE_INPUT
+	{
+		return true;
+	}
+	let type_ptr = revo_lib::obs::obs_source_get_unversioned_id(source);
+	let name_ptr = revo_lib::obs::obs_source_get_name(source);
+	if type_ptr.is_null() || name_ptr.is_null() {
+		return true;
+	}
+	let source_type = std::ffi::CStr::from_ptr(type_ptr).to_string_lossy().to_string();
+	let name = std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().to_string();
+	let context = &mut *(param as *mut ReusableSourceContext);
+	if source_type == context.wanted_type && !name.trim().is_empty() {
+		context.items.push(crate::ReusableSourceInfo { name, source_type });
+	}
+	true
+}
+
+pub(crate) fn list_reusable_sources(
+	state: tauri::State<crate::ObsState>,
+	source_type: String,
+) -> Result<Vec<crate::ReusableSourceInfo>, String> {
+	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let mut context = ReusableSourceContext {
+		wanted_type: source_type,
+		items: Vec::new(),
+	};
+	unsafe {
+		revo_lib::obs::obs_enum_sources(
+			Some(collect_reusable_source),
+			&mut context as *mut _ as *mut std::os::raw::c_void,
+		);
+	}
+	context.items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+	context.items.dedup_by(|a, b| a.name == b.name);
+	Ok(context.items)
+}
+
+pub(crate) fn add_existing_source(
+	state: tauri::State<crate::ObsState>,
+	id: String,
+	source_name: String,
+) -> Result<String, String> {
+	let mut runtime = crate::logging::mutex_probe::probe_lock(
+		&state.runtime,
+		"runtime.add_existing_source",
+	)
+	.map_err(|_| "state poisoned".to_string())?;
+	if !runtime.initialized {
+		return Err("OBS not initialized".to_string());
+	}
+	let scene = crate::current_scene_mut(&mut runtime)?;
+	if crate::resolve_scene_item(scene, id.trim()).is_some_and(|item| !item.is_null()) {
+		return Err("source item id already exists".to_string());
+	}
+	let name = std::ffi::CString::new(source_name.trim())
+		.map_err(|_| "invalid source name".to_string())?;
+	unsafe {
+		let source = revo_lib::obs::obs_get_source_by_name(name.as_ptr());
+		if source.is_null() {
+			return Err(format!("existing source not found: {source_name}"));
+		}
+		let item = revo_lib::obs::obs_scene_add(scene.scene, source);
+		if item.is_null() {
+			revo_lib::obs::obs_source_release(source);
+			return Err("failed to add existing source to scene".to_string());
+		}
+		revo_lib::obs::obs_sceneitem_set_visible(item, true);
+		scene.custom_items.insert(id.clone(), item);
+		revo_lib::obs::obs_source_release(source);
+	}
+	Ok(format!("added existing source {source_name}"))
+}
+
 #[cfg(test)]
 mod source_type_visibility_tests {
 	use super::{centered_position, fit_scale, resolve_filter_source_ids, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
