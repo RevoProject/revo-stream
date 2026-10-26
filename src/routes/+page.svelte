@@ -4713,8 +4713,12 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     const escapedType = newSourceType.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const suffixPattern = new RegExp(`^${escapedType}_(\\d+)$`);
     let maxSuffix = 0;
-    for (const src of sourcesList) {
-      const match = src.name.match(suffixPattern);
+    const existingNames = [
+      ...sourcesList.map((source) => source.name),
+      ...reusableSources.map((source) => source.name)
+    ];
+    for (const existingName of existingNames) {
+      const match = existingName.match(suffixPattern);
       if (!match) continue;
       const value = Number(match[1]);
       if (Number.isFinite(value)) {

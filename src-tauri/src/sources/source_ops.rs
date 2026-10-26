@@ -115,6 +115,25 @@ struct ReusableSourceContext {
 	items: Vec<crate::ReusableSourceInfo>,
 }
 
+fn reusable_source_type_matches(wanted: &str, actual: &str, unversioned: &str) -> bool {
+	let wanted_unversioned = wanted
+		.rsplit_once("_v")
+		.filter(|(_, version)| !version.is_empty() && version.chars().all(|ch| ch.is_ascii_digit()))
+		.map(|(base, _)| base)
+		.unwrap_or(wanted);
+	actual == wanted
+		|| unversioned == wanted
+		|| unversioned == wanted_unversioned
+		|| matches!(
+			(wanted, actual),
+			("window_capture", "xcomposite_input") | ("xcomposite_input", "window_capture")
+		)
+		|| matches!(
+			(wanted, unversioned),
+			("window_capture", "xcomposite_input") | ("xcomposite_input", "window_capture")
+		)
+}
+
 unsafe extern "C" fn collect_reusable_source(
 	param: *mut std::os::raw::c_void,
 	source: *mut revo_lib::obs::obs_source_t,
@@ -128,15 +147,22 @@ unsafe extern "C" fn collect_reusable_source(
 		return true;
 	}
 	let type_ptr = revo_lib::obs::obs_source_get_unversioned_id(source);
+	let actual_type_ptr = revo_lib::obs::obs_source_get_id(source);
 	let name_ptr = revo_lib::obs::obs_source_get_name(source);
-	if type_ptr.is_null() || name_ptr.is_null() {
+	if type_ptr.is_null() || actual_type_ptr.is_null() || name_ptr.is_null() {
 		return true;
 	}
-	let source_type = std::ffi::CStr::from_ptr(type_ptr).to_string_lossy().to_string();
+	let unversioned_type = std::ffi::CStr::from_ptr(type_ptr).to_string_lossy().to_string();
+	let actual_type = std::ffi::CStr::from_ptr(actual_type_ptr).to_string_lossy().to_string();
 	let name = std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().to_string();
 	let context = &mut *(param as *mut ReusableSourceContext);
-	if source_type == context.wanted_type && !name.trim().is_empty() {
-		context.items.push(crate::ReusableSourceInfo { name, source_type });
+	if reusable_source_type_matches(&context.wanted_type, &actual_type, &unversioned_type)
+		&& !name.trim().is_empty()
+	{
+		context.items.push(crate::ReusableSourceInfo {
+			name,
+			source_type: actual_type,
+		});
 	}
 	true
 }
@@ -202,13 +228,32 @@ pub(crate) fn add_existing_source(
 
 #[cfg(test)]
 mod source_type_visibility_tests {
-	use super::{centered_position, fit_scale, resolve_filter_source_ids, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
+	use super::{centered_position, fit_scale, resolve_filter_source_ids, reusable_source_type_matches, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
 
 	#[test]
 	fn internal_source_types_are_debug_only() {
 		assert!(should_expose_source_type(OBS_SOURCE_CAP_DISABLED, true));
 		assert!(!should_expose_source_type(OBS_SOURCE_CAP_DISABLED, false));
 		assert!(should_expose_source_type(0, false));
+	}
+
+	#[test]
+	fn reusable_sources_match_versioned_ids_and_capture_aliases() {
+		assert!(reusable_source_type_matches(
+			"text_ft2_source_v2",
+			"text_ft2_source_v2",
+			"text_ft2_source"
+		));
+		assert!(reusable_source_type_matches(
+			"window_capture",
+			"xcomposite_input",
+			"xcomposite_input"
+		));
+		assert!(!reusable_source_type_matches(
+			"image_source",
+			"ffmpeg_source",
+			"ffmpeg_source"
+		));
 	}
 
 	#[test]
