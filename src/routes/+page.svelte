@@ -4850,12 +4850,14 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   };
 
   const openSourceInstanceModal = async () => {
-    showAddSource = false;
-    showSourceInstanceModal = true;
+    if (reusableSourcesLoading || addSourceBusy) return;
     reusableSourcesError = "";
     reusableSources = [];
     const request = ++reusableSourceRequest;
-    if (!backendEnabled || !isObsRunning) return;
+    if (!backendEnabled || !isObsRunning) {
+      await addSource();
+      return;
+    }
     reusableSourcesLoading = true;
     try {
       const listed = await invoke<Array<{ name: string; source_type: string }>>(
@@ -4863,7 +4865,16 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         { sourceType: newSourceType }
       );
       if (request !== reusableSourceRequest) return;
+      // No reusable source of this type: skip the redundant chooser and
+      // create a fresh source directly from the type picker.
+      if (!listed.length) {
+        reusableSourcesLoading = false;
+        await addSource();
+        return;
+      }
       reusableSources = listed.map((item) => ({ ...item, thumbnail: "" }));
+      showAddSource = false;
+      showSourceInstanceModal = true;
       // Render thumbnails serially: libobs graphics is serialized anyway and
       // progressive cards avoid a burst of concurrent GPU capture requests.
       for (const item of listed) {
@@ -4882,7 +4893,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         }
       }
     } catch (err) {
-      if (request === reusableSourceRequest) reusableSourcesError = String(err);
+      if (request === reusableSourceRequest) {
+        reusableSourcesError = String(err);
+        showAddSource = false;
+        showSourceInstanceModal = true;
+      }
     } finally {
       if (request === reusableSourceRequest) reusableSourcesLoading = false;
     }
@@ -8289,7 +8304,7 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       {externalSourceTypes}
       loading={sourceTypesLoading}
       error={sourceTypesError}
-      creating={addSourceBusy}
+      creating={addSourceBusy || reusableSourcesLoading}
       on:close={closeAddSourceModal}
       on:add={openSourceInstanceModal}
     />

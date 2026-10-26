@@ -60,7 +60,7 @@
 <style>
   .modal-backdrop { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; padding: 1.25rem; background: rgba(0,0,0,.55); }
   .modal { width: min(820px, 95vw); max-height: min(820px, 92vh); display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,.45); }
-  header { padding: 1.05rem 1.25rem; border-bottom: 1px solid var(--border); }
+  header { padding: 1.6rem 1.25rem 1.05rem; border-bottom: 1px solid var(--border); }
   h2, p { margin: 0; }
   header p { margin-top: .2rem; color: var(--text-muted); font-size: .84rem; }
   main { min-height: 0; overflow: auto; padding: 1rem 1.25rem; }
