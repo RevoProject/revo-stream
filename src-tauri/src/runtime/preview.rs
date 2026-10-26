@@ -381,6 +381,10 @@ pub(crate) fn take_source_thumbnail(
 		if source.is_null() {
 			return Err(format!("existing source not found: {source_name}"));
 		}
+		if revo_lib::obs::obs_source_get_output_flags(source) & revo_lib::obs::OBS_SOURCE_VIDEO == 0 {
+			revo_lib::obs::obs_source_release(source);
+			return Err("source has no video output".to_string());
+		}
 		let box_w = width.unwrap_or(320).clamp(160, 1280);
 		let box_h = height.unwrap_or(180).clamp(90, 720);
 		let base_w = revo_lib::obs::obs_source_get_width(source);
