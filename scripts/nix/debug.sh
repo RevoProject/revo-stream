@@ -72,6 +72,12 @@ export WEBKIT_USE_GL=software
 export REVO_ROOT="${REVO_ROOT:-$PROJECT_DIR/.local/revo-root}"
 export LD_LIBRARY_PATH="$LIB_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
+# A killed Cargo build may leave fresh fingerprints but missing generated
+# build_script executables. Repair that exact state before Tauri starts its
+# watcher; healthy no-op checks are incremental and finish quickly.
+nix-shell "$PROJECT_DIR/shell.nix" --run \
+  "bash scripts/nix/repair-debug-profile.sh"
+
 if [ "$MODE" = "embedded" ]; then
   # Standalone binary with build/ compiled in. Requires a fresh `pnpm build`,
   # otherwise the binary serves the STALE embedded frontend.

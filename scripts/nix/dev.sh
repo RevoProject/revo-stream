@@ -40,7 +40,13 @@ export WEBKIT_DISABLE_COMPOSITING_MODE=1
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 export WEBKIT_USE_GL=software
 # OBS runtime needs libobs-opengl.so via dlopen — dodajemy sciezke lib obs-studio
-export LD_LIBRARY_PATH="${OBS_STORE}/lib:${LD_LIBRARY_PATH:-}"
+APPINDICATOR_STORE="$(nix eval --impure nixpkgs#libayatana-appindicator --raw 2>/dev/null || true)"
+export LD_LIBRARY_PATH="${OBS_STORE}/lib${APPINDICATOR_STORE:+:$APPINDICATOR_STORE/lib}:${LD_LIBRARY_PATH:-}"
+
+# Same targeted repair used by debug.sh. It only cleans the dev profile when
+# Cargo reports missing target/debug/build/*/out/build_script_* artifacts.
+nix-shell "$PROJECT_DIR/shell.nix" --run \
+  "bash scripts/nix/repair-debug-profile.sh"
 
 run_inside_shell() {
   nix-shell "$PROJECT_DIR/shell.nix" --run \
