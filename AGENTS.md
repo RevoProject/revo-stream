@@ -6,8 +6,9 @@
 - Migration branch: `feature/gpui-rewrite`.
 - Current runnable application: Tauri 2, Svelte 5/SvelteKit, and a Rust/libobs
   backend in `src-tauri/`.
-- First extracted core slice: framework-neutral source and planner models in
-  `crates/revo-core/`, consumed by the Tauri adapter through a path dependency.
+- Extracted core slices: framework-neutral source, planner, and media-option
+  models in `crates/revo-core/`, consumed by the Tauri adapter through a path
+  dependency.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
