@@ -203,6 +203,225 @@ the GPUI parity gate.
 | User-agent platform detection | Rust `cfg` plus runtime platform APIs. |
 | Remote Google Fonts | Bundle licensed font files and load them through the application; do not depend on network font imports. |
 
+### Visual parity contract
+
+The GPUI rewrite must preserve the current colors exactly and the layout as
+closely as native text and platform rendering permit. GPUI colors can use the
+same hexadecimal values, so there is no reason to approximate the palette.
+Layout should preserve component order, proportions, minimum sizes, spacing,
+radii, and responsive breakpoints. Small glyph rasterization differences are
+acceptable; arbitrary redesign is not.
+
+The current visual sources of truth are:
+
+- RevoClassic base tokens: `src/routes/+page.svelte`, the global `:root`
+  block near the main page styles.
+- RevoFuture palette, spacing, radius, and motion tokens:
+  `static/revo-themes.css`.
+- RevoFuture component styling: `static/revo-ui.css`.
+- Main preview and three-panel geometry: `src/routes/+page.svelte`.
+- Dock geometry: `src/lib/components/Home/Experimental/DockPanel.svelte`.
+
+Do not copy raw colors into individual GPUI views. Define a native semantic
+theme once, then use `theme.surface`, `theme.text`, `theme.accent`, and similar
+fields everywhere. This preserves the current ability to change themes and
+accessibility palettes without rewriting components.
+
+#### RevoClassic color mapping
+
+| CSS token | Exact GPUI value | Intended use |
+| --- | --- | --- |
+| `--bg` | `#0f1115` | Application background. |
+| `--surface` | `#151820` | Primary panels and preview background. |
+| `--surface-2` | `#1b1f2a` | Elevated panels, headers, and dialogs. |
+| `--surface-3` | `#232838` | Active controls and tertiary surfaces. |
+| `--border` | `#2b3142` | Default borders. |
+| `--border-strong` | `#3a4258` | Emphasized controls and focus-adjacent borders. |
+| `--text` | `#e5e7eb` | Primary text. |
+| `--text-muted` | `#a1a1aa` | Secondary descriptions and inactive labels. |
+| `--accent` | `#5b7cfa` | Primary actions and selection. |
+| `--accent-strong` | `#3b5bdb` | Pressed/strong accent state. |
+| `--success` | `#22c55e` | Online/success state. |
+| `--danger` | `#ef4444` | Record, stop, destructive, and error state. |
+| `--warning` | `#f59e0b` | Warning state. |
+
+The extended classic tokens from `static/revo-themes.css` must also be copied:
+strong text `#ffffff`, secondary text `#c8ceda`, disabled text `#6b7280`,
+subtle border `#232838`, accent hover `#7690ff`, danger hover `#f26767`, and
+success hover `#34d399`.
+
+#### RevoFuture color mapping
+
+| Semantic role | Exact GPUI value |
+| --- | --- |
+| Background | `#080810` |
+| Header/window background | `#0a111b` |
+| Surface | `#0c131b` |
+| Elevated surface | `#0f1720` |
+| Active surface | `#152238` |
+| Sidebar | `#0a1017` |
+| Selected blue surface | `#081838` |
+| Subtle/default/strong border | `#182230` / `#202c3c` / `#2c3a4e` |
+| Selected blue border | `#1c3a78` |
+| Primary/hover/pressed blue | `#285cfc` / `#4c78fc` / `#2048c8` |
+| Danger/hover/pressed red | `#e42c2c` / `#f04448` / `#c82028` |
+| Success/hover green | `#20e438` / `#3cff78` |
+| Warning | `#f0ac50` |
+| Strong/default/secondary/muted text | `#f4f7fc` / `#e2e8f2` / `#b8c2d2` / `#8b98a9` |
+| Disabled text | `#5a6678` |
+
+Native theme example:
+
+```rust
+use gpui::{rgb, Rgba};
+
+struct RevoTheme {
+    background: Rgba,
+    surface: Rgba,
+    surface_elevated: Rgba,
+    surface_active: Rgba,
+    border: Rgba,
+    border_strong: Rgba,
+    text: Rgba,
+    text_muted: Rgba,
+    accent: Rgba,
+    accent_strong: Rgba,
+    success: Rgba,
+    danger: Rgba,
+    warning: Rgba,
+}
+
+impl RevoTheme {
+    fn classic() -> Self {
+        Self {
+            background: rgb(0x0f1115),
+            surface: rgb(0x151820),
+            surface_elevated: rgb(0x1b1f2a),
+            surface_active: rgb(0x232838),
+            border: rgb(0x2b3142),
+            border_strong: rgb(0x3a4258),
+            text: rgb(0xe5e7eb),
+            text_muted: rgb(0xa1a1aa),
+            accent: rgb(0x5b7cfa),
+            accent_strong: rgb(0x3b5bdb),
+            success: rgb(0x22c55e),
+            danger: rgb(0xef4444),
+            warning: rgb(0xf59e0b),
+        }
+    }
+}
+```
+
+If the pinned GPUI revision uses a different concrete color type, keep these
+values and adapt only the constructor/type. Alpha colors such as overlays and
+glows should preserve their current RGBA alpha, including the RevoFuture
+settings overlay `rgba(0, 0, 0, 0.62)`.
+
+#### Layout metrics
+
+Use native constants instead of scattering pixel values across views:
+
+| Existing layout rule | Native metric/behavior |
+| --- | --- |
+| Main window minimum | `1080 x 600` logical pixels. |
+| RevoFuture header | `84px` high. |
+| Main content maximum | `1400px` where the current theme applies it. |
+| Workspace gap/padding | `12px` gap and `12px 12px 0` padding. |
+| Preview wrapper | Maximum width `960px`, centered, flexible height. |
+| Preview frame | Preserve source aspect ratio, usually `16:9`, black background, `1px` border, `18px` radius. |
+| Lower panel band | Default `240px`, minimum `180px`; preserve at least `200px` for preview while resizing. |
+| Three lower columns | Equal-width Scenes, Sources, Tools columns with `16px` gap. |
+| Lower panel container | `20px` padding, `24px` outer margin, `12px` radius. |
+| RevoFuture spacing scale | `4, 8, 12, 16, 20, 24, 28, 32px`. |
+| RevoFuture radius scale | `6, 8, 10, 12, 16, 20px`, plus pill radius. |
+| Side dock | Default `420px`, minimum `280px`, maximum `62%` of window width. |
+| Bottom dock | Clamp height between `220px` and `460px`, targeting `33%` of window height. |
+| Dock header | `34px` high. |
+| Medium breakpoint | At `1200px`, use two columns: Scenes/Tools above Sources. |
+| Compact breakpoint | At `800px`, stack Scenes, Tools, Sources and stack dock/workspace vertically. |
+
+The native shell should follow this structure:
+
+```text
+Window (column, full size, background token)
+├── HeaderBar (84px for RevoFuture)
+└── Workspace (flexible, optional left/right/bottom dock)
+    └── WorkspaceMain (column)
+        ├── PreviewBand (flexible, minimum 200px)
+        │   └── PreviewFrame (centered, max 960px, source aspect ratio)
+        ├── ResizeHandle
+        └── LowerPanels (240px default, 180px minimum)
+            ├── Scenes (equal width)
+            ├── Sources (equal width)
+            └── Tools (equal width)
+```
+
+Illustrative GPUI layout:
+
+```rust
+fn workspace_shell(theme: &RevoTheme, panel_height: f32) -> impl IntoElement {
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .bg(theme.background)
+        .text_color(theme.text)
+        .child(header_bar().h(px(84.0)))
+        .child(
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_col()
+                .child(
+                    preview_band()
+                        .flex_1()
+                        .min_h(px(200.0))
+                        .items_center()
+                        .justify_center(),
+                )
+                .child(panel_resize_handle())
+                .child(
+                    div()
+                        .h(px(panel_height.max(180.0)))
+                        .flex()
+                        .gap_4()
+                        .m_6()
+                        .p_5()
+                        .border_1()
+                        .border_color(theme.border)
+                        .rounded_xl()
+                        .child(scenes_panel().flex_1())
+                        .child(sources_panel().flex_1())
+                        .child(tools_panel().flex_1()),
+                ),
+        )
+}
+```
+
+This example describes the parity target, not a requirement to keep all views
+in one function. The final implementation should split each panel into its own
+`Render` type and select row/column variants from current window bounds.
+
+#### Visual acceptance criteria
+
+- At `1280x720`, `1440x900`, and the `1080x600` minimum, compare GPUI and
+  Tauri reference screenshots for RevoClassic and RevoFuture.
+- Semantic colors must match their source hex/RGBA values exactly.
+- Major container bounds, gaps, padding, and radii should be within `2px` at
+  the reference logical resolution unless native font metrics require a
+  documented exception.
+- The preview aspect ratio and containment must match exactly; content must
+  never stretch.
+- At `1200px` and `800px`, verify the same responsive panel ordering described
+  above.
+- Verify default, hover, pressed, selected, disabled, focus, success, warning,
+  danger, recording, and streaming states.
+- Repeat visual checks with high contrast, reduced motion, UI density, font
+  scale, and each color-vision palette.
+- Keep golden screenshots in tests or release artifacts so later GPUI changes
+  cannot silently redesign the application.
+
 ## Component Migration Guide
 
 ### Component boundaries
