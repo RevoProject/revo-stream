@@ -6,6 +6,8 @@
 - Migration branch: `feature/gpui-rewrite`.
 - Current runnable application: Tauri 2, Svelte 5/SvelteKit, and a Rust/libobs
   backend in `src-tauri/`.
+- First extracted core slice: framework-neutral source and planner models in
+  `crates/revo-core/`, consumed by the Tauri adapter through a path dependency.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
@@ -50,6 +52,8 @@ are absent from the final architecture.
 - `static/`: legacy semantic theme and component CSS retained as the visual
   source of truth during migration.
 - `src-tauri/src/`: Rust/libobs backend plus current Tauri application adapter.
+- `crates/revo-core/`: framework-neutral Rust domain models and, incrementally,
+  backend services shared by the compatibility and GPUI applications.
 - `src-tauri/Cargo.toml`: current Rust manifest. Tauri dependencies remain
   until final cutover.
 - `src-tauri/resources/revo-root/`: generated/staged OBS runtime resources;
@@ -77,6 +81,8 @@ The commands below operate on the current compatibility application.
 
 ### Desktop application
 
+- `cargo test --manifest-path crates/revo-core/Cargo.toml`: run the extracted
+  core tests without Tauri, WebKit, GTK, or libobs system dependencies.
 - `./run.sh`: run `pnpm tauri dev` with libobs paths and the conditional Linux
   EGL/DMABUF workaround.
 - `./run-cef.sh`: run the optional `cef` feature after validating
