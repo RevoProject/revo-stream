@@ -20,7 +20,7 @@
     <header>
       <div>
         <h2>Add Source — {sourceTypeLabel}</h2>
-        <p>Reuse an existing source (shared settings) or create a new one.</p>
+        <p>Select existing source or create a new one</p>
       </div>
     </header>
 
