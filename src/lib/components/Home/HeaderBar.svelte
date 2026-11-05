@@ -12,6 +12,7 @@
   export let releaseMode: boolean = false;
   export let canUndo: boolean = false;
   export let canRedo: boolean = false;
+  export let studioMode: boolean = false;
   export let undoTitle: string = "Nothing to undo";
   export let redoTitle: string = "Nothing to redo";
 
@@ -23,6 +24,10 @@
   const openHistory = (event: MouseEvent) => {
     event.preventDefault();
     dispatch("openHistory");
+  };
+  const toggleStudioMode = (event: Event) => {
+    const target = event.currentTarget as HTMLInputElement | null;
+    dispatch("toggleStudioMode", { enabled: Boolean(target?.checked) });
   };
   const startObs = () => dispatch("startObs");
   const stopObs = () => dispatch("stopObs");
@@ -92,6 +97,16 @@
           <span>Realtime</span>
         </label>
       {/if}
+      <label class="studio-toggle" title="Studio Mode: Preview and Program side by side">
+        <span class="studio-label">Studio Mode</span>
+        <input
+          type="checkbox"
+          checked={studioMode}
+          onchange={toggleStudioMode}
+          aria-label="Studio Mode"
+        />
+        <span class="studio-switch" aria-hidden="true"><span></span></span>
+      </label>
       <button class="settings" aria-label="Settings" onclick={openSettings}>
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path
@@ -295,5 +310,60 @@
 
   .realtime-toggle span {
     line-height: 1;
+  }
+
+  .studio-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 650;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .studio-toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .studio-switch {
+    width: 38px;
+    height: 22px;
+    box-sizing: border-box;
+    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    transition: background 0.18s ease, border-color 0.18s ease;
+  }
+
+  .studio-switch span {
+    width: 16px;
+    height: 16px;
+    display: block;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: transform 0.18s ease;
+  }
+
+  .studio-toggle input:checked + .studio-switch {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .studio-toggle input:checked + .studio-switch span {
+    transform: translateX(16px);
+  }
+
+  .studio-toggle input:focus-visible + .studio-switch {
+    outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    outline-offset: 2px;
   }
 </style>

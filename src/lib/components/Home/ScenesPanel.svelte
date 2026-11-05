@@ -8,6 +8,8 @@
   export let renamingScene: string | null = null;
   export let renameSceneValue = "";
   export let thumbnails: Record<string, string> = {};
+  export let studioMode = false;
+  export let previewSceneName = "";
 
   const dispatch = createEventDispatcher();
   let dragSceneName: string | null = null;
@@ -72,6 +74,7 @@
         <div
           class="scene-item"
           class:active={scene.active}
+          class:preview={studioMode && scene.name === previewSceneName}
           oncontextmenu={(e) => openMenu(e, scene)}
           role="button"
           tabindex="0"
@@ -216,6 +219,11 @@
     button.active {
       background: var(--surface-3);
       color: var(--scene-active-text, var(--text));
+    }
+
+    .scene-item.preview .scene-name {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent);
     }
 
     .scene-rename {

@@ -4,7 +4,7 @@
   import { Webview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, save } from "@tauri-apps/plugin-dialog";
-  import { onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import HeaderBar from "../lib/components/Home/HeaderBar.svelte";
   import ScenesPanel from "../lib/components/Home/ScenesPanel.svelte";
   import SourcesPanel from "../lib/components/Home/SourcesPanel.svelte";
@@ -378,6 +378,14 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     let sceneResolution = "1920x1080";
     let realtimeRefresh = isReleaseBuild;
     let previewUrl = "";
+    let studioMode = false;
+    let studioModeLoaded = false;
+    let studioPreviewSceneName = "";
+    let studioPreviewUrl = "";
+    let studioPreviewFrameEl: HTMLDivElement | null = null;
+    let studioPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+    let studioPreviewInFlight = false;
+    let studioPreviewToken = 0;
     let previewInterval: ReturnType<typeof setTimeout> | null = null;
     let previewAnimationFrame: number | null = null;
     let previewInFlight = false;
@@ -2810,6 +2818,102 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       startPreviewLoop();
     }
 
+    function stopStudioPreviewLoop(clearFrame = true) {
+      if (studioPreviewTimer) {
+        clearTimeout(studioPreviewTimer);
+        studioPreviewTimer = null;
+      }
+      studioPreviewToken += 1;
+      if (clearFrame) studioPreviewUrl = "";
+    }
+
+    async function refreshStudioPreview() {
+      if (
+        !studioMode ||
+        !backendEnabled ||
+        !isObsRunning ||
+        !studioPreviewSceneName ||
+        document.hidden ||
+        previewFrozen ||
+        studioPreviewInFlight
+      ) return;
+      studioPreviewInFlight = true;
+      const token = ++studioPreviewToken;
+      try {
+        const width = Math.max(320, Math.floor(studioPreviewFrameEl?.clientWidth ?? 640));
+        const height = Math.max(180, Math.floor(studioPreviewFrameEl?.clientHeight ?? 360));
+        const frame = await invoke<string>("obs_take_screenshot", {
+          width,
+          height,
+          sourceId: studioPreviewSceneName
+        });
+        const url = frame.startsWith("data:") ? frame : `${convertFileSrc(frame)}?t=${Date.now()}`;
+        const probe = new Image();
+        probe.src = url;
+        try {
+          if (typeof probe.decode === "function") await probe.decode();
+        } catch {
+          return;
+        }
+        if (token === studioPreviewToken && studioMode) studioPreviewUrl = url;
+      } catch (err) {
+        console.warn("[studio-mode] preview capture failed", err);
+      } finally {
+        studioPreviewInFlight = false;
+      }
+    }
+
+    function scheduleStudioPreviewLoop() {
+      if (studioPreviewTimer) clearTimeout(studioPreviewTimer);
+      if (!studioMode) return;
+      const tick = async () => {
+        await refreshStudioPreview();
+        if (studioMode && !document.hidden) studioPreviewTimer = setTimeout(tick, 250);
+      };
+      studioPreviewTimer = setTimeout(tick, 0);
+    }
+
+    const setStudioModeEnabled = (enabled: boolean) => {
+      studioMode = enabled;
+      if (enabled) {
+        if (!studioPreviewSceneName || !scenes.some((scene) => scene.name === studioPreviewSceneName)) {
+          studioPreviewSceneName = scenes.find((scene) => scene.active)?.name ?? scenes[0]?.name ?? "";
+        }
+        scheduleStudioPreviewLoop();
+      } else {
+        stopStudioPreviewLoop();
+      }
+    };
+
+    onMount(() => {
+      try {
+        studioMode = localStorage.getItem("studioMode") === "true";
+      } catch {
+        studioMode = false;
+      }
+      studioModeLoaded = true;
+      if (studioMode) setTimeout(() => setStudioModeEnabled(true), 0);
+    });
+
+    $: if (studioModeLoaded && typeof window !== "undefined") {
+      try {
+        localStorage.setItem("studioMode", studioMode ? "true" : "false");
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    onDestroy(() => stopStudioPreviewLoop());
+
+    $: if (
+      studioMode &&
+      scenes.length > 0 &&
+      !scenes.some((scene) => scene.name === studioPreviewSceneName)
+    ) {
+      studioPreviewSceneName = scenes.find((scene) => scene.active)?.name ?? scenes[0].name;
+      studioPreviewUrl = "";
+    }
+
     function showCannotRemoveLastSceneDialog() {
       showCannotRemoveLastScene = true;
       setTimeout(() => { showCannotRemoveLastScene = false; }, 3200);
@@ -3112,8 +3216,10 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       const handleVisibility = () => {
         if (document.hidden) {
           stopPreviewLoop();
+          if (studioMode) stopStudioPreviewLoop(false);
         } else if (!webrtcActive && backendEnabled && isObsRunning && !demoMode) {
           startPreviewLoop();
+          if (studioMode) scheduleStudioPreviewLoop();
         }
       };
       const handleResize = () => {
@@ -4568,6 +4674,54 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
   const openAddSceneModal = () => {
     scenePlaceholder = getDefaultSceneName();
     showAddScene = true;
+  };
+
+  const selectSceneFromPanel = async (name: string) => {
+    if (studioMode) {
+      studioPreviewSceneName = name;
+      sceneThumbnails = studioPreviewUrl
+        ? { ...sceneThumbnails, [name]: studioPreviewUrl }
+        : sceneThumbnails;
+      await refreshStudioPreview();
+      closeSceneMenu();
+      return;
+    }
+    await setCurrentScene(name);
+  };
+
+  const switchStudioProgram = async (kind: "fade" | "cut") => {
+    if (!studioMode || !studioPreviewSceneName || busy) return;
+    const outgoingProgram = scenes.find((scene) => scene.active)?.name ?? "";
+    if (!outgoingProgram || outgoingProgram === studioPreviewSceneName) return;
+    busy = true;
+    try {
+      const duration = kind === "cut"
+        ? 0
+        : Math.max(50, Math.min(20000, Number(getActiveTransition()?.params?.duration_ms ?? 300)));
+      if (backendEnabled) {
+        await invoke<string>("obs_set_program_transition", { kind, durationMs: duration });
+        await invoke<string>("obs_set_current_scene", { name: studioPreviewSceneName });
+        sourceTransforms = {};
+        plannerQueuedTransforms = null;
+        await loadScenes();
+        await loadSources();
+        await new Promise((resolve) => setTimeout(resolve, kind === "cut" ? 30 : Math.min(duration, 500)));
+        previewDirty = true;
+        await refreshPreview(true);
+        // Restore the configured transition for normal (non-Studio) scene changes.
+        void applyProgramTransition();
+      } else {
+        scenes = scenes.map((scene) => ({ ...scene, active: scene.name === studioPreviewSceneName }));
+      }
+      studioPreviewSceneName = outgoingProgram;
+      studioPreviewUrl = "";
+      await refreshStudioPreview();
+      requestPreviewUpdate();
+    } catch (err) {
+      showGlobalDialog(`Studio Mode switch failed: ${String(err)}`, "error");
+    } finally {
+      busy = false;
+    }
   };
 
   const setCurrentScene = async (name: string) => {
@@ -8196,6 +8350,8 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
       on:openHistory={openHistoryModal}
       {realtimeRefresh}
       on:toggleRealtimeRefresh={(e) => setRealtimeRefresh(Boolean(e.detail?.enabled))}
+      {studioMode}
+      on:toggleStudioMode={(e) => setStudioModeEnabled(Boolean(e.detail?.enabled))}
     />
   </div>
 
@@ -8761,12 +8917,29 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
         {:else}
           <div
             class="live-preview"
+            class:studio-mode={studioMode}
             ondblclick={openSourceTransformModal}
             role="button"
             tabindex="0"
             aria-label="Open source transform modal"
           >
                 <!-- SourceTransformModal now opens in a new window -->
+            {#if studioMode}
+              <div
+                class="preview-frame studio-preview-frame"
+                bind:this={studioPreviewFrameEl}
+                style={`--preview-aspect:${getPreviewAspect()};`}
+              >
+                <span class="studio-frame-label preview-label">
+                  Preview · {studioPreviewSceneName || "No scene"}
+                </span>
+                {#if studioPreviewUrl}
+                  <img src={studioPreviewUrl} alt={`Preview scene ${studioPreviewSceneName}`} decoding="async" />
+                {:else}
+                  <div class="preview-placeholder">Select a scene to preview</div>
+                {/if}
+              </div>
+            {/if}
             <div
               class="preview-frame"
               bind:this={previewFrameEl}
@@ -8783,6 +8956,11 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
               }}
               aria-label="Open graphic planner"
             >
+              {#if studioMode}
+                <span class="studio-frame-label program-label">
+                  Program · {scenes.find((scene) => scene.active)?.name ?? "No scene"}
+                </span>
+              {/if}
               {#if previewTransitionVisible && previewTransitionKind}
                 <div
                   class="preview-transition-overlay"
@@ -8828,6 +9006,22 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
                 </div>
               {/if}
             </div>
+            {#if studioMode}
+              <div class="studio-switcher-controls" role="group" aria-label="Studio scene switch controls">
+                <button
+                  type="button"
+                  class="cut"
+                  disabled={busy || !studioPreviewSceneName || scenes.find((scene) => scene.active)?.name === studioPreviewSceneName}
+                  onclick={() => void switchStudioProgram("cut")}
+                >Cut</button>
+                <button
+                  type="button"
+                  class="fade"
+                  disabled={busy || !studioPreviewSceneName || scenes.find((scene) => scene.active)?.name === studioPreviewSceneName}
+                  onclick={() => void switchStudioProgram("fade")}
+                >Fade</button>
+              </div>
+            {/if}
           </div>
         {/if}
       </section>
@@ -8853,8 +9047,10 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
             {backendEnabled}
             {renamingScene}
             {renameSceneValue}
+            {studioMode}
+            previewSceneName={studioPreviewSceneName}
             on:openAddScene={openAddSceneModal}
-            on:setScene={(e) => setCurrentScene(e.detail.name)}
+            on:setScene={(e) => void selectSceneFromPanel(e.detail.name)}
             on:startRename={(e) => startRenameScene(e.detail.scene)}
             on:commitRename={commitRenameScene}
             on:cancelRename={cancelRenameScene}
@@ -9155,6 +9351,82 @@ import PreviewModal from "../lib/components/Modal/PreviewModal.svelte";
     align-items: center;
     justify-content: center;
     overflow: hidden;
+  }
+
+  .live-preview.studio-mode {
+    width: min(1400px, 100%);
+    flex-direction: row;
+    gap: 1rem;
+    position: relative;
+    padding-bottom: 44px;
+    box-sizing: border-box;
+  }
+
+  .live-preview.studio-mode > .preview-frame {
+    width: 0;
+    height: auto;
+    max-height: calc(100% - 44px);
+    flex: 1 1 0;
+  }
+
+  .studio-frame-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 8;
+    max-width: calc(100% - 20px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0.28rem 0.55rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    color: var(--text);
+    font-size: 0.72rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    backdrop-filter: blur(8px);
+  }
+
+  .studio-frame-label.preview-label {
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  }
+
+  .studio-frame-label.program-label {
+    border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
+  }
+
+  .studio-switcher-controls {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.6rem;
+  }
+
+  .studio-switcher-controls button {
+    min-width: 84px;
+    height: 34px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-3);
+    color: var(--text);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .studio-switcher-controls button.fade {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--text-on-primary);
+  }
+
+  .studio-switcher-controls button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .preview-frame {
