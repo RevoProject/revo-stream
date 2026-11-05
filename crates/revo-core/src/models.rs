@@ -1,6 +1,47 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoEncoderPreference {
+    Hardware,
+    Nvenc,
+    NvencLegacy,
+    Software,
+}
+
+impl Default for VideoEncoderPreference {
+    fn default() -> Self {
+        VideoEncoderPreference::Hardware
+    }
+}
+
+#[derive(Serialize)]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SelectOption {
+    pub value: String,
+    pub label: String,
+}
+
+#[derive(Serialize)]
+pub struct ObsSettingsSelectOptions {
+    pub streaming_audio_encoders: Vec<SelectOption>,
+    pub streaming_video_encoders: Vec<SelectOption>,
+    pub recording_audio_encoders: Vec<SelectOption>,
+    pub recording_video_encoders: Vec<SelectOption>,
+    pub recording_formats: Vec<SelectOption>,
+    pub audio_sample_rates: Vec<SelectOption>,
+    pub audio_channels: Vec<SelectOption>,
+    pub video_resolutions: Vec<SelectOption>,
+    pub video_downscale_filters: Vec<SelectOption>,
+    pub video_common_fps: Vec<SelectOption>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SourceInfo {
     pub id: String,
@@ -91,6 +132,96 @@ pub struct SourceFilterItem {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    #[test]
+    fn encoder_preference_preserves_default_and_wire_spelling() {
+        assert!(matches!(
+            VideoEncoderPreference::default(),
+            VideoEncoderPreference::Hardware
+        ));
+
+        let cases = [
+            (VideoEncoderPreference::Hardware, "hardware"),
+            (VideoEncoderPreference::Nvenc, "nvenc"),
+            (VideoEncoderPreference::NvencLegacy, "nvenclegacy"),
+            (VideoEncoderPreference::Software, "software"),
+        ];
+        for (preference, expected) in cases {
+            assert_eq!(
+                serde_json::to_value(preference).expect("preference should serialize"),
+                json!(expected)
+            );
+        }
+
+        let legacy: VideoEncoderPreference =
+            serde_json::from_value(json!("nvenclegacy")).expect("legacy NVENC should deserialize");
+        assert!(matches!(legacy, VideoEncoderPreference::NvencLegacy));
+    }
+
+    #[test]
+    fn media_choice_models_preserve_wire_shapes() {
+        let device = AudioDevice {
+            id: "alsa_input.usb-device".into(),
+            name: "USB Microphone".into(),
+        };
+        let option = SelectOption {
+            value: "h264_nvenc".into(),
+            label: "NVIDIA NVENC".into(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(device).expect("audio device should serialize"),
+            json!({
+                "id": "alsa_input.usb-device",
+                "name": "USB Microphone"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(option).expect("select option should serialize"),
+            json!({
+                "value": "h264_nvenc",
+                "label": "NVIDIA NVENC"
+            })
+        );
+    }
+
+    #[test]
+    fn settings_select_options_preserve_all_wire_fields() {
+        let options = ObsSettingsSelectOptions {
+            streaming_audio_encoders: vec![],
+            streaming_video_encoders: vec![SelectOption {
+                value: "h264_nvenc".into(),
+                label: "NVIDIA NVENC".into(),
+            }],
+            recording_audio_encoders: vec![],
+            recording_video_encoders: vec![],
+            recording_formats: vec![],
+            audio_sample_rates: vec![],
+            audio_channels: vec![],
+            video_resolutions: vec![],
+            video_downscale_filters: vec![],
+            video_common_fps: vec![],
+        };
+
+        assert_eq!(
+            serde_json::to_value(options).expect("settings options should serialize"),
+            json!({
+                "streaming_audio_encoders": [],
+                "streaming_video_encoders": [{
+                    "value": "h264_nvenc",
+                    "label": "NVIDIA NVENC"
+                }],
+                "recording_audio_encoders": [],
+                "recording_video_encoders": [],
+                "recording_formats": [],
+                "audio_sample_rates": [],
+                "audio_channels": [],
+                "video_resolutions": [],
+                "video_downscale_filters": [],
+                "video_common_fps": []
+            })
+        );
+    }
 
     #[test]
     fn source_type_defaults_audio_capability() {

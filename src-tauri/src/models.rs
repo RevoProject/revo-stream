@@ -2,24 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 pub(crate) use revo_core::models::{
-	PlannerInit, PlannerInitInput, ReusableSourceInfo, SourceCreate, SourceFilterItem, SourceInfo,
-	SourcePropertyOption, SourcePropertySpec, SourceTypeItem, SourceUpdate,
+	AudioDevice, ObsSettingsSelectOptions, PlannerInit, PlannerInitInput, ReusableSourceInfo,
+	SelectOption, SourceCreate, SourceFilterItem, SourceInfo, SourcePropertyOption,
+	SourcePropertySpec, SourceTypeItem, SourceUpdate, VideoEncoderPreference,
 };
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum VideoEncoderPreference {
-	Hardware,
-	Nvenc,
-	NvencLegacy,
-	Software,
-}
-
-impl Default for VideoEncoderPreference {
-	fn default() -> Self {
-		VideoEncoderPreference::Hardware
-	}
-}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct LibObsActionEvent {
@@ -41,32 +27,6 @@ pub(crate) struct CefBridgeInfo {
 pub(crate) struct BrowserDockState {
 	pub(crate) is_open: bool,
 	pub(crate) url: Option<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct AudioDevice {
-	pub(crate) id: String,
-	pub(crate) name: String,
-}
-
-#[derive(Serialize, Clone)]
-pub(crate) struct SelectOption {
-	pub(crate) value: String,
-	pub(crate) label: String,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ObsSettingsSelectOptions {
-	pub(crate) streaming_audio_encoders: Vec<SelectOption>,
-	pub(crate) streaming_video_encoders: Vec<SelectOption>,
-	pub(crate) recording_audio_encoders: Vec<SelectOption>,
-	pub(crate) recording_video_encoders: Vec<SelectOption>,
-	pub(crate) recording_formats: Vec<SelectOption>,
-	pub(crate) audio_sample_rates: Vec<SelectOption>,
-	pub(crate) audio_channels: Vec<SelectOption>,
-	pub(crate) video_resolutions: Vec<SelectOption>,
-	pub(crate) video_downscale_filters: Vec<SelectOption>,
-	pub(crate) video_common_fps: Vec<SelectOption>,
 }
 
 #[derive(Serialize)]
