@@ -31,3 +31,7 @@ plans/
 tmp/
 __pycache__/
 *.pyc
+
+# Standalone library crate build artifacts
+/crates/*/target/
+/crates/*/Cargo.lock

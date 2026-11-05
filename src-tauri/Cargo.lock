@@ -3725,6 +3725,13 @@ name = "revo-cef"
 version = "0.1.0"
 
 [[package]]
+name = "revo-core"
+version = "0.4.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "revo-lib"
 version = "0.1.0"
 source = "git+https://github.com/RevoProject/revo-lib#66325a65d1e0a0db9a0f3eedc585af554f2440e3"
@@ -3742,6 +3749,7 @@ dependencies = [
  "image",
  "libc",
  "revo-cef",
+ "revo-core",
  "revo-lib",
  "serde",
  "serde_json",

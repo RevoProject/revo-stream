@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+
+pub(crate) use revo_core::models::{
+	PlannerInit, PlannerInitInput, ReusableSourceInfo, SourceCreate, SourceFilterItem, SourceInfo,
+	SourcePropertyOption, SourcePropertySpec, SourceTypeItem, SourceUpdate,
+};
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,31 +43,6 @@ pub(crate) struct BrowserDockState {
 	pub(crate) url: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct SourceInfo {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) visible: bool,
-	pub(crate) source_type: String,
-	#[serde(default)]
-	pub(crate) audio_capable: bool,
-	pub(crate) params: HashMap<String, String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct SourceTypeItem {
-	pub(crate) id: String,
-	pub(crate) label: String,
-	#[serde(default)]
-	pub(crate) audio_capable: bool,
-}
-
-#[derive(Clone, serde::Serialize)]
-pub(crate) struct ReusableSourceInfo {
-	pub(crate) name: String,
-	pub(crate) source_type: String,
-}
-
 #[derive(Serialize)]
 pub(crate) struct AudioDevice {
 	pub(crate) id: String,
@@ -95,21 +74,6 @@ pub(crate) struct SceneInfo {
 	pub(crate) name: String,
 	pub(crate) active: bool,
 	pub(crate) locked: bool,
-}
-
-#[derive(Serialize)]
-pub(crate) struct SourcePropertyOption {
-	pub(crate) value: String,
-	pub(crate) label: String,
-}
-
-#[derive(Serialize)]
-pub(crate) struct SourcePropertySpec {
-	pub(crate) key: String,
-	pub(crate) label: String,
-	pub(crate) kind: String,
-	pub(crate) hint: String,
-	pub(crate) options: Vec<SourcePropertyOption>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -186,50 +150,4 @@ pub(crate) struct ThemeInfo {
 	pub(crate) name: String,
 	pub(crate) author: String,
 	pub(crate) version: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PlannerInit {
-	pub(crate) sources: Vec<SourceInfo>,
-	pub(crate) scene_resolution: String,
-	pub(crate) selected_source_id: Option<String>,
-	#[serde(default)]
-	pub(crate) scene_name: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct PlannerInitInput {
-	pub(crate) sources: Vec<SourceInfo>,
-	pub(crate) scene_resolution: String,
-	pub(crate) selected_source_id: Option<String>,
-	#[serde(default)]
-	pub(crate) scene_name: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct SourceUpdate {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) source_type: String,
-	pub(crate) params: HashMap<String, String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct SourceCreate {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) source_type: String,
-	pub(crate) params: HashMap<String, String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct SourceFilterItem {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) kind: String,
-	pub(crate) enabled: bool,
-	#[serde(default)]
-	pub(crate) locked: bool,
-	#[serde(default)]
-	pub(crate) params: HashMap<String, String>,
 }
