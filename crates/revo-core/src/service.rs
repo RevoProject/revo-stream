@@ -70,6 +70,9 @@ pub enum BackendCommand {
         height: i32,
         rotation: i32,
     },
+    SaveSettings {
+        settings: crate::models::AppSettings,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,7 +96,7 @@ pub struct SourceSnapshotItem {
     pub audio_capable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BackendSnapshot {
     pub obs_running: bool,
     pub recording: bool,
@@ -117,6 +120,9 @@ pub struct BackendSnapshot {
     pub source_transforms: Vec<PlacedSource>,
     pub audio_levels: Vec<(String, u32)>,
     pub last_error: Option<String>,
+    /// Persisted application settings as most recently loaded/saved by the
+    /// runtime. `None` while the runtime has not read settings yet.
+    pub settings: Option<crate::models::AppSettings>,
 }
 
 impl Default for BackendSnapshot {
@@ -144,6 +150,7 @@ impl Default for BackendSnapshot {
             source_transforms: Vec::new(),
             audio_levels: Vec::new(),
             last_error: None,
+            settings: None,
         }
     }
 }

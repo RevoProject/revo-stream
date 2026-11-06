@@ -124,6 +124,9 @@ pub struct ObsBackendRuntime {
     platform: GpuiObsPlatform,
     root_dir: Option<String>,
     last_error: Option<String>,
+    /// Persisted settings as loaded at construction and updated by
+    /// `SaveSettings`; surfaced through the snapshot for the settings UI.
+    settings: Option<revo_core::models::AppSettings>,
     // UI-mode and selection state kept on the adapter. libobs owns the
     // authoritative scene, source, output, and transition state; locks and
     // volume-lock flags have no libobs equivalent yet, so the adapter holds
@@ -147,6 +150,7 @@ impl ObsBackendRuntime {
             platform,
             root_dir,
             last_error: None,
+            settings: revo_backend::settings::core::settings_get().ok(),
             selected_source: None,
             muted_sources: Vec::new(),
             source_volumes: Vec::new(),
@@ -247,6 +251,7 @@ impl BackendRuntime for ObsBackendRuntime {
             source_transforms,
             audio_levels,
             last_error: self.last_error.clone(),
+            settings: self.settings.clone(),
         })
     }
 
@@ -272,6 +277,16 @@ impl ObsBackendRuntime {
             // treats both commands the same way (recorded + no-op pending the
             // command-journal migration).
             BackendCommand::Undo | BackendCommand::Redo => Ok("history not migrated yet".into()),
+            BackendCommand::SaveSettings { settings } => {
+                let saved = revo_backend::settings::core::settings_save(settings.clone());
+                match saved {
+                    Ok(message) => {
+                        self.settings = Some(settings);
+                        Ok(message)
+                    }
+                    Err(message) => Err(message),
+                }
+            }
             BackendCommand::SetStudioMode(enabled) => {
                 self.studio_mode = enabled;
                 Ok(format!("studio mode: {enabled}"))

@@ -21,6 +21,7 @@ impl Default for MockBackendRuntime {
                 sources: vec!["camera".into(), "lower-third".into(), "browser-chat".into()],
                 visible_sources: vec!["camera".into(), "lower-third".into(), "browser-chat".into()],
                 locked_sources: vec!["browser-chat".into()],
+                settings: Some(revo_core::settings::default_settings()),
                 ..BackendSnapshot::default()
             },
         }
@@ -31,6 +32,9 @@ impl BackendRuntime for MockBackendRuntime {
     fn execute(&mut self, command: BackendCommand) -> Result<(), BackendError> {
         match command {
             BackendCommand::Undo | BackendCommand::Redo => {}
+            BackendCommand::SaveSettings { settings } => {
+                self.snapshot.settings = Some(settings);
+            }
             BackendCommand::SetStudioMode(enabled) => self.snapshot.studio_mode = enabled,
             BackendCommand::SetRealtimeRefresh(enabled) => self.snapshot.realtime_refresh = enabled,
             BackendCommand::StartObs => self.snapshot.obs_running = true,
