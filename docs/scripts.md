@@ -58,6 +58,16 @@ components were removed.
 - `debug.sh` — run the GPUI shell in debug mode (default); `tauri` and
   `embedded` run the legacy adapter
 
+## GPUI packaging (Linux, `scripts/linux/`)
+
+- `package-gpui.sh` — package the native GPUI binary into the GPUI portable
+  layout: versioned directory with the binary, `launch.sh` (wires `REVO_ROOT`
+  and private libraries), `README.txt`, and the OBS runtime staged via
+  `prepare-runtime.sh` (reuses `src-tauri/resources/revo-root` when present).
+  Outputs a portable `.tar.gz` and, when makeself is installed, a
+  self-extracting `.run`:
+  `bash scripts/linux/package-gpui.sh [OBS_INSTALL]`
+
 ## Release scripts
 
 The Linux/macOS/Windows release and packaging scripts still produce the

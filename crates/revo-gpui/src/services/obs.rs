@@ -3,6 +3,7 @@
 //! stay green without libobs/openssl host packages.
 
 use std::collections::HashMap;
+use std::sync::mpsc;
 
 use revo_backend::runtime::lifecycle::ObsPlatform;
 use revo_backend::runtime::preview::{encode_screenshot, ScreenshotCapture};
@@ -20,20 +21,49 @@ pub const PREVIEW_CAPTURE_INTERVAL_MS: u64 = 150;
 
 /// libobs platform hooks for the native GPUI application.
 ///
-/// GPUI owns the process main thread, so unlike the Tauri adapter there is no
-/// separate helper application handle to dispatch onto the platform event
-/// loop. Startup and shutdown therefore call libobs directly.
-pub struct GpuiObsPlatform;
-
-impl GpuiObsPlatform {
-    pub fn new() -> Self {
-        Self
-    }
+/// GPUI owns the process main thread. libobs asserts macOS main-dispatch for
+/// hotkey platform init, so on macOS the hooks are marshalled onto the GPUI
+/// foreground executor (which dispatches on the main thread) through a
+/// channel trampoline: the worker blocks on a reply channel exactly like the
+/// Tauri adapter blocks on `run_on_main_thread`. On other platforms libobs
+/// startup/shutdown run directly on the service worker thread.
+pub struct GpuiObsPlatform {
+    /// Send-side of the main-thread job queue drained by a foreground-executor
+    /// task spawned in [`GpuiObsPlatform::new`]. The `ForegroundExecutor` is
+    /// `!Send`, which is why only this sender is retained.
+    main_jobs: mpsc::Sender<Box<dyn FnOnce() + Send>>,
 }
 
-impl Default for GpuiObsPlatform {
-    fn default() -> Self {
-        Self::new()
+impl GpuiObsPlatform {
+    pub fn new(executor: gpui::ForegroundExecutor) -> Self {
+        let (main_jobs, receiver) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        executor
+            .spawn(async move {
+                while let Ok(job) = receiver.recv() {
+                    job();
+                }
+            })
+            .detach();
+        Self { main_jobs }
+    }
+
+    /// Runs `job` on the GPUI main thread and blocks the worker until it
+    /// completes. Mirrors the Tauri adapter's `run_on_main_thread` + reply
+    /// channel for the macOS libobs lifecycle hooks.
+    #[cfg(target_os = "macos")]
+    fn dispatch_on_main<R: Send + 'static>(
+        &self,
+        job: impl FnOnce() -> R + Send + 'static,
+    ) -> Result<R, String> {
+        let (reply, receiver) = mpsc::channel::<R>();
+        self.main_jobs
+            .send(Box::new(move || {
+                let _ = reply.send(job());
+            }))
+            .map_err(|_| "main-thread dispatcher dropped: GPUI event loop closed".to_string())?;
+        receiver
+            .recv()
+            .map_err(|e| format!("main-thread job dropped: {e}"))
     }
 }
 
@@ -41,21 +71,20 @@ impl ObsPlatform for GpuiObsPlatform {
     fn startup(&self, locale: &std::ffi::CStr, config: &std::ffi::CStr) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
-            // The Tauri adapter dispatches obs_startup onto the macOS main
-            // dispatch queue (HIToolbox/TSM hotkey init asserts it). GPUI
-            // owns the main thread here and direct dispatch is not wired up;
-            // TODO(main-thread): verify main-thread dispatch strategy with
-            // GPUI before enabling macOS.
-            // SAFETY: The caller serializes the libobs lifecycle, and both C
-            // strings remain valid for the duration of obs_startup.
-            if unsafe { obs::obs_startup(locale.as_ptr(), config.as_ptr(), std::ptr::null_mut()) } {
-                Ok(())
-            } else {
-                Err("obs_startup failed".to_string())
-            }
+            // libobs hotkey platform init (HIToolbox/TSM) asserts the main
+            // dispatch queue, so block this worker until main-thread startup
+            // completes — same contract as the Tauri adapter.
+            let locale = locale.to_owned();
+            let config = config.to_owned();
+            self.dispatch_on_main(move || {
+                // SAFETY: The owned C strings outlive this call, and libobs
+                // startup runs on the required macOS main thread.
+                unsafe { obs::obs_startup(locale.as_ptr(), config.as_ptr(), std::ptr::null_mut()) }
+            })?
         }
         #[cfg(not(target_os = "macos"))]
         {
+            let _ = &self.main_jobs;
             // SAFETY: The caller serializes the libobs lifecycle, and both C
             // strings remain valid for the duration of obs_startup.
             if unsafe { obs::obs_startup(locale.as_ptr(), config.as_ptr(), std::ptr::null_mut()) } {
@@ -69,15 +98,16 @@ impl ObsPlatform for GpuiObsPlatform {
     fn shutdown(&self) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
-            // TODO(main-thread): see startup() — obs_shutdown touches
-            // HIToolbox on macOS and must run on the main thread.
-            // SAFETY: The caller established that the libobs core is active,
-            // and teardown runs while the lifecycle is serialized.
-            unsafe { obs::obs_shutdown() };
-            Ok(())
+            // Match obs_startup: teardown touches HIToolbox on macOS.
+            self.dispatch_on_main(move || {
+                // SAFETY: The caller established that the libobs core is
+                // active, and teardown runs on the required macOS main thread.
+                unsafe { obs::obs_shutdown() };
+            })
         }
         #[cfg(not(target_os = "macos"))]
         {
+            let _ = &self.main_jobs;
             // SAFETY: The caller serializes lifecycle access and only invokes
             // shutdown for a successfully started libobs core.
             unsafe { obs::obs_shutdown() };
@@ -111,10 +141,10 @@ pub struct ObsBackendRuntime {
 }
 
 impl ObsBackendRuntime {
-    pub fn new(root_dir: Option<String>) -> Self {
+    pub fn new(root_dir: Option<String>, platform: GpuiObsPlatform) -> Self {
         Self {
             runtime: ObsRuntime::default(),
-            platform: GpuiObsPlatform::new(),
+            platform,
             root_dir,
             last_error: None,
             selected_source: None,
@@ -726,7 +756,10 @@ mod tests {
     use super::*;
 
     fn movable() -> ObsBackendRuntime {
-        ObsBackendRuntime::new(None)
+        // Tests never exercise lifecycle dispatch, so a platform whose
+        // main-thread job queue has no live receiver is sufficient.
+        let (main_jobs, _) = mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        ObsBackendRuntime::new(None, GpuiObsPlatform { main_jobs })
     }
 
     #[test]

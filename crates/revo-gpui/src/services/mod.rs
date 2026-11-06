@@ -70,10 +70,16 @@ impl AnyBackend {
     }
 
     #[cfg(feature = "obs-backend")]
-    pub fn obs(root_dir: Option<String>) -> Self {
+    pub fn obs(root_dir: Option<String>, executor: gpui::ForegroundExecutor) -> Self {
+        // The platform spawns its main-thread job queue from the foreground
+        // executor here (main thread), then moves into the worker closure —
+        // only its `Send` job sender crosses threads.
+        let platform = GpuiObsPlatform::new(executor);
         Self::Obs(
-            BackendService::new(8, move || ObsBackendRuntime::new(root_dir.clone()))
-                .expect("failed to start obs backend service"),
+            BackendService::new(8, move || {
+                ObsBackendRuntime::new(root_dir.clone(), platform)
+            })
+            .expect("failed to start obs backend service"),
         )
     }
 

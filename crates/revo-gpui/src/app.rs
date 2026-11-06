@@ -506,7 +506,7 @@ impl Workspace {
         let backend = if use_obs_backend {
             #[cfg(feature = "obs-backend")]
             {
-                AnyBackend::obs(None)
+                AnyBackend::obs(None, cx.foreground_executor())
             }
             #[cfg(not(feature = "obs-backend"))]
             {
