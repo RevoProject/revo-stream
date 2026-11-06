@@ -7,9 +7,9 @@ use std::time::Duration;
 use base64::Engine as _;
 
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Pixels,
-    Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle,
-    WindowOptions,
+    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, MouseButton,
+    Pixels, Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
+    WindowHandle, WindowOptions,
 };
 use revo_core::models::AppSettings;
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
@@ -28,7 +28,7 @@ use crate::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
         modal::{SettingsEvent, SettingsModal},
-        modal_shell::{modal_shell, ModalConfig, ModalSize},
+        modal_shell::{modal_card, ModalConfig, ModalSize},
         modules::{
             audio_mixer::{AudioChannel, AudioMixerPanel, MixerEvent},
             audio_mixer_advanced_modal::{AdvancedDraft, AudioMixerAdvancedModal},
@@ -925,6 +925,30 @@ impl Workspace {
         }
     }
 
+    /// Closes whichever modal is currently active, cleaning up the matching
+    /// entity state.
+    fn close_active_modal(&mut self, cx: &mut Context<'_, Self>) {
+        match &self.state.active_modal {
+            ActiveModal::Settings => self.close_settings_modal(cx),
+            ActiveModal::AudioMixerAdvanced(_)
+            | ActiveModal::GraphicPlanner
+            | ActiveModal::None => {
+                // Entity-hosted overlays keep their own lifecycle; the modal
+                // state just reverts to none.
+                self.state.close_modal();
+                cx.notify();
+            }
+            ActiveModal::History
+            | ActiveModal::AddScene
+            | ActiveModal::AddSource
+            | ActiveModal::SourceEditor(_)
+            | ActiveModal::QuickAction { .. } => {
+                self.state.close_modal();
+                cx.notify();
+            }
+        }
+    }
+
     /// Immediate local header feedback for lifecycle events; the following
     /// backend snapshot refresh reconciles this with authoritative state.
     fn update_header_flags(&self, event: &ComponentEvent, cx: &mut Context<'_, Self>) {
@@ -1144,31 +1168,63 @@ impl Render for Workspace {
             .child(self.lower_panels(cx, mode));
 
         if let Some((config, lines)) = self.modal_content() {
-            root = root.child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .right_0()
-                    .bottom_0()
-                    .left_0()
-                    .child(modal_shell(&config, self.theme, lines))
-                    .child(
-                        div()
-                            .id("workspace-modal-close")
-                            .absolute()
-                            .top_4()
-                            .right_4()
-                            .cursor_pointer()
-                            .px_3()
-                            .py_2()
-                            .rounded_md()
-                            .bg(self.theme.surface_active)
-                            .child("Close")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.close_settings_modal(cx);
-                            })),
-                    ),
-            );
+            // Backdrop closes on click; the card is a sibling layer above it,
+            // so clicks inside the card never reach the backdrop.
+            root = root
+                .child(
+                    div()
+                        .id("workspace-modal-backdrop")
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .cursor_pointer()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.close_active_modal(cx);
+                            }),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("workspace-modal-layer")
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(modal_card(
+                            &config,
+                            self.theme,
+                            div().flex().flex_col().gap_2().children(lines),
+                            None,
+                        )),
+                );
+            if config.show_close {
+                root = root.child(
+                    div()
+                        .id("workspace-modal-close")
+                        .absolute()
+                        .top_4()
+                        .right_4()
+                        .cursor_pointer()
+                        .px_3()
+                        .py_2()
+                        .rounded_md()
+                        .bg(self.theme.surface_active)
+                        .text_color(self.theme.text)
+                        .child("Close")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.close_active_modal(cx);
+                        })),
+                );
+            }
         }
 
         if self.mixer_menu.read(cx).open {

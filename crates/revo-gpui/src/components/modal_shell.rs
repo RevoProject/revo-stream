@@ -103,11 +103,10 @@ pub fn modal_shell(
     )
 }
 
-/// Modal shell variant that renders an arbitrary element body, for
-/// interactive modals such as Settings that own their own field layout. When
-/// `footer` is `Some`, it replaces the default label-only footer so the modal
-/// can wire real confirm/cancel behavior.
-pub fn modal_shell_with_body(
+/// Modal card without the full-screen overlay wrapper. Callers that need
+/// their own backdrop-click-to-close behavior render this above a backdrop
+/// sibling instead of using [`modal_shell_with_body`].
+pub fn modal_card(
     config: &ModalConfig,
     theme: RevoTheme,
     body: impl IntoElement,
@@ -166,24 +165,35 @@ pub fn modal_shell_with_body(
         footer.into_any_element()
     });
     div()
+        .w(gpui::px(width))
+        .max_w_full()
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.border_strong)
+        .rounded_lg()
+        .text_color(theme.text)
+        .child(header)
+        .child(body)
+        .child(footer)
+}
+
+/// Modal shell variant that renders an arbitrary element body, for
+/// interactive modals such as Settings that own their own field layout. When
+/// `footer` is `Some`, it replaces the default label-only footer so the modal
+/// can wire real confirm/cancel behavior.
+pub fn modal_shell_with_body(
+    config: &ModalConfig,
+    theme: RevoTheme,
+    body: impl IntoElement,
+    footer: Option<gpui::AnyElement>,
+) -> gpui::Div {
+    div()
         .flex()
         .items_center()
         .justify_center()
         .size_full()
         .bg(theme.overlay)
-        .child(
-            div()
-                .w(gpui::px(width))
-                .max_w_full()
-                .bg(theme.surface)
-                .border_1()
-                .border_color(theme.border_strong)
-                .rounded_lg()
-                .text_color(theme.text)
-                .child(header)
-                .child(body)
-                .child(footer),
-        )
+        .child(modal_card(config, theme, body, footer))
 }
 
 impl Render for ModalShell {
