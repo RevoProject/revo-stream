@@ -14,11 +14,14 @@
   (fit/stretch scale, centering, resolution parsing) shared by adapter source
   operations and the future GPUI planner. `revo-core::plugins` owns plugin
   naming and enabled-module normalization. Settings file I/O and plugin window
-  capability policy remain in the Tauri adapter.
+  capability policy remain in the Tauri adapter. `revo-core` also provides a
+  bounded, typed `BackendService` worker thread with request/reply operations,
+  snapshots, nonblocking GPUI dispatch, and lifecycle tests.
 - `crates/revo-gpui/` now has a runnable native mock-data shell composing the
   Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
-  and modal routing. It has no backend/libobs service connection and has not
-  replaced the Tauri application.
+  and modal routing. It currently uses `MockBackendRuntime`; the actual
+  `ObsRuntime` remains in Tauri and has not yet moved behind `BackendService`.
+  The GPUI shell has not replaced the Tauri application.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
