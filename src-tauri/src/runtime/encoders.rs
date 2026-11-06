@@ -4,13 +4,9 @@ const NVENC_TEXTURE_IDS: &[&str] = &["obs_nvenc_h264_tex"];
 const NVENC_LEGACY_IDS: &[&str] = &["obs_nvenc_h264", "h264_nvenc", "ffmpeg_nvenc"];
 
 pub(crate) fn set_encoder_preference(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	preference: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
 	let normalized = preference.trim().to_lowercase();
 	runtime.video_encoder_preference = match normalized.as_str() {
 		"nvenc_legacy" | "nvenc-legacy" | "nvenclegacy" | "nvidia_legacy" => {

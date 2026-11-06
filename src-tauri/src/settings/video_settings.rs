@@ -1,14 +1,7 @@
 pub(crate) fn set_scene_resolution(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	resolution: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	if !runtime.output_record.is_null() || !runtime.output_stream.is_null() {
 		return Err("Cannot change resolution while recording/streaming".to_string());
 	}
@@ -28,7 +21,7 @@ pub(crate) fn set_scene_resolution(
 
 	// obs_reset_video frees graphics resources — drop the texrender first so
 	// the preview re-creates it lazily instead of using a dangling pointer.
-	crate::runtime::preview::destroy_preview_renderer(&mut runtime);
+	crate::runtime::preview::destroy_preview_renderer(runtime);
 
 	let ok = crate::runtime::helpers::reset_video_with_resolution(width, height);
 	if !ok {

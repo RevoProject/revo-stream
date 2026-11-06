@@ -30,10 +30,9 @@ pub(crate) fn planner_init_temp_path() -> Result<std::path::PathBuf, String> {
 	Ok(dir.join("graphic_planner_init.json"))
 }
 
-pub(crate) fn set_graphic_planner_init(
-	state: tauri::State<crate::ObsState>,
-	init: crate::PlannerInitInput,
-) -> Result<(), String> {
+/// Build the planner-init payload and stage it in the temp file. Runs before
+/// the runtime lock is taken (mirrors the original command ordering).
+pub(crate) fn build_planner_init(init: crate::PlannerInitInput) -> crate::PlannerInit {
 	let planner_init = crate::PlannerInit {
 		sources: init.sources,
 		scene_resolution: init.scene_resolution,
@@ -47,22 +46,41 @@ pub(crate) fn set_graphic_planner_init(
 		}
 	}
 
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.take_screenshot",
-	)
-		.map_err(|_| "state poisoned".to_string())?;
+	planner_init
+}
+
+pub(crate) fn set_graphic_planner_init(
+	runtime: &mut crate::ObsRuntime,
+	planner_init: crate::PlannerInit,
+) -> Result<(), String> {
 	runtime.planner_init = Some(planner_init);
 	Ok(())
 }
 
+/// Freeze/unfreeze scene-level preview rendering (command body of
+/// `obs_preview_set_freeze`; the command owns the runtime lock).
+pub(crate) fn set_preview_freeze(
+	runtime: &mut crate::ObsRuntime,
+	freeze: bool,
+	reason: Option<String>,
+) -> Result<(), String> {
+	runtime.preview_freeze = freeze;
+	if freeze {
+		runtime.preview_freeze_requests += 1;
+		runtime.preview_freeze_since = Some(std::time::Instant::now());
+		runtime.preview_freeze_reason = Some(
+			reason.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "unspecified".to_string())
+		);
+	} else {
+		runtime.preview_freeze_reason = None;
+		runtime.preview_freeze_since = None;
+	}
+	Ok(())
+}
+
 pub(crate) fn get_graphic_planner_init(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<crate::PlannerInit, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
 	if let Some(init) = runtime.planner_init.clone() {
 		return Ok(init);
 	}
@@ -85,7 +103,7 @@ pub(crate) fn get_graphic_planner_init(
 		}
 	});
 	Ok(crate::PlannerInit {
-		sources: crate::collect_sources(&runtime),
+		sources: crate::collect_sources(runtime),
 		scene_resolution,
 		selected_source_id: None,
 		scene_name: runtime.current_scene.clone(),
@@ -93,12 +111,8 @@ pub(crate) fn get_graphic_planner_init(
 }
 
 pub(crate) fn get_current_scene_resolution(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
 	Ok(crate::live_scene_resolution().unwrap_or_else(|| {
 		if runtime.scene_resolution.trim().is_empty() {
 			"1920x1080".to_string()
@@ -109,17 +123,10 @@ pub(crate) fn get_current_scene_resolution(
 }
 
 pub(crate) fn get_source_size(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	source_id: String,
 ) -> Result<(u32, u32), String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, source_id.trim())
 		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
 	unsafe {
@@ -136,30 +143,40 @@ pub(crate) fn get_source_size(
 	}
 }
 
-pub(crate) fn take_screenshot(
-	state: tauri::State<crate::ObsState>,
+/// Outcome of the lock-scoped capture phase of `take_screenshot`.
+pub(crate) enum ScreenshotCapture {
+	/// Serve a retained frame immediately (frozen preview or stale fallback).
+	Serve(String),
+	/// Fresh capture: encode outside the lock, then publish.
+	Encode(CapturedScreenshot),
+}
+
+/// State carried from the lock-scoped capture phase to the publish phase.
+pub(crate) struct CapturedScreenshot {
+	pub(crate) frame: CapturedPreviewFrame,
+	pub(crate) capture_seq: u64,
+	pub(crate) capture_generation: u64,
+	pub(crate) capture_scene_output: bool,
+}
+
+/// Capture phase of `take_screenshot`: runs with the runtime lock held by
+/// the command wrapper. `lock_wait_us` is the wrapper's measured lock wait,
+/// recorded for scene-output requests as before the inversion.
+pub(crate) fn capture_screenshot(
+	runtime: &mut crate::ObsRuntime,
 	width: Option<u32>,
 	height: Option<u32>,
 	source_id: Option<String>,
-) -> Result<String, String> {
-	let lock_started = std::time::Instant::now();
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.take_screenshot",
-	)
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
+	lock_wait_us: u64,
+) -> Result<ScreenshotCapture, String> {
 	let capture_scene_output = source_id
 		.as_ref()
 		.map(|v| v.trim().is_empty())
 		.unwrap_or(true);
 	if capture_scene_output {
-		let wait_us = lock_started.elapsed().as_micros() as u64;
 		crate::with_preview_stats(|stats| {
 			stats.requests += 1;
-			stats.lock_wait_us_max = stats.lock_wait_us_max.max(wait_us);
+			stats.lock_wait_us_max = stats.lock_wait_us_max.max(lock_wait_us);
 		});
 		crate::logging::trace::step("preview-loop", "request:enter");
 	}
@@ -173,7 +190,7 @@ pub(crate) fn take_screenshot(
 			if let Some(frame) = runtime.last_preview_frame.clone() {
 			crate::with_preview_stats(|stats| stats.frozen_returns += 1);
 			crate::logging::trace::step("preview-loop", "request:served-frozen");
-			return Ok(frame);
+			return Ok(ScreenshotCapture::Serve(frame));
 			}
 		}
 	}
@@ -181,7 +198,7 @@ pub(crate) fn take_screenshot(
 	let render_source = if let Some(raw_id) = source_id {
 		let source_key = raw_id.trim().to_string();
 		if source_key.is_empty() {
-			let scene_source = match crate::current_scene(&runtime) {
+			let scene_source = match crate::current_scene(runtime) {
 				Ok(scene) => scene.scene_source,
 				Err(_) => return Err("no active scene".to_string()),
 			};
@@ -198,7 +215,7 @@ pub(crate) fn take_screenshot(
 				scene_state.scene_source
 			} else {
 				// Otherwise resolve it as an item in the current scene.
-				let scene = crate::current_scene(&runtime)?;
+				let scene = crate::current_scene(runtime)?;
 				let item = crate::resolve_scene_item(scene, source_key.as_str())
 					.ok_or_else(|| format!("unknown source id: {source_key}"))?;
 				unsafe {
@@ -211,7 +228,7 @@ pub(crate) fn take_screenshot(
 			}
 		}
 	} else {
-		let scene_source = match crate::current_scene(&runtime) {
+		let scene_source = match crate::current_scene(runtime) {
 			Ok(scene) => scene.scene_source,
 			Err(_) => return Err("no active scene".to_string()),
 		};
@@ -220,7 +237,7 @@ pub(crate) fn take_screenshot(
 		}
 		scene_source
 	};
-	ensure_preview_renderer(&mut runtime, render_source)?;
+	ensure_preview_renderer(runtime, render_source)?;
 
 	let (req_width, req_height) = if capture_scene_output {
 		let live_resolution = crate::live_scene_resolution()
@@ -261,7 +278,7 @@ pub(crate) fn take_screenshot(
 	};
 	let capture_generation = runtime.scene_generation;
 	let capture_started = std::time::Instant::now();
-	let captured = capture_view_pixels(&mut runtime, req_width, req_height, render_source);
+	let captured = capture_view_pixels(runtime, req_width, req_height, render_source);
 	let capture_us = capture_started.elapsed().as_micros() as u64;
 	let captured = match captured {
 		Ok(frame) => {
@@ -288,19 +305,27 @@ pub(crate) fn take_screenshot(
 				if let Some(frame) = runtime.last_preview_frame.clone() {
 				crate::with_preview_stats(|stats| stats.stale_returns += 1);
 				crate::logging::trace::step("preview-loop", "request:served-stale");
-				return Ok(frame);
+				return Ok(ScreenshotCapture::Serve(frame));
 				}
 			}
 			return Err(err);
 		}
 	};
 
-	// PNG encode + base64 are pure CPU work (~15ms at 1080p). Run them with
-	// the runtime lock released so other Tauri commands are not starved by
-	// the preview loop.
-	drop(runtime);
+	Ok(ScreenshotCapture::Encode(CapturedScreenshot {
+		frame: captured,
+		capture_seq,
+		capture_generation,
+		capture_scene_output,
+	}))
+}
+
+/// Encode phase of `take_screenshot`: PNG-encode + base64 the captured frame
+/// while the runtime lock is released, updating encode stats exactly as
+/// before the inversion.
+pub(crate) fn encode_screenshot(frame: CapturedPreviewFrame) -> Result<String, String> {
 	let encode_started = std::time::Instant::now();
-	let encoded = encode_preview_frame(captured);
+	let encoded = encode_preview_frame(frame);
 	let encode_us = encode_started.elapsed().as_micros() as u64;
 
 	// Retain the frame for the freeze path and transient-failure fallback.
@@ -317,50 +342,50 @@ pub(crate) fn take_screenshot(
 			}
 		}
 	});
-	let mut generation_invalidated = false;
-	if let Ok(mut runtime) = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.preview_retain",
-	) {
-		if encoded.is_err() {
-			runtime.last_preview_error_at = Some(std::time::Instant::now());
-		}
-		if let Ok(frame) = &encoded {
-			if capture_scene_output && capture_generation != runtime.scene_generation {
-				generation_invalidated = true;
-				crate::with_preview_stats(|stats| stats.stale_discards += 1);
-				crate::logging::trace::step("preview-loop", "request:generation-discarded");
-			} else if capture_seq >= runtime.last_preview_frame_seq {
-				runtime.last_preview_frame = Some(frame.clone());
-				runtime.last_preview_frame_generation = capture_generation;
-				runtime.last_preview_frame_at = Some(std::time::Instant::now());
-				runtime.last_preview_frame_seq = capture_seq;
-				crate::logging::trace::step("preview-loop", "request:stored");
-			} else {
-				crate::with_preview_stats(|stats| stats.stale_discards += 1);
-				crate::logging::trace::step("preview-loop", "request:stale-discarded");
-			}
-		}
-	}
-	crate::logging::trace::step("preview-loop", "request:done");
-	if generation_invalidated {
-		return Err("preview frame invalidated by scene change".to_string());
-	}
-
 	encoded
 }
 
-pub(crate) fn take_source_thumbnail(
-	state: tauri::State<crate::ObsState>,
-	source_name: String,
+/// Publish phase of `take_screenshot`: runs with the runtime lock
+/// re-acquired by the command wrapper. Returns whether the frame was
+/// invalidated by a scene change (the command must then return an error).
+pub(crate) fn publish_screenshot(
+	runtime: &mut crate::ObsRuntime,
+	capture_seq: u64,
+	capture_generation: u64,
+	capture_scene_output: bool,
+	encoded: &Result<String, String>,
+) -> bool {
+	let mut generation_invalidated = false;
+	if encoded.is_err() {
+		runtime.last_preview_error_at = Some(std::time::Instant::now());
+	}
+	if let Ok(frame) = encoded {
+		if capture_scene_output && capture_generation != runtime.scene_generation {
+			generation_invalidated = true;
+			crate::with_preview_stats(|stats| stats.stale_discards += 1);
+			crate::logging::trace::step("preview-loop", "request:generation-discarded");
+		} else if capture_seq >= runtime.last_preview_frame_seq {
+			runtime.last_preview_frame = Some(frame.clone());
+			runtime.last_preview_frame_generation = capture_generation;
+			runtime.last_preview_frame_at = Some(std::time::Instant::now());
+			runtime.last_preview_frame_seq = capture_seq;
+			crate::logging::trace::step("preview-loop", "request:stored");
+		} else {
+			crate::with_preview_stats(|stats| stats.stale_discards += 1);
+			crate::logging::trace::step("preview-loop", "request:stale-discarded");
+		}
+	}
+	generation_invalidated
+}
+
+/// Capture phase of `take_source_thumbnail`: runs with the runtime lock held
+/// by the command wrapper; the frame is encoded after the lock is released.
+pub(crate) fn capture_source_thumbnail(
+	runtime: &mut crate::ObsRuntime,
+	source_name: &str,
 	width: Option<u32>,
 	height: Option<u32>,
-) -> Result<String, String> {
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.source_thumbnail",
-	)
-	.map_err(|_| "state poisoned".to_string())?;
+) -> Result<CapturedPreviewFrame, String> {
 	if !runtime.initialized || runtime.preview_view.is_null() {
 		return Err("OBS not initialized".to_string());
 	}
@@ -390,16 +415,15 @@ pub(crate) fn take_source_thumbnail(
 		} else {
 			(box_w, box_h)
 		};
-		let captured = capture_view_pixels(&mut runtime, out_w, out_h, source);
+		let captured = capture_view_pixels(runtime, out_w, out_h, source);
 		revo_lib::obs::obs_source_release(source);
-		drop(runtime);
-		encode_preview_frame(captured?)
+		captured
 	}
 }
 
 /// PNG-encode + base64 a captured frame into a data URI. Pure function — no
 /// OBS state, no locks. Consumes the frame.
-fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, String> {
+pub(crate) fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, String> {
 	let CapturedPreviewFrame { width, height, pixels } = frame;
 	let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
 		.ok_or_else(|| "failed to build image buffer".to_string())?;

@@ -290,31 +290,15 @@ pub(crate) fn build_collection_json(runtime: &crate::ObsRuntime) -> Result<Strin
 }
 
 pub(crate) fn export_scene_collection(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	build_collection_json(&runtime)
+	build_collection_json(runtime)
 }
 
-pub(crate) fn autosave_scene_collection(
-	state: tauri::State<crate::ObsState>,
-) -> Result<String, String> {
-	let json = {
-		let runtime = state
-			.runtime
-			.lock()
-			.map_err(|_| "state poisoned".to_string())?;
-		if !runtime.initialized {
-			return Err("OBS not initialized".to_string());
-		}
-		build_collection_json(&runtime)?
-	};
+/// Filesystem part of `autosave_scene_collection`: receives the collection
+/// JSON built by the command wrapper while it held the runtime lock; the
+/// write itself runs with the lock released, as before the inversion.
+pub(crate) fn autosave_scene_collection(json: String) -> Result<String, String> {
 	let dir = crate::settings::core::runtime_data_dir()?.join("scenes");
 	std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create scenes dir: {e}"))?;
 	let file = dir.join("collection.json");
@@ -323,16 +307,8 @@ pub(crate) fn autosave_scene_collection(
 }
 
 pub(crate) fn export_scene_collection_obs(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-
 	let mut scene_names: Vec<String> = runtime.scene_order.clone();
 	if scene_names.is_empty() {
 		scene_names = runtime.scenes.keys().cloned().collect();
@@ -413,12 +389,15 @@ pub(crate) fn export_scene_collection_obs(
 	}
 }
 
+/// Filesystem part of `export_scene_collection_obs_to_file`: receives the
+/// JSON exported by the command wrapper while it held the runtime lock;
+/// parsing and writing run with the lock released, as before the inversion.
 pub(crate) fn export_scene_collection_obs_to_file(
-	state: tauri::State<crate::ObsState>,
+	json: String,
 	path: String,
 	ui_json: Option<String>,
 ) -> Result<String, String> {
-	let mut exported: serde_json::Value = serde_json::from_str(&export_scene_collection_obs(state)?)
+	let mut exported: serde_json::Value = serde_json::from_str(&json)
 		.map_err(|e| format!("failed to parse exported scene collection: {e}"))?;
 	if let Some(raw_ui) = ui_json {
 		let trimmed = raw_ui.trim();
@@ -440,12 +419,15 @@ pub(crate) fn export_scene_collection_obs_to_file(
 	Ok(format!("OBS scenes exported to {}", target.to_string_lossy()))
 }
 
+/// Filesystem part of `export_scene_collection_to_file`: receives the JSON
+/// exported by the command wrapper while it held the runtime lock; parsing
+/// and writing run with the lock released, as before the inversion.
 pub(crate) fn export_scene_collection_to_file(
-	state: tauri::State<crate::ObsState>,
+	json: String,
 	path: String,
 	ui_json: Option<String>,
 ) -> Result<String, String> {
-	let mut exported: serde_json::Value = serde_json::from_str(&export_scene_collection(state)?)
+	let mut exported: serde_json::Value = serde_json::from_str(&json)
 		.map_err(|e| format!("failed to parse exported scene collection: {e}"))?;
 	if let Some(raw_ui) = ui_json {
 		let trimmed = raw_ui.trim();
@@ -468,16 +450,9 @@ pub(crate) fn export_scene_collection_to_file(
 }
 
 pub(crate) fn import_scene_collection(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	json: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let doc: serde_json::Value =
 		serde_json::from_str(&json).map_err(|e| format!("invalid JSON: {e}"))?;
 	let mut scenes: Vec<serde_json::Value> = Vec::new();
@@ -520,7 +495,7 @@ pub(crate) fn import_scene_collection(
 		return Err("missing scenes array".to_string());
 	}
 
-	reset_scenes(&mut runtime);
+	reset_scenes(runtime);
 	runtime.scene_order.clear();
 
 	let mut first_scene_name: Option<String> = None;
@@ -665,8 +640,8 @@ pub(crate) fn import_scene_collection(
 				source_type,
 				params,
 			};
-			crate::set_current_scene_internal(&mut runtime, scene_name.as_str())?;
-			match crate::create_source_in_scene(&mut runtime, &create) {
+			crate::set_current_scene_internal(runtime, scene_name.as_str())?;
+			match crate::create_source_in_scene(runtime, &create) {
 				Ok(_) => {
 					created_any = true;
 					let imported_filters = src
@@ -675,7 +650,7 @@ pub(crate) fn import_scene_collection(
 						.cloned()
 						.unwrap_or_default();
 					if !imported_filters.is_empty() {
-						let current_scene = crate::current_scene(&runtime)?;
+						let current_scene = crate::current_scene(runtime)?;
 						if let Some(item) = crate::resolve_scene_item(current_scene, create.id.as_str()) {
 							if !item.is_null() {
 								unsafe {
@@ -692,7 +667,7 @@ pub(crate) fn import_scene_collection(
 	}
 
 	if let Some(first) = first_scene_name {
-		let _ = crate::set_current_scene_internal(&mut runtime, first.as_str());
+		let _ = crate::set_current_scene_internal(runtime, first.as_str());
 	}
 
 	if !created_any {

@@ -8,16 +8,8 @@ fn should_expose_source_type(output_flags: u32, debug_build: bool) -> bool {
 }
 
 pub(crate) fn list_external_source_types(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Ok(vec![]);
-	}
-
 	let mut out: Vec<crate::SourceTypeItem> = Vec::new();
 	let mut idx: usize = 0;
 
@@ -131,13 +123,9 @@ unsafe extern "C" fn collect_reusable_source(
 }
 
 pub(crate) fn list_reusable_sources(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	source_type: String,
 ) -> Result<Vec<crate::ReusableSourceInfo>, String> {
-	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let mut context = ReusableSourceContext {
 		wanted_type: source_type,
 		items: Vec::new(),
@@ -154,19 +142,11 @@ pub(crate) fn list_reusable_sources(
 }
 
 pub(crate) fn add_existing_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	id: String,
 	source_name: String,
 ) -> Result<String, String> {
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.add_existing_source",
-	)
-	.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene_mut(&mut runtime)?;
+	let scene = crate::current_scene_mut(runtime)?;
 	if crate::resolve_scene_item(scene, id.trim()).is_some_and(|item| !item.is_null()) {
 		return Err("source item id already exists".to_string());
 	}
@@ -253,13 +233,9 @@ mod source_type_visibility_tests {
 }
 
 pub(crate) fn list_sources(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<Vec<crate::SourceInfo>, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	Ok(collect_sources(&runtime))
+	Ok(collect_sources(runtime))
 }
 
 /// Scene-item dimensions (item_width/item_height) and a dims_ready flag.
@@ -456,18 +432,10 @@ pub(crate) fn collect_sources(runtime: &crate::ObsRuntime) -> Vec<crate::SourceI
 }
 
 pub(crate) fn remove_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	id: String,
 ) -> Result<String, String> {
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.remove_source",
-	)
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene_mut(&mut runtime)?;
+	let scene = crate::current_scene_mut(runtime)?;
 	let (item_ptr, is_custom) = match id.as_str() {
 		"accent" => (scene.item_accent, false),
 		"title" => (scene.item_text, false),
@@ -501,18 +469,10 @@ pub(crate) fn remove_source(
 }
 
 pub(crate) fn get_source_settings(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	id: String,
 ) -> Result<serde_json::Value, String> {
-	crate::logging::trace::step("source-settings", "get:enter");
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, id.as_str())
 		.ok_or_else(|| "unknown source id".to_string())?;
 	if item.is_null() {
@@ -621,18 +581,11 @@ pub(crate) fn get_source_settings(
 }
 
 pub(crate) fn set_source_visible(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	id: String,
 	visible: bool,
 ) -> Result<(), String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, id.as_str())
 		.ok_or_else(|| "unknown source id".to_string())?;
 	if item.is_null() {
@@ -649,18 +602,11 @@ pub(crate) fn set_source_visible(
 }
 
 pub(crate) fn move_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	id: String,
 	direction: String,
 ) -> Result<(), String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, id.as_str())
 		.ok_or_else(|| "unknown source id".to_string())?;
 	if item.is_null() {
@@ -680,18 +626,11 @@ pub(crate) fn move_source(
 }
 
 pub(crate) fn reorder_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	id: String,
 	to_index: usize,
 ) -> Result<(), String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	if scene.scene.is_null() {
 		return Err("scene unavailable".to_string());
 	}
@@ -942,18 +881,10 @@ pub(crate) fn create_source_in_scene(
 }
 
 pub(crate) fn create_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	create: crate::SourceCreate,
 ) -> Result<String, String> {
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.create_source",
-	)
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	create_source_in_scene(&mut runtime, &create)
+	create_source_in_scene(runtime, &create)
 }
 
 fn wait_for_source_size(source: *mut revo_lib::obs::obs_source) -> Option<(u32, u32)> {
@@ -976,17 +907,10 @@ fn wait_for_source_size(source: *mut revo_lib::obs::obs_source) -> Option<(u32, 
 }
 
 pub(crate) fn fit_source_to_canvas(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	source_id: String,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, source_id.trim())
 		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
 
@@ -1024,14 +948,10 @@ pub(crate) fn fit_source_to_canvas(
 }
 
 pub(crate) fn stretch_source_to_canvas(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	source_id: String,
 ) -> Result<String, String> {
-	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, source_id.trim())
 		.ok_or_else(|| format!("unknown source id: {source_id}"))?;
 	let (canvas_width, canvas_height) =
@@ -1065,13 +985,9 @@ pub(crate) fn stretch_source_to_canvas(
 /// rot/crop as stored on the item, plus base and on-canvas dimensions).
 /// Unlike the params copy, these values can never drift from the real state.
 pub(crate) fn get_sceneitem_transforms(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<serde_json::Value, String> {
-	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let mut out = serde_json::Map::new();
 
 	let mut capture_item = |id: &str, item: *mut revo_lib::obs::obs_scene_item| {
@@ -1132,15 +1048,11 @@ pub(crate) fn get_sceneitem_transforms(
 /// set_crop) — no recomputation from the source's current base size, so a
 /// restored transform is exact even when the native size drifted.
 pub(crate) fn apply_sceneitem_transform(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	id: String,
 	transform: std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-	let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, id.trim())
 		.ok_or_else(|| format!("unknown source id: {id}"))?;
 
@@ -1242,27 +1154,10 @@ fn apply_audio_runtime_params(
 }
 
 pub(crate) fn update_source(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	update: crate::SourceUpdate,
 ) -> Result<String, String> {
-	crate::push_debug_log_entry(
-		"obs_update_source".to_string(),
-		Some(serde_json::json!({
-			"id": update.id,
-			"name": update.name,
-			"type": update.source_type,
-			"params": update.params
-		})),
-	);
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		crate::push_debug_log_entry("obs_update_source:error not-initialized".to_string(), None);
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, update.id.as_str())
 		.ok_or_else(|| "unknown source id".to_string())?;
 	if item.is_null() {
@@ -1372,19 +1267,11 @@ unsafe extern "C" fn collect_filter_names_cb(
 }
 
 pub(crate) fn set_source_filters(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 	source_id: String,
 	filters: Vec<crate::SourceFilterItem>,
 ) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-
-	let scene = crate::current_scene(&runtime)?;
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, source_id.as_str())
 		.ok_or_else(|| "unknown source id".to_string())?;
 	if item.is_null() {
@@ -1491,20 +1378,14 @@ pub(crate) fn set_source_filters(
 	Ok("filters-updated".to_string())
 }
 
-pub(crate) fn open_source_interaction(
-	app: tauri::AppHandle,
-	state: tauri::State<crate::ObsState>,
-	id: String,
-	open_window: bool,
-) -> Result<String, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
-	let scene = crate::current_scene(&runtime)?;
+/// Lock-scoped part of `open_source_interaction`: resolves the browser
+/// source and reads its interaction settings while the caller holds the
+/// runtime lock. The session/window work runs after the caller releases it.
+pub(crate) fn read_interaction_source(
+	runtime: &crate::ObsRuntime,
+	id: &str,
+) -> Result<(String, String, String, String, i64, i64), String> {
+	let scene = crate::current_scene(runtime)?;
 	let item = crate::resolve_scene_item(scene, id.trim())
 		.ok_or_else(|| format!("unknown source id: {id}"))?;
 	let (url, custom_css, custom_js, user_agent, width, height) = unsafe {
@@ -1559,8 +1440,15 @@ pub(crate) fn open_source_interaction(
 		}
 		values
 	};
-	drop(runtime);
+	Ok((url, custom_css, custom_js, user_agent, width, height))
+}
 
+pub(crate) fn open_source_interaction(
+	app: tauri::AppHandle,
+	id: String,
+	open_window: bool,
+	(url, custom_css, custom_js, user_agent, width, height): (String, String, String, String, i64, i64),
+) -> Result<String, String> {
 	let url = url.trim().to_string();
 	if !url.starts_with("http://") && !url.starts_with("https://") {
 		return Err("browser source needs an http(s) URL before interaction is available".to_string());

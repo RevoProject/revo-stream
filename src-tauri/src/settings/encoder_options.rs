@@ -309,19 +309,13 @@ pub(crate) fn collect_output_format_options(output_id: &str) -> Vec<crate::Selec
 	out
 }
 
+/// Collect live encoder/format options and merge them over `defaults`.
+/// Runs WITHOUT the runtime lock: the command wrapper checks
+/// `initialized` and releases the lock before calling this, exactly as the
+/// original command dropped the lock after its initialized check.
 pub(crate) fn get_settings_select_options(
-	state: tauri::State<crate::ObsState>,
+	defaults: crate::ObsSettingsSelectOptions,
 ) -> Result<crate::ObsSettingsSelectOptions, String> {
-	let defaults = defaults_obs_settings_select_options();
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Ok(defaults);
-	}
-	drop(runtime);
-
 	let audio_encoders = collect_encoder_options(revo_lib::obs::obs_encoder_type_OBS_ENCODER_AUDIO);
 	let video_encoders = collect_encoder_options(revo_lib::obs::obs_encoder_type_OBS_ENCODER_VIDEO);
 	let mut recording_formats = collect_output_format_options("ffmpeg_muxer");

@@ -1,14 +1,7 @@
 pub(crate) fn start_streaming(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	stream_url: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	if !runtime.output_stream.is_null() {
 		return Ok("Streaming already active".to_string());
 	}
@@ -90,14 +83,10 @@ pub(crate) fn start_streaming(
 	unreachable!("streaming retry loop is bounded to three attempts")
 }
 
-pub(crate) fn stop_streaming(state: tauri::State<crate::ObsState>) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
+pub(crate) fn stop_streaming(runtime: &mut crate::ObsRuntime) -> Result<String, String> {
 	if runtime.output_stream.is_null() {
 		return Ok("Streaming not active".to_string());
 	}
-	super::helpers::stop_streaming_internal(&mut runtime);
+	super::helpers::stop_streaming_internal(runtime);
 	Ok("Streaming stopped".to_string())
 }

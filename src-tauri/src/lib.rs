@@ -181,7 +181,13 @@ unsafe impl Sync for ObsRuntime {}
 
 #[tauri::command(async)]
 fn obs_get_settings_select_options(state: tauri::State<ObsState>) -> Result<ObsSettingsSelectOptions, String> {
-    settings::encoder_options::get_settings_select_options(state)
+    let defaults = settings::encoder_options::defaults_obs_settings_select_options();
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Ok(defaults);
+    }
+    drop(runtime);
+    settings::encoder_options::get_settings_select_options(defaults)
 }
 
 #[tauri::command(async)]
@@ -213,7 +219,11 @@ fn obs_list_video_device_picker_items() -> Result<Vec<SourceTypeItem>, String> {
 // preview loop on the runtime lock and must not block the main thread.
 #[tauri::command(async)]
 fn obs_list_external_source_types(state: tauri::State<ObsState>) -> Result<Vec<SourceTypeItem>, String> {
-    sources::source_ops::list_external_source_types(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Ok(vec![]);
+    }
+    sources::source_ops::list_external_source_types(&runtime)
 }
 
 fn resolve_scene_item(scene: &SceneState, id: &str) -> Option<*mut obs::obs_scene_item> {
@@ -238,7 +248,11 @@ fn set_current_scene_internal(runtime: &mut ObsRuntime, name: &str) -> Result<()
 
 #[tauri::command(async)]
 fn obs_list_scenes(state: tauri::State<ObsState>) -> Result<Vec<SceneInfo>, String> {
-    scenes::scene_ops::list_scenes(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Ok(vec![]);
+    }
+    scenes::scene_ops::list_scenes(&runtime)
 }
 
 #[tauri::command(async)]
@@ -247,32 +261,57 @@ fn obs_set_program_transition(
     kind: String,
     duration_ms: Option<u32>,
 ) -> Result<String, String> {
-    scenes::scene_ops::set_program_transition(state, kind, duration_ms)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::set_program_transition(&mut runtime, kind, duration_ms)
 }
 
 #[tauri::command(async)]
 fn obs_set_current_scene(state: tauri::State<ObsState>, name: String) -> Result<String, String> {
-    scenes::scene_ops::set_current_scene(state, name)
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.set_current_scene")
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::set_current_scene(&mut runtime, name)
 }
 
 #[tauri::command]
 fn obs_create_scene(state: tauri::State<ObsState>, name: String) -> Result<String, String> {
-    scenes::scene_ops::create_scene(state, name)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::create_scene(&mut runtime, name)
 }
 
 #[tauri::command]
 fn obs_rename_scene(state: tauri::State<ObsState>, old_name: String, new_name: String) -> Result<String, String> {
-    scenes::scene_ops::rename_scene(state, old_name, new_name)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::rename_scene(&mut runtime, old_name, new_name)
 }
 
 #[tauri::command]
 fn obs_remove_scene(state: tauri::State<ObsState>, name: String) -> Result<String, String> {
-    scenes::scene_ops::remove_scene(state, name)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::remove_scene(&mut runtime, name)
 }
 
 #[tauri::command]
 fn obs_set_scene_lock(state: tauri::State<ObsState>, name: String, locked: bool) -> Result<String, String> {
-    scenes::scene_ops::set_scene_lock(state, name, locked)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::set_scene_lock(&mut runtime, name, locked)
 }
 
 #[tauri::command]
@@ -381,6 +420,12 @@ fn app_set_builtin_browser_enabled(
         .lock()
         .map_err(|_| "state poisoned".to_string())?
         .initialized;
+    apply_builtin_browser_enabled(enabled, initialized)
+}
+
+// Browser registration and session teardown must run outside the runtime
+// lock, so the command passes only the observed `initialized` flag.
+fn apply_builtin_browser_enabled(enabled: bool, initialized: bool) -> Result<(), String> {
     sources::browser::set_enabled(enabled);
     if enabled && initialized {
         if let Err(error) = sources::browser::register() {
@@ -535,17 +580,32 @@ fn apply_source_params(
 
 #[tauri::command]
 fn obs_export_scene_collection(state: tauri::State<ObsState>) -> Result<String, String> {
-    scenes::collection_io::export_scene_collection(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::collection_io::export_scene_collection(&runtime)
 }
 
 #[tauri::command]
 fn obs_autosave_collection(state: tauri::State<ObsState>) -> Result<String, String> {
-    scenes::collection_io::autosave_scene_collection(state)
+    let json = {
+        let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if !runtime.initialized {
+            return Err("OBS not initialized".to_string());
+        }
+        scenes::collection_io::export_scene_collection(&runtime)?
+    };
+    scenes::collection_io::autosave_scene_collection(json)
 }
 
 #[tauri::command]
 fn obs_export_scene_collection_obs(state: tauri::State<ObsState>) -> Result<String, String> {
-    scenes::collection_io::export_scene_collection_obs(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::collection_io::export_scene_collection_obs(&runtime)
 }
 
 #[tauri::command]
@@ -554,7 +614,14 @@ fn obs_export_scene_collection_obs_to_file(
     path: String,
     ui_json: Option<String>,
 ) -> Result<String, String> {
-    scenes::collection_io::export_scene_collection_obs_to_file(state, path, ui_json)
+    let json = {
+        let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if !runtime.initialized {
+            return Err("OBS not initialized".to_string());
+        }
+        scenes::collection_io::export_scene_collection_obs(&runtime)?
+    };
+    scenes::collection_io::export_scene_collection_obs_to_file(json, path, ui_json)
 }
 
 #[tauri::command]
@@ -563,12 +630,23 @@ fn obs_export_scene_collection_to_file(
     path: String,
     ui_json: Option<String>,
 ) -> Result<String, String> {
-    scenes::collection_io::export_scene_collection_to_file(state, path, ui_json)
+    let json = {
+        let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if !runtime.initialized {
+            return Err("OBS not initialized".to_string());
+        }
+        scenes::collection_io::export_scene_collection(&runtime)?
+    };
+    scenes::collection_io::export_scene_collection_to_file(json, path, ui_json)
 }
 
 #[tauri::command]
 fn obs_import_scene_collection(state: tauri::State<ObsState>, json: String) -> Result<String, String> {
-    scenes::collection_io::import_scene_collection(state, json)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::collection_io::import_scene_collection(&mut runtime, json)
 }
 
 #[tauri::command(async)]
@@ -743,7 +821,8 @@ fn obs_version() -> Result<String, String> {
 
 #[tauri::command(async)]
 fn obs_list_sources(state: tauri::State<ObsState>) -> Result<Vec<SourceInfo>, String> {
-    sources::source_ops::list_sources(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    sources::source_ops::list_sources(&runtime)
 }
 
 #[tauri::command(async)]
@@ -751,7 +830,11 @@ fn obs_fit_source_to_canvas(
     state: tauri::State<ObsState>,
     source_id: String,
 ) -> Result<String, String> {
-    sources::source_ops::fit_source_to_canvas(state, source_id)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::fit_source_to_canvas(&runtime, source_id)
 }
 
 #[tauri::command(async)]
@@ -759,12 +842,20 @@ fn obs_stretch_source_to_canvas(
     state: tauri::State<ObsState>,
     source_id: String,
 ) -> Result<String, String> {
-    sources::source_ops::stretch_source_to_canvas(state, source_id)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::stretch_source_to_canvas(&runtime, source_id)
 }
 
 #[tauri::command(async)]
 fn obs_get_sceneitem_transforms(state: tauri::State<ObsState>) -> Result<JsonValue, String> {
-    sources::source_ops::get_sceneitem_transforms(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::get_sceneitem_transforms(&runtime)
 }
 
 #[tauri::command(async)]
@@ -773,7 +864,11 @@ fn obs_apply_sceneitem_transform(
     id: String,
     transform: std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-    sources::source_ops::apply_sceneitem_transform(state, id, transform)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::apply_sceneitem_transform(&runtime, id, transform)
 }
 
 fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
@@ -782,28 +877,43 @@ fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
 
 #[tauri::command]
 fn obs_set_graphic_planner_init(state: tauri::State<ObsState>, init: PlannerInitInput) -> Result<(), String> {
-    runtime::preview::set_graphic_planner_init(state, init)
+    let planner_init = runtime::preview::build_planner_init(init);
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.take_screenshot")
+        .map_err(|_| "state poisoned".to_string())?;
+    runtime::preview::set_graphic_planner_init(&mut runtime, planner_init)
 }
 
 #[tauri::command]
 fn obs_get_graphic_planner_init(state: tauri::State<ObsState>) -> Result<PlannerInit, String> {
-    runtime::preview::get_graphic_planner_init(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::preview::get_graphic_planner_init(&runtime)
 }
 
 // Polled by the preview loop and audio mixer; keep off the main thread.
 #[tauri::command(async)]
 fn obs_get_current_scene_resolution(state: tauri::State<ObsState>) -> Result<String, String> {
-    runtime::preview::get_current_scene_resolution(state)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::preview::get_current_scene_resolution(&runtime)
 }
 
 #[tauri::command]
 fn obs_remove_source(state: tauri::State<ObsState>, id: String) -> Result<String, String> {
-    sources::source_ops::remove_source(state, id)
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.remove_source")
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::remove_source(&mut runtime, id)
 }
 
 #[tauri::command]
 fn obs_get_source_settings(state: tauri::State<ObsState>, id: String) -> Result<serde_json::Value, String> {
-    sources::source_ops::get_source_settings(state, id)
+    crate::logging::trace::step("source-settings", "get:enter");
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::get_source_settings(&runtime, id)
 }
 
 #[tauri::command]
@@ -877,7 +987,14 @@ fn obs_open_source_interaction(
     id: String,
     open_window: Option<bool>,
 ) -> Result<String, String> {
-    sources::source_ops::open_source_interaction(app, state, id, open_window.unwrap_or(true))
+    let values = {
+        let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if !runtime.initialized {
+            return Err("OBS not initialized".to_string());
+        }
+        sources::source_ops::read_interaction_source(&runtime, &id)?
+    };
+    sources::source_ops::open_source_interaction(app, id, open_window.unwrap_or(true), values)
 }
 
 fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Result<String, String> {
@@ -889,7 +1006,12 @@ fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Re
 // and must never execute on the main thread.
 #[tauri::command(async)]
 fn obs_create_source(state: tauri::State<ObsState>, create: SourceCreate) -> Result<String, String> {
-    sources::source_ops::create_source(state, create)
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.create_source")
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::create_source(&mut runtime, create)
 }
 
 fn abgr_to_hex(abgr: u32) -> String {
@@ -900,7 +1022,21 @@ fn abgr_to_hex(abgr: u32) -> String {
 // can contend with the preview loop on the runtime lock.
 #[tauri::command(async)]
 fn obs_update_source(state: tauri::State<ObsState>, update: SourceUpdate) -> Result<String, String> {
-    sources::source_ops::update_source(state, update)
+    crate::push_debug_log_entry(
+        "obs_update_source".to_string(),
+        Some(serde_json::json!({
+            "id": update.id,
+            "name": update.name,
+            "type": update.source_type,
+            "params": update.params
+        })),
+    );
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        crate::push_debug_log_entry("obs_update_source:error not-initialized".to_string(), None);
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::update_source(&runtime, update)
 }
 
 #[tauri::command]
@@ -909,47 +1045,78 @@ fn obs_set_source_filters(
     source_id: String,
     filters: Vec<SourceFilterItem>,
 ) -> Result<String, String> {
-    sources::source_ops::set_source_filters(state, source_id, filters)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::set_source_filters(&runtime, source_id, filters)
 }
 
 #[tauri::command]
 fn obs_set_source_visible(state: tauri::State<ObsState>, id: String, visible: bool) -> Result<(), String> {
-    sources::source_ops::set_source_visible(state, id, visible)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::set_source_visible(&runtime, id, visible)
 }
 
 #[tauri::command]
 fn obs_move_source(state: tauri::State<ObsState>, id: String, direction: String) -> Result<(), String> {
-    sources::source_ops::move_source(state, id, direction)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::move_source(&runtime, id, direction)
 }
 
 #[tauri::command]
 fn obs_reorder_source(state: tauri::State<ObsState>, id: String, to_index: usize) -> Result<(), String> {
-    sources::source_ops::reorder_source(state, id, to_index)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::reorder_source(&runtime, id, to_index)
 }
 
 #[tauri::command]
 fn obs_reorder_scene(state: tauri::State<ObsState>, name: String, to_index: usize) -> Result<(), String> {
-    scenes::scene_ops::reorder_scene(state, name, to_index)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    scenes::scene_ops::reorder_scene(&mut runtime, name, to_index)
 }
 
 #[tauri::command]
 fn obs_start_recording(state: tauri::State<ObsState>, output_path: String) -> Result<String, String> {
-    runtime::recording::start_recording(state, output_path)
+    eprintln!("[record] start_recording...");
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    runtime::recording::start_recording(&mut runtime, output_path)
 }
 
 #[tauri::command]
 fn obs_stop_recording(state: tauri::State<ObsState>) -> Result<String, String> {
-    runtime::recording::stop_recording(state)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::recording::stop_recording(&mut runtime)
 }
 
 #[tauri::command]
 fn obs_start_streaming(state: tauri::State<ObsState>, stream_url: String) -> Result<String, String> {
-    runtime::streaming::start_streaming(state, stream_url)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    runtime::streaming::start_streaming(&mut runtime, stream_url)
 }
 
 #[tauri::command]
 fn obs_stop_streaming(state: tauri::State<ObsState>) -> Result<String, String> {
-    runtime::streaming::stop_streaming(state)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::streaming::stop_streaming(&mut runtime)
 }
 
 #[tauri::command]
@@ -957,7 +1124,8 @@ fn obs_set_encoder_preference(
     state: tauri::State<ObsState>,
     preference: String,
 ) -> Result<String, String> {
-    runtime::encoders::set_encoder_preference(state, preference)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::encoders::set_encoder_preference(&mut runtime, preference)
 }
 
 // Polled every 100ms by the audio mixer; keep off the main thread.
@@ -974,7 +1142,11 @@ fn obs_get_source_size(
     state: tauri::State<ObsState>,
     source_id: String,
 ) -> Result<(u32, u32), String> {
-    runtime::preview::get_source_size(state, source_id)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    runtime::preview::get_source_size(&runtime, source_id)
 }
 
 #[tauri::command(async)]
@@ -984,7 +1156,45 @@ fn obs_take_screenshot(
     height: Option<u32>,
     source_id: Option<String>,
 ) -> Result<String, String> {
-    runtime::preview::take_screenshot(state, width, height, source_id)
+    let lock_started = std::time::Instant::now();
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.take_screenshot")
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    let captured = match runtime::preview::capture_screenshot(
+        &mut runtime,
+        width,
+        height,
+        source_id,
+        lock_started.elapsed().as_micros() as u64,
+    )? {
+        runtime::preview::ScreenshotCapture::Serve(frame) => return Ok(frame),
+        runtime::preview::ScreenshotCapture::Encode(captured) => captured,
+    };
+
+    // PNG encode + base64 are pure CPU work (~15ms at 1080p). Run them with
+    // the runtime lock released so other Tauri commands are not starved by
+    // the preview loop.
+    drop(runtime);
+    let encoded = runtime::preview::encode_screenshot(captured.frame);
+
+    let mut generation_invalidated = false;
+    if let Ok(mut runtime) = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.preview_retain") {
+        generation_invalidated = runtime::preview::publish_screenshot(
+            &mut runtime,
+            captured.capture_seq,
+            captured.capture_generation,
+            captured.capture_scene_output,
+            &encoded,
+        );
+    }
+    crate::logging::trace::step("preview-loop", "request:done");
+    if generation_invalidated {
+        return Err("preview frame invalidated by scene change".to_string());
+    }
+
+    encoded
 }
 
 #[tauri::command(async)]
@@ -992,7 +1202,11 @@ fn obs_list_reusable_sources(
     state: tauri::State<ObsState>,
     source_type: String,
 ) -> Result<Vec<ReusableSourceInfo>, String> {
-    sources::source_ops::list_reusable_sources(state, source_type)
+    let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::list_reusable_sources(&runtime, source_type)
 }
 
 #[tauri::command(async)]
@@ -1001,7 +1215,12 @@ fn obs_add_existing_source(
     id: String,
     source_name: String,
 ) -> Result<String, String> {
-    sources::source_ops::add_existing_source(state, id, source_name)
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.add_existing_source")
+        .map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    sources::source_ops::add_existing_source(&mut runtime, id, source_name)
 }
 
 #[tauri::command(async)]
@@ -1011,7 +1230,11 @@ fn obs_take_source_thumbnail(
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<String, String> {
-    runtime::preview::take_source_thumbnail(state, source_name, width, height)
+    let mut runtime = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.source_thumbnail")
+        .map_err(|_| "state poisoned".to_string())?;
+    let captured = runtime::preview::capture_source_thumbnail(&mut runtime, &source_name, width, height);
+    drop(runtime);
+    runtime::preview::encode_preview_frame(captured?)
 }
 
 /// Freeze/unfreeze scene-level preview rendering. While frozen,
@@ -1024,22 +1247,8 @@ fn obs_preview_set_freeze(
     freeze: bool,
     reason: Option<String>,
 ) -> Result<(), String> {
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "state poisoned".to_string())?;
-    runtime.preview_freeze = freeze;
-    if freeze {
-        runtime.preview_freeze_requests += 1;
-        runtime.preview_freeze_since = Some(std::time::Instant::now());
-        runtime.preview_freeze_reason = Some(
-            reason.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "unspecified".to_string())
-        );
-    } else {
-        runtime.preview_freeze_reason = None;
-        runtime.preview_freeze_since = None;
-    }
-    Ok(())
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    runtime::preview::set_preview_freeze(&mut runtime, freeze, reason)
 }
 
 fn parse_cli_paths(args: impl IntoIterator<Item = String>) -> Result<Vec<(&'static str, String)>, String> {
@@ -1391,5 +1600,9 @@ pub fn run() {
 
 #[tauri::command]
 fn obs_set_scene_resolution(state: tauri::State<ObsState>, resolution: String) -> Result<String, String> {
-    settings::video_settings::set_scene_resolution(state, resolution)
+    let mut runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    if !runtime.initialized {
+        return Err("OBS not initialized".to_string());
+    }
+    settings::video_settings::set_scene_resolution(&mut runtime, resolution)
 }

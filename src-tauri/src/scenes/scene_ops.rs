@@ -1,14 +1,6 @@
 pub(crate) fn list_scenes(
-	state: tauri::State<crate::ObsState>,
+	runtime: &crate::ObsRuntime,
 ) -> Result<Vec<crate::SceneInfo>, String> {
-	let runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Ok(vec![]);
-	}
-
 	let current = runtime.current_scene.clone().unwrap_or_default();
 	let mut list = Vec::new();
 	for name in runtime.scene_order.iter() {
@@ -45,17 +37,10 @@ const PROGRAM_TRANSITION_TYPES: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn set_program_transition(
-    state: tauri::State<crate::ObsState>,
+    runtime: &mut crate::ObsRuntime,
     kind: String,
     duration_ms: Option<u32>,
 ) -> Result<String, String> {
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "state poisoned".to_string())?;
-    if !runtime.initialized {
-        return Err("OBS not initialized".to_string());
-    }
     let trimmed = kind.trim();
     let duration = duration_ms.unwrap_or(300).max(50).min(20_000);
     let type_id = PROGRAM_TRANSITION_TYPES
@@ -114,36 +99,21 @@ pub(crate) fn set_program_transition(
 }
 
 pub(crate) fn set_current_scene(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	name: String,
 ) -> Result<String, String> {
-	let mut runtime = crate::logging::mutex_probe::probe_lock(
-		&state.runtime,
-		"runtime.set_current_scene",
-	)
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
 		return Err("scene name required".to_string());
 	}
-	crate::set_current_scene_internal(&mut runtime, trimmed)?;
+	crate::set_current_scene_internal(runtime, trimmed)?;
 	Ok(format!("active scene: {trimmed}"))
 }
 
 pub(crate) fn create_scene(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	name: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
 		return Err("scene name required".to_string());
@@ -164,22 +134,15 @@ pub(crate) fn create_scene(
 	if !runtime.scene_order.iter().any(|n| n == trimmed) {
 		runtime.scene_order.push(trimmed.to_string());
 	}
-	crate::set_current_scene_internal(&mut runtime, trimmed)?;
+	crate::set_current_scene_internal(runtime, trimmed)?;
 	Ok(format!("created {trimmed}"))
 }
 
 pub(crate) fn rename_scene(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	old_name: String,
 	new_name: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let old_trim = old_name.trim();
 	let new_trim = new_name.trim();
 	if old_trim.is_empty() || new_trim.is_empty() {
@@ -219,16 +182,9 @@ pub(crate) fn rename_scene(
 }
 
 pub(crate) fn remove_scene(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	name: String,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
 		return Err("scene name required".to_string());
@@ -260,7 +216,7 @@ pub(crate) fn remove_scene(
 	if runtime.current_scene.as_deref() == Some(trimmed) {
 		if let Some((next_name, _)) = runtime.scenes.iter().next() {
 			let next = next_name.clone();
-			crate::set_current_scene_internal(&mut runtime, &next)?;
+			crate::set_current_scene_internal(runtime, &next)?;
 		} else {
 			runtime.current_scene = None;
 		}
@@ -271,17 +227,10 @@ pub(crate) fn remove_scene(
 }
 
 pub(crate) fn set_scene_lock(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	name: String,
 	locked: bool,
 ) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	let trimmed = name.trim();
 	if trimmed.is_empty() {
 		return Err("scene name required".to_string());
@@ -298,17 +247,10 @@ pub(crate) fn set_scene_lock(
 }
 
 pub(crate) fn reorder_scene(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	name: String,
 	to_index: usize,
 ) -> Result<(), String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	if !runtime.scenes.contains_key(name.as_str()) {
 		return Err("scene not found".to_string());
 	}

@@ -1,15 +1,7 @@
 pub(crate) fn start_recording(
-	state: tauri::State<crate::ObsState>,
+	runtime: &mut crate::ObsRuntime,
 	output_path: String,
 ) -> Result<String, String> {
-	eprintln!("[record] start_recording...");
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
-		return Err("OBS not initialized".to_string());
-	}
 	if !runtime.output_record.is_null() {
 		return Ok("Recording already active".to_string());
 	}
@@ -160,16 +152,12 @@ pub(crate) fn start_recording(
 	Ok(format!("Recording started: {}", resolved_path.to_string_lossy()))
 }
 
-pub(crate) fn stop_recording(state: tauri::State<crate::ObsState>) -> Result<String, String> {
-	let mut runtime = state
-		.runtime
-		.lock()
-		.map_err(|_| "state poisoned".to_string())?;
+pub(crate) fn stop_recording(runtime: &mut crate::ObsRuntime) -> Result<String, String> {
 	if runtime.output_record.is_null() {
 		return Ok("Recording not active".to_string());
 	}
 	let last_path = runtime.last_record_path.clone();
-	super::helpers::stop_recording_internal(&mut runtime);
+	super::helpers::stop_recording_internal(runtime);
 	if let Some(path) = last_path {
 		Ok(format!("Recording stopped: {}", path.to_string_lossy()))
 	} else {
