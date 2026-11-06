@@ -5,6 +5,7 @@ edition = "2021"
 license = "AGPL-3.0-only"
 
 [dependencies]
+anyhow = "1"
 gpui = "=0.2.2"
 revo-core = { path = "../revo-core" }
 revo-backend = { path = "../revo-backend", optional = true }

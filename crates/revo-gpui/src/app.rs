@@ -7,8 +7,8 @@ use std::time::Duration;
 use base64::Engine as _;
 
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, MouseButton,
-    Pixels, Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
+    div, img, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement,
+    MouseButton, Pixels, Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
     WindowHandle, WindowOptions,
 };
 use revo_core::models::AppSettings;
@@ -108,6 +108,9 @@ pub struct WorkspaceState {
     /// Persisted settings as most recently reported by the backend snapshot;
     /// seeds the settings draft when the modal opens.
     pub settings: Option<AppSettings>,
+    /// False until the first backend snapshot has been applied; drives the
+    /// boot splash instead of the workspace shell.
+    pub booted: bool,
 }
 
 impl Default for WorkspaceState {
@@ -118,6 +121,7 @@ impl Default for WorkspaceState {
             status: "Native mock backend ready".into(),
             requested_window: None,
             settings: None,
+            booted: false,
         }
     }
 }
@@ -737,6 +741,9 @@ impl Workspace {
             panel.selected_id = snapshot.selected_source.clone();
             cx.notify();
         });
+        if !self.state.booted {
+            self.state.booted = true;
+        }
         self.tools_mixer.update(cx, |mixer, cx| {
             for (id, level) in &snapshot.audio_levels {
                 mixer.set_level(id, *level as f32);
@@ -1154,6 +1161,32 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mode = LayoutMode::for_width(f32::from(window.viewport_size().width));
+
+        if !self.state.booted {
+            // Boot splash: brand + status until the first backend snapshot
+            // lands, then the workspace shell takes over.
+            return div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_3()
+                .size_full()
+                .bg(self.theme.background)
+                .child(img("brand/favicon.png").w(px(56.)).h(px(56.)))
+                .child(
+                    div()
+                        .text_color(self.theme.text_strong)
+                        .text_size(px(22.))
+                        .child("RevoStream"),
+                )
+                .child(
+                    div()
+                        .text_color(self.theme.text_muted)
+                        .child(SharedString::from(self.state.status.clone())),
+                );
+        }
+
         let mut root = div()
             .relative()
             .flex()
@@ -1286,20 +1319,22 @@ impl Render for Workspace {
 }
 
 pub fn run_native_app() {
-    Application::new().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1280.), px(720.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(1080.), px(600.))),
-                focus: true,
-                ..WindowOptions::default()
-            },
-            |_, cx| cx.new(Workspace::new),
-        )
-        .expect("failed to open RevoStream native window");
-        cx.activate(true);
-    });
+    Application::new()
+        .with_assets(crate::assets::EmbeddedAssets)
+        .run(|cx: &mut App| {
+            let bounds = Bounds::centered(None, size(px(1280.), px(720.)), cx);
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: Some(size(px(1080.), px(600.))),
+                    focus: true,
+                    ..WindowOptions::default()
+                },
+                |_, cx| cx.new(Workspace::new),
+            )
+            .expect("failed to open RevoStream native window");
+            cx.activate(true);
+        });
 }
 
 #[cfg(test)]

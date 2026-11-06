@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, Context, Div, IntoElement, Render, Window};
+use gpui::{div, img, prelude::*, px, Context, Div, IntoElement, Render, Window};
 
 use crate::{actions::ComponentEvent, components::panel, theme::RevoTheme};
 
@@ -187,7 +187,8 @@ impl Render for HeaderBar {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child("RevoStream")
+                    .child(img("brand/favicon.png").w(px(20.)).h(px(20.)).flex_none())
+                    .child(div().text_color(self.theme.text_strong).child("RevoStream"))
                     .child(self.state.version.clone())
                     .child(undo)
                     .child(redo)

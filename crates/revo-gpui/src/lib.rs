@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod app;
+pub mod assets;
 pub mod components;
 pub mod services;
 pub mod theme;
