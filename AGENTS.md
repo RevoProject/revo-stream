@@ -9,8 +9,10 @@
 - Extracted core slices: framework-neutral source, planner, media-option,
   settings, scene, and theme models with their default providers in
   `crates/revo-core/`, consumed by the Tauri adapter through a path dependency.
-  Settings normalization, parsing recovery, and file I/O remain in the Tauri
-  adapter.
+  `revo-core::planner` owns the pure scene-canvas geometry (fit/stretch scale,
+  centering, resolution parsing) shared by adapter source operations and the
+  future GPUI planner. Settings normalization, parsing recovery, and file I/O
+  remain in the Tauri adapter.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
