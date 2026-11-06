@@ -3,8 +3,9 @@ use serde_json::Value as JsonValue;
 
 pub(crate) use revo_core::models::{
 	AppSettings, AudioDevice, ObsSettingsSelectOptions, PlannerInit, PlannerInitInput,
-	ReusableSourceInfo, SelectOption, SourceCreate, SourceFilterItem, SourceInfo,
-	SourcePropertyOption, SourcePropertySpec, SourceTypeItem, SourceUpdate, VideoEncoderPreference,
+	ReusableSourceInfo, SceneInfo, SelectOption, SourceCreate, SourceFilterItem, SourceInfo,
+	SourcePropertyOption, SourcePropertySpec, SourceTypeItem, SourceUpdate, ThemeInfo,
+	VideoEncoderPreference,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -27,13 +28,6 @@ pub(crate) struct CefBridgeInfo {
 pub(crate) struct BrowserDockState {
 	pub(crate) is_open: bool,
 	pub(crate) url: Option<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct SceneInfo {
-	pub(crate) name: String,
-	pub(crate) active: bool,
-	pub(crate) locked: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -60,12 +54,4 @@ pub(crate) struct PluginProfile {
 pub(crate) struct PluginProfileState {
 	pub(crate) profile_name: String,
 	pub(crate) enabled_modules: Vec<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ThemeInfo {
-	pub(crate) id: String,
-	pub(crate) name: String,
-	pub(crate) author: String,
-	pub(crate) version: String,
 }

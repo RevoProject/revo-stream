@@ -44,6 +44,21 @@ pub struct AppSettings {
     pub active_profile: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct SceneInfo {
+    pub name: String,
+    pub active: bool,
+    pub locked: bool,
+}
+
+#[derive(Serialize)]
+pub struct ThemeInfo {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    pub version: String,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VideoEncoderPreference {
@@ -369,5 +384,38 @@ mod tests {
             serde_json::to_value(planner).expect("planner payload should serialize");
 
         assert_eq!(serialized, payload);
+    }
+
+    #[test]
+    fn scene_and_theme_models_preserve_wire_shapes() {
+        let scene = SceneInfo {
+            name: "Scene 1".into(),
+            active: true,
+            locked: false,
+        };
+        let theme = ThemeInfo {
+            id: "revo-future".into(),
+            name: "RevoFuture".into(),
+            author: "RevoProject".into(),
+            version: "1.0.0".into(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(scene).expect("scene should serialize"),
+            json!({
+                "name": "Scene 1",
+                "active": true,
+                "locked": false
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(theme).expect("theme should serialize"),
+            json!({
+                "id": "revo-future",
+                "name": "RevoFuture",
+                "author": "RevoProject",
+                "version": "1.0.0"
+            })
+        );
     }
 }
