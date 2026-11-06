@@ -25,6 +25,7 @@ use revo_lib::obs;
 
 struct ObsRuntime {
     initialized: bool,
+    core_started: bool,
     scenes: HashMap<String, SceneState>,
     current_scene: Option<String>,
     locked_scenes: HashSet<String>,
@@ -69,6 +70,7 @@ impl Default for ObsRuntime {
     fn default() -> Self {
         Self {
             initialized: false,
+            core_started: false,
             scenes: HashMap::new(),
             current_scene: None,
             locked_scenes: HashSet::new(),
@@ -731,12 +733,12 @@ fn obs_shutdown(app: tauri::AppHandle, state: tauri::State<ObsState>) -> Result<
 
 #[tauri::command]
 fn obs_is_initialized(state: tauri::State<ObsState>) -> Result<bool, String> {
-    runtime::state::is_initialized(state)
+    runtime::lifecycle::is_initialized(state)
 }
 
 #[tauri::command]
 fn obs_version() -> Result<String, String> {
-    runtime::state::version()
+    runtime::lifecycle::version()
 }
 
 #[tauri::command(async)]

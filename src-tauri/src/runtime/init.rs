@@ -79,7 +79,7 @@ fn resolve_obs_dir(root: &std::path::Path) -> Result<std::path::PathBuf, String>
 
 #[cfg(test)]
 mod obs_path_tests {
-	use super::obs_path;
+	use super::{obs_path, should_shutdown};
 	use std::path::Path;
 
 	#[test]
@@ -96,6 +96,18 @@ mod obs_path_tests {
 			assert_eq!(value, "C:/revo/data/obs/");
 		}
 	}
+
+	#[test]
+	fn shutdown_is_required_for_initialized_or_partially_started_core() {
+		assert!(!should_shutdown(false, false));
+		assert!(should_shutdown(true, false));
+		assert!(should_shutdown(false, true));
+		assert!(should_shutdown(true, true));
+	}
+}
+
+fn should_shutdown(initialized: bool, core_started: bool) -> bool {
+	initialized || core_started
 }
 
 unsafe extern "C" fn collect_module_candidate(
@@ -190,12 +202,24 @@ pub(crate) fn start(
 	state: tauri::State<crate::ObsState>,
 	root_dir: Option<String>,
 ) -> Result<String, String> {
+	let platform = super::lifecycle::TauriObsPlatform::new(app);
 	let mut runtime = state
 		.runtime
 		.lock()
 		.map_err(|_| "state poisoned".to_string())?;
+	start_with_platform(&mut runtime, &platform, root_dir)
+}
+
+pub(crate) fn start_with_platform(
+	runtime: &mut crate::ObsRuntime,
+	platform: &dyn super::lifecycle::ObsPlatform,
+	root_dir: Option<String>,
+) -> Result<String, String> {
 	if runtime.initialized {
 		return Ok("OBS already initialized".to_string());
+	}
+	if runtime.core_started {
+		shutdown_with_platform(runtime, platform)?;
 	}
 
 	#[cfg(target_os = "linux")]
@@ -425,31 +449,14 @@ pub(crate) fn start(
             Some(crate::logging::obs_logger::obs_log_handler),
             std::ptr::null_mut(),
         );
+	}
 
-		#[cfg(target_os = "macos")]
-		{
-			// libobs hotkey platform init (HIToolbox/TSM) asserts the main
-			// dispatch queue — dispatch obs_startup to the main thread and
-			// block this worker until it finishes.
-			let (tx, rx) = std::sync::mpsc::channel::<bool>();
-			app.run_on_main_thread(move || {
-				let ok = unsafe {
-					revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut())
-				};
-				let _ = tx.send(ok);
-			})
-			.map_err(|e| format!("failed to dispatch obs_startup to main thread: {e}"))?;
-			eprintln!("[init] obs_startup dispatched to main thread");
-			if !rx.recv().map_err(|e| format!("main thread obs_startup dropped: {e}"))? {
-				return Err("obs_startup failed".to_string());
-			}
-		}
-		#[cfg(not(target_os = "macos"))]
-		if !revo_lib::obs::obs_startup(locale.as_ptr(), conf.as_ptr(), std::ptr::null_mut()) {
-			return Err("obs_startup failed".to_string());
-		}
-		eprintln!("[init] obs_startup ok");
+	platform.startup(&locale, &conf)?;
+	runtime.core_started = true;
+	eprintln!("[init] obs_startup ok");
 
+	let setup_result = (|| -> Result<(), String> {
+	unsafe {
 		let data_share_c = obs_path(&data_share_dir, true)?;
 		revo_lib::obs::obs_add_data_path(data_share_c.as_ptr());
 
@@ -500,23 +507,6 @@ pub(crate) fn start(
 		// obs_startup already created the core, so retrying without a
 		// teardown would hit "Tried to call obs_startup more than once".
 		eprintln!("[init] reset_video_audio failed, releasing obs core");
-		#[cfg(target_os = "macos")]
-		{
-			let (tx, rx) = std::sync::mpsc::channel::<()>();
-			app.run_on_main_thread(move || {
-				unsafe {
-					revo_lib::obs::obs_shutdown();
-				}
-				let _ = tx.send(());
-			})
-			.map_err(|e| format!("failed to dispatch obs_shutdown to main thread: {e}"))?;
-			rx.recv()
-				.map_err(|e| format!("main thread obs_shutdown dropped: {e}"))?;
-		}
-		#[cfg(not(target_os = "macos"))]
-		unsafe {
-			revo_lib::obs::obs_shutdown();
-		}
 		return Err("obs_reset_video/obs_reset_audio failed".to_string());
 	}
 	eprintln!("[init] reset_video_audio ok");
@@ -680,7 +670,15 @@ pub(crate) fn start(
 		}
 	}
 
-	ensure_scene(&mut runtime, &root)?;
+	ensure_scene(runtime, &root)?;
+	Ok(())
+	})();
+	if let Err(error) = setup_result {
+		if let Err(cleanup_error) = shutdown_with_platform(runtime, platform) {
+			eprintln!("[init] failed to clean up partially started OBS core: {cleanup_error}");
+		}
+		return Err(error);
+	}
 
 	crate::devices::levels::init_audio_volmeters();
 
@@ -690,18 +688,26 @@ pub(crate) fn start(
 }
 
 pub(crate) fn shutdown(app: tauri::AppHandle, state: tauri::State<crate::ObsState>) -> Result<String, String> {
+	let platform = super::lifecycle::TauriObsPlatform::new(app);
 	let mut runtime = state
 		.runtime
 		.lock()
 		.map_err(|_| "state poisoned".to_string())?;
-	if !runtime.initialized {
+	shutdown_with_platform(&mut runtime, &platform)
+}
+
+pub(crate) fn shutdown_with_platform(
+	runtime: &mut crate::ObsRuntime,
+	platform: &dyn super::lifecycle::ObsPlatform,
+) -> Result<String, String> {
+	if !should_shutdown(runtime.initialized, runtime.core_started) {
 		return Ok("OBS already shut down".to_string());
 	}
-	super::helpers::stop_recording_internal(&mut runtime);
-	super::helpers::stop_streaming_internal(&mut runtime);
+	super::helpers::stop_recording_internal(runtime);
+	super::helpers::stop_streaming_internal(runtime);
 	crate::sources::browser_interact::close_all();
 	crate::sources::browser::set_enabled(false);
-	cleanup_scene(&mut runtime);
+	cleanup_scene(runtime);
 	crate::sources::browser::shutdown_all();
 	crate::devices::levels::cleanup_audio_volmeters();
 	unsafe {
@@ -709,28 +715,12 @@ pub(crate) fn shutdown(app: tauri::AppHandle, state: tauri::State<crate::ObsStat
 			revo_lib::obs::obs_source_release(runtime.transition_source);
 			runtime.transition_source = std::ptr::null_mut();
 		}
-		#[cfg(target_os = "macos")]
-		{
-			// Match obs_startup: teardown touches HIToolbox on macOS.
-			let (tx, rx) = std::sync::mpsc::channel::<()>();
-			app.run_on_main_thread(move || {
-				unsafe {
-					revo_lib::obs::obs_shutdown();
-				}
-				let _ = tx.send(());
-			})
-			.map_err(|e| format!("failed to dispatch obs_shutdown to main thread: {e}"))?;
-			rx.recv().map_err(|e| format!("main thread obs_shutdown dropped: {e}"))?;
-		}
-		#[cfg(not(target_os = "macos"))]
-		revo_lib::obs::obs_shutdown();
-		#[cfg(not(target_os = "macos"))]
-		{
-			let _ = &app;
-		}
 	}
+	let shutdown_result = platform.shutdown();
+	runtime.core_started = false;
 	runtime.initialized = false;
 	revo_lib::runtime::set_initialized(false);
+	shutdown_result?;
 	Ok("OBS shut down".to_string())
 }
 
