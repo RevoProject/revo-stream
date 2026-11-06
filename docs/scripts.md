@@ -1,5 +1,13 @@
 # Scripts
 
+## Core crates (`scripts/core/`)
+
+- `verify.sh` — standard validation gate for the framework-neutral migration
+  crates (`revo-core`, `revo-gpui`): whitespace check, `cargo fmt --check`,
+  core and GPUI tests, GPUI `cargo check`, and Tauri compatibility metadata.
+  Requires no GTK/WebKit/libobs host packages. Run after every core slice:
+  `bash scripts/core/verify.sh`
+
 ## Root-level Tauri scripts
 
 - `run.sh` — run app in development mode (`pnpm tauri dev`)
@@ -20,9 +28,3 @@
   default) with Nix-provided GStreamer deps
 - `all.sh` — full NixOS pipeline: compile → package → clean
 - `package-bundle.sh` — package a built binary into a self-extracting `.run` archive
-- `itvt.sh` — one-file launcher that auto-builds if the binary is missing
-
-## Deployment
-
-- `scripts/deploy-dist.sh` — deploy `dist/` to the `main` branch
-- `scripts/deploy-dist-debug.sh` — deploy `dist/` to the `debug` branch
