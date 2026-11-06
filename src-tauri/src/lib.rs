@@ -1,19 +1,20 @@
-pub mod runtime;
-pub mod scenes;
-pub mod sources;
-pub mod settings;
-pub mod devices;
-pub mod logging;
-pub mod permissions;
-pub mod utils;
 pub mod ui;
-pub mod models;
+pub mod runtime;
+
+pub use revo_backend::{devices, logging, models, permissions, scenes, settings, sources, utils};
+pub use revo_backend::{
+    ObsRuntime, SceneState, ObsState, PreviewStats, abgr_to_hex, apply_scene_item_transform,
+    apply_source_params, clone_preview_stats, collect_source_property_specs, collect_sources,
+    create_source_in_scene, current_scene, current_scene_mut, extract_source_params,
+    init_debug_log_file, live_scene_resolution, push_debug_log_entry, refresh_source_properties_with_settings,
+    resolve_scene_item, scene_item_id, set_current_scene_internal, source_editable_list_keys,
+    with_preview_stats,
+};
 
 pub(crate) use models::*;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 // (no threading imports needed here)
@@ -21,163 +22,11 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use serde_json::Value as JsonValue;
-use revo_lib::obs;
-
-struct ObsRuntime {
-    initialized: bool,
-    core_started: bool,
-    scenes: HashMap<String, SceneState>,
-    current_scene: Option<String>,
-    locked_scenes: HashSet<String>,
-    scene_order: Vec<String>,
-    output_record: *mut obs::obs_output,
-    record_video_encoder: *mut obs::obs_encoder,
-    record_audio_encoder: *mut obs::obs_encoder,
-    output_stream: *mut obs::obs_output,
-    stream_service: *mut obs::obs_service,
-    stream_video_encoder: *mut obs::obs_encoder,
-    stream_audio_encoder: *mut obs::obs_encoder,
-    preview_view: *mut obs::obs_view,
-    preview_texrender: *mut obs::gs_texrender_t,
-    /// When true, scene-level preview captures serve the retained last good
-    /// frame instead of rendering. Used by the Add Source workflow so source
-    /// creation does not contend with preview rendering. Recording and
-    /// streaming outputs are unaffected.
-    preview_freeze: bool,
-    preview_freeze_reason: Option<String>,
-    preview_freeze_requests: u64,
-    preview_freeze_since: Option<std::time::Instant>,
-    /// Last successfully captured preview frame (data URI). Returned when a
-    /// fresh capture fails, so the UI keeps a good frame instead of an error
-    /// or a wrongly-rendered main/output texture.
-    last_preview_frame: Option<String>,
-    last_preview_frame_generation: u64,
-    last_preview_frame_at: Option<std::time::Instant>,
-    last_preview_error_at: Option<std::time::Instant>,
-    preview_frame_seq: u64,
-    last_preview_frame_seq: u64,
-    scene_generation: u64,
-    last_record_path: Option<PathBuf>,
-    video_encoder_preference: VideoEncoderPreference,
-    scene_resolution: String,
-    planner_init: Option<PlannerInit>,
-    transition_source: *mut obs::obs_source,
-    program_transition_kind: String,
-    program_transition_duration_ms: u32,
-}
-
-impl Default for ObsRuntime {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            core_started: false,
-            scenes: HashMap::new(),
-            current_scene: None,
-            locked_scenes: HashSet::new(),
-            scene_order: Vec::new(),
-            output_record: std::ptr::null_mut(),
-            record_video_encoder: std::ptr::null_mut(),
-            record_audio_encoder: std::ptr::null_mut(),
-            output_stream: std::ptr::null_mut(),
-            stream_service: std::ptr::null_mut(),
-            stream_video_encoder: std::ptr::null_mut(),
-            stream_audio_encoder: std::ptr::null_mut(),
-            preview_view: std::ptr::null_mut(),
-            preview_texrender: std::ptr::null_mut(),
-            preview_freeze: false,
-            preview_freeze_reason: None,
-            preview_freeze_requests: 0,
-            preview_freeze_since: None,
-            last_preview_frame: None,
-            last_preview_frame_generation: 0,
-            last_preview_frame_at: None,
-            last_preview_error_at: None,
-            preview_frame_seq: 0,
-            last_preview_frame_seq: 0,
-            scene_generation: 0,
-            last_record_path: None,
-            video_encoder_preference: VideoEncoderPreference::default(),
-            scene_resolution: "1920x1080".to_string(),
-            planner_init: None,
-            transition_source: std::ptr::null_mut(),
-            program_transition_kind: "cut".to_string(),
-            program_transition_duration_ms: 300,
-        }
-    }
-}
-
-#[derive(Clone, Default, serde::Serialize)]
-pub(crate) struct PreviewStats {
-    pub requests: u64,
-    pub frozen_returns: u64,
-    pub stale_returns: u64,
-    pub captures_ok: u64,
-    pub captures_err: u64,
-    pub encoded_ok: u64,
-    pub encoded_err: u64,
-    pub stale_discards: u64,
-    pub lock_wait_us_max: u64,
-    pub capture_us_max: u64,
-    pub encode_us_max: u64,
-    pub last_error: String,
-}
-
-fn preview_stats() -> &'static Mutex<PreviewStats> {
-    static PREVIEW_STATS: std::sync::OnceLock<Mutex<PreviewStats>> = std::sync::OnceLock::new();
-    PREVIEW_STATS.get_or_init(|| Mutex::new(PreviewStats::default()))
-}
-
-pub(crate) fn with_preview_stats<T>(f: impl FnOnce(&mut PreviewStats) -> T) -> T {
-    let mut guard = preview_stats().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
-}
-
-pub(crate) fn clone_preview_stats() -> PreviewStats {
-    with_preview_stats(|stats| stats.clone())
-}
-
-struct SceneState {
-    name: String,
-    scene: *mut obs::obs_scene,
-    scene_source: *mut obs::obs_source,
-    item_accent: *mut obs::obs_scene_item,
-    item_text: *mut obs::obs_scene_item,
-    custom_items: HashMap<String, *mut obs::obs_scene_item>,
-}
-
-impl SceneState {
-    fn new(name: String, scene: *mut obs::obs_scene, scene_source: *mut obs::obs_source) -> Self {
-        SceneState {
-            name,
-            scene,
-            scene_source,
-            item_accent: std::ptr::null_mut(),
-            item_text: std::ptr::null_mut(),
-            custom_items: HashMap::new(),
-        }
-    }
-}
-
-struct ObsState {
-    runtime: Mutex<ObsRuntime>,
-}
 
 struct AppUiState {
     minimize_to_tray: AtomicBool,
 }
 
-fn init_debug_log_file() -> Result<PathBuf, String> {
-    logging::debug::init_debug_log_file()
-}
-
-fn push_debug_log_entry(action: String, detail: Option<JsonValue>) {
-    logging::debug::push_debug_log_entry(action, detail)
-}
-
-// Raw OBS pointers are not thread-safe by default. We guard all access with a Mutex
-// and only touch them on the Tauri command thread.
-unsafe impl Send for ObsRuntime {}
-unsafe impl Sync for ObsRuntime {}
 
 #[tauri::command(async)]
 fn obs_get_settings_select_options(state: tauri::State<ObsState>) -> Result<ObsSettingsSelectOptions, String> {

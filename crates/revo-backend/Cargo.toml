@@ -1,0 +1,20 @@
+[package]
+name = "revo-backend"
+version = "0.4.1"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Framework-neutral libobs backend for RevoStream"
+
+[dependencies]
+revo-core = { path = "../revo-core" }
+revo-lib = { git = "https://github.com/RevoProject/revo-lib" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+tungstenite = "0.24"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Same URL parser that tauri re-exports; used for browser URL validation.
+url = "2"
