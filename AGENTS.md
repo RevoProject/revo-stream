@@ -7,12 +7,14 @@
 - Current runnable application: Tauri 2, Svelte 5/SvelteKit, and a Rust/libobs
   backend in `src-tauri/`.
 - Extracted core slices: framework-neutral source, planner, media-option,
-  settings, scene, and theme models with their default providers in
-  `crates/revo-core/`, consumed by the Tauri adapter through a path dependency.
-  `revo-core::planner` owns the pure scene-canvas geometry (fit/stretch scale,
-  centering, resolution parsing) shared by adapter source operations and the
-  future GPUI planner. Settings normalization, parsing recovery, and file I/O
-  remain in the Tauri adapter.
+  settings, scene, theme, and plugin models with their default providers and
+  pure helpers in `crates/revo-core/`, consumed by the Tauri adapter through a
+  path dependency. `revo-core::planner` owns the pure scene-canvas geometry
+  (fit/stretch scale, centering, resolution parsing) shared by adapter source
+  operations and the future GPUI planner. `revo-core::plugins` owns plugin
+  naming and enabled-module normalization. Settings normalization, parsing
+  recovery, file I/O, and plugin window capability policy remain in the Tauri
+  adapter.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
