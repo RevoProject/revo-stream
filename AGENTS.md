@@ -19,12 +19,20 @@
   snapshots, nonblocking GPUI dispatch, and lifecycle tests.
 - `crates/revo-gpui/` now has a runnable native mock-data shell composing the
   Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
-  and modal routing. It currently uses `MockBackendRuntime`; the actual
-  `ObsRuntime` remains in Tauri and has not yet moved behind `BackendService`.
-  The Tauri adapter isolates libobs startup/shutdown behind
+  and modal routing, plus native Modules: Audio Mixer (with context menu and
+  advanced-properties modal), Transitions, and the Graphic Planner driven by
+  `revo-core::planner` geometry. It currently uses `MockBackendRuntime`; the
+  actual `ObsRuntime` remains in Tauri and has not yet moved behind
+  `BackendService`. The Tauri adapter isolates libobs startup/shutdown behind
   `runtime::lifecycle::ObsPlatform` and tracks partially started cores with
   `ObsRuntime::core_started`, but the runtime mutex still serves the remaining
   command groups. The GPUI shell has not replaced the Tauri application.
+- The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
+  `Modules`) and their only importers (`src/routes/+page.svelte`,
+  `src/routes/source-transform/`) are removed. The remaining Svelte routes
+  (`interact`, `debug-console`, `preview`, `webview`) serve Tauri auxiliary
+  windows only; the Tauri main window has no UI. The Tauri Rust backend
+  remains as the parity reference for `ObsRuntime` migration.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
