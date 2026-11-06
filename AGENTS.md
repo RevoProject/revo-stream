@@ -21,7 +21,10 @@
   Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
   and modal routing. It currently uses `MockBackendRuntime`; the actual
   `ObsRuntime` remains in Tauri and has not yet moved behind `BackendService`.
-  The GPUI shell has not replaced the Tauri application.
+  The Tauri adapter isolates libobs startup/shutdown behind
+  `runtime::lifecycle::ObsPlatform` and tracks partially started cores with
+  `ObsRuntime::core_started`, but the runtime mutex still serves the remaining
+  command groups. The GPUI shell has not replaced the Tauri application.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
