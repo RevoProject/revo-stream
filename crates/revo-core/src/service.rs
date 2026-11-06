@@ -1,6 +1,7 @@
 //! Typed, bounded backend service boundary.
 
 use std::{
+    any::Any,
     error::Error,
     fmt,
     sync::{
@@ -98,21 +99,30 @@ pub trait BackendRuntime: Send + 'static {
     }
 }
 
-enum Request {
+/// Type-erased compatibility-call closure. The worker calls it with the
+/// runtime and boxes the reply so the caller can downcast to the expected
+/// result type.
+type CallBox<R> = Box<dyn FnOnce(&mut R) -> Result<Box<dyn Any + Send>, BackendError> + Send>;
+
+enum Request<R> {
     Dispatch(BackendCommand),
     Execute(BackendCommand, SyncSender<Result<(), BackendError>>),
     Snapshot(SyncSender<Result<BackendSnapshot, BackendError>>),
+    Call(
+        CallBox<R>,
+        SyncSender<Result<Box<dyn Any + Send>, BackendError>>,
+    ),
     Shutdown(SyncSender<Result<(), BackendError>>),
 }
 
-struct ServiceInner {
-    sender: Mutex<Option<SyncSender<Request>>>,
+struct ServiceInner<R> {
+    sender: Mutex<Option<SyncSender<Request<R>>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     shutdown: Mutex<()>,
 }
 
-impl ServiceInner {
-    fn sender(&self) -> Result<SyncSender<Request>, BackendError> {
+impl<R> ServiceInner<R> {
+    fn sender(&self) -> Result<SyncSender<Request<R>>, BackendError> {
         self.sender
             .lock()
             .expect("backend sender mutex poisoned")
@@ -134,7 +144,7 @@ impl ServiceInner {
     }
 }
 
-impl Drop for ServiceInner {
+impl<R> Drop for ServiceInner<R> {
     fn drop(&mut self) {
         self.sender
             .get_mut()
@@ -151,17 +161,25 @@ impl Drop for ServiceInner {
     }
 }
 
-/// Cloneable handle to a bounded backend worker.
-#[derive(Clone)]
-pub struct BackendService {
-    inner: Arc<ServiceInner>,
+/// Cloneable handle to a bounded backend worker that owns a runtime of type
+/// `R`. The runtime is constructed on, and used exclusively by, the worker
+/// thread; every handle just forwards typed requests to it.
+pub struct BackendService<R: BackendRuntime> {
+    inner: Arc<ServiceInner<R>>,
 }
 
-impl BackendService {
+impl<R: BackendRuntime> Clone for BackendService<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<R: BackendRuntime> BackendService<R> {
     /// Starts a dedicated worker and constructs its runtime on that worker.
-    pub fn new<R, F>(capacity: usize, create_runtime: F) -> Result<Self, BackendError>
+    pub fn new<F>(capacity: usize, create_runtime: F) -> Result<Self, BackendError>
     where
-        R: BackendRuntime,
         F: FnOnce() -> R + Send + 'static,
     {
         if capacity == 0 {
@@ -216,6 +234,45 @@ impl BackendService {
             .map_err(|_| BackendError::Disconnected)?
     }
 
+    /// Temporary compatibility escape hatch for migrating legacy
+    /// runtime-locking call sites ahead of the atomic ObsRuntime ownership
+    /// cutover.
+    ///
+    /// Runs an arbitrary closure on the dedicated worker thread with exclusive
+    /// `&mut R` access to the runtime. The operation blocks the calling thread
+    /// until the worker replies, so it must never be called from GUI
+    /// foreground executors (it would stall the UI); use it from background
+    /// threads or tests only. New code must use typed commands
+    /// ([`BackendService::execute`], [`BackendService::try_dispatch`],
+    /// [`BackendService::snapshot`]) instead; this mechanism exists only so
+    /// legacy call sites keep working while they are migrated one at a time.
+    pub fn call<T, F>(&self, operation: F) -> Result<T, BackendError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut R) -> Result<T, BackendError> + Send + 'static,
+    {
+        let (reply_sender, reply_receiver) = mpsc::sync_channel(1);
+        let wrapped: CallBox<R> = Box::new(move |runtime: &mut R| {
+            operation(runtime).map(|value| Box::new(value) as Box<dyn Any + Send>)
+        });
+        self.inner
+            .sender()?
+            .send(Request::Call(wrapped, reply_sender))
+            .map_err(|_| BackendError::Disconnected)?;
+        let response = reply_receiver
+            .recv()
+            .map_err(|_| BackendError::Disconnected)?;
+        match response {
+            Ok(boxed) => boxed.downcast::<T>().map(|value| *value).map_err(|_| {
+                BackendError::Runtime(format!(
+                    "backend call reply type mismatch: expected {}",
+                    std::any::type_name::<T>()
+                ))
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Stops the worker cleanly. Repeated calls on any handle are idempotent.
     pub fn shutdown(&self) -> Result<(), BackendError> {
         let _shutdown = self
@@ -253,7 +310,7 @@ impl BackendService {
     }
 }
 
-fn run_worker<R: BackendRuntime>(mut runtime: R, receiver: Receiver<Request>) {
+fn run_worker<R: BackendRuntime>(mut runtime: R, receiver: Receiver<Request<R>>) {
     while let Ok(request) = receiver.recv() {
         match request {
             Request::Dispatch(command) => {
@@ -264,6 +321,9 @@ fn run_worker<R: BackendRuntime>(mut runtime: R, receiver: Receiver<Request>) {
             }
             Request::Snapshot(reply) => {
                 let _ = reply.send(runtime.snapshot());
+            }
+            Request::Call(operation, reply) => {
+                let _ = reply.send(operation(&mut runtime));
             }
             Request::Shutdown(reply) => {
                 let _ = reply.send(runtime.shutdown());
@@ -337,7 +397,7 @@ mod tests {
     fn service(
         fail_next: bool,
     ) -> (
-        BackendService,
+        BackendService<RecordingRuntime>,
         mpsc::Receiver<(&'static str, thread::ThreadId)>,
         Arc<AtomicUsize>,
     ) {
@@ -492,5 +552,91 @@ mod tests {
             BackendService::new(0, || Runtime),
             Err(BackendError::InvalidCapacity)
         ));
+    }
+
+    #[test]
+    fn call_returns_values_and_operates_on_worker_thread_runtime() {
+        struct StateRuntime {
+            counter: u64,
+            calls: usize,
+        }
+
+        impl BackendRuntime for StateRuntime {
+            fn execute(&mut self, _: BackendCommand) -> Result<(), BackendError> {
+                Ok(())
+            }
+
+            fn snapshot(&self) -> Result<BackendSnapshot, BackendError> {
+                Ok(BackendSnapshot::default())
+            }
+        }
+
+        let service = BackendService::new(4, || StateRuntime {
+            counter: 0,
+            calls: 0,
+        })
+        .unwrap();
+
+        let value = service
+            .call(|runtime: &mut StateRuntime| {
+                runtime.calls += 1;
+                runtime.counter += 7;
+                Ok(runtime.counter)
+            })
+            .unwrap();
+        assert_eq!(value, 7);
+
+        // The same runtime instance persists on the worker between calls, so a
+        // follow-up call observes mutations made through earlier `&mut` access.
+        let value = service
+            .call(|runtime| {
+                runtime.calls += 1;
+                Ok(runtime.counter)
+            })
+            .unwrap();
+        assert_eq!(value, 7);
+
+        let calls = service.call(|runtime| Ok(runtime.calls)).unwrap();
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn call_propagates_runtime_errors() {
+        struct Runtime;
+
+        impl BackendRuntime for Runtime {
+            fn execute(&mut self, _: BackendCommand) -> Result<(), BackendError> {
+                Ok(())
+            }
+
+            fn snapshot(&self) -> Result<BackendSnapshot, BackendError> {
+                Ok(BackendSnapshot::default())
+            }
+        }
+
+        let service = BackendService::new(4, || Runtime).unwrap();
+        let error = service
+            .call::<(), _>(|_| Err(BackendError::Runtime("boom".into())))
+            .unwrap_err();
+        assert_eq!(error, BackendError::Runtime("boom".into()));
+    }
+
+    #[test]
+    fn call_after_shutdown_returns_disconnected() {
+        struct Runtime;
+
+        impl BackendRuntime for Runtime {
+            fn execute(&mut self, _: BackendCommand) -> Result<(), BackendError> {
+                Ok(())
+            }
+
+            fn snapshot(&self) -> Result<BackendSnapshot, BackendError> {
+                Ok(BackendSnapshot::default())
+            }
+        }
+
+        let service = BackendService::new(4, || Runtime).unwrap();
+        service.shutdown().unwrap();
+        assert_eq!(service.call(|_| Ok(0u32)), Err(BackendError::Disconnected));
     }
 }

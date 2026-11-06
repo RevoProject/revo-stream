@@ -156,7 +156,7 @@ pub struct Workspace {
     pub sources: Entity<SourcesPanel>,
     pub demo: Entity<DemoMode>,
     pub state: WorkspaceState,
-    backend: BackendService,
+    backend: BackendService<MockBackendRuntime>,
     theme: RevoTheme,
     _subscriptions: Vec<Subscription>,
 }
