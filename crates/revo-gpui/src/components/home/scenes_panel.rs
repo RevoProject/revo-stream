@@ -1,0 +1,178 @@
+use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+
+use crate::{actions::ComponentEvent, components::panel, theme::RevoTheme};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SceneItem {
+    pub name: String,
+    pub active: bool,
+    pub locked: bool,
+}
+
+pub struct ScenesPanel {
+    pub scenes: Vec<SceneItem>,
+    pub preview_scene: Option<String>,
+    pub studio_mode: bool,
+    pub rename_draft: Option<(String, String)>,
+    pub theme: RevoTheme,
+}
+
+impl gpui::EventEmitter<ComponentEvent> for ScenesPanel {}
+
+impl ScenesPanel {
+    pub fn select(&mut self, name: &str) -> Option<ComponentEvent> {
+        if !self.scenes.iter().any(|scene| scene.name == name) {
+            return None;
+        }
+        for scene in &mut self.scenes {
+            scene.active = scene.name == name;
+        }
+        Some(ComponentEvent::SelectScene(name.to_owned()))
+    }
+
+    pub fn begin_rename(&mut self, name: &str) -> bool {
+        let Some(scene) = self
+            .scenes
+            .iter()
+            .find(|scene| scene.name == name && !scene.locked)
+        else {
+            return false;
+        };
+        self.rename_draft = Some((scene.name.clone(), scene.name.clone()));
+        true
+    }
+
+    pub fn commit_rename(&mut self) -> Option<ComponentEvent> {
+        let (from, to) = self.rename_draft.take()?;
+        let to = to.trim().to_owned();
+        if to.is_empty()
+            || self
+                .scenes
+                .iter()
+                .any(|scene| scene.name == to && scene.name != from)
+        {
+            return None;
+        }
+        self.scenes
+            .iter_mut()
+            .find(|scene| scene.name == from)?
+            .name = to.clone();
+        Some(ComponentEvent::RenameScene { from, to })
+    }
+}
+
+impl Render for ScenesPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let mut list = div().flex().flex_col().gap_1();
+        for scene in self.scenes.clone() {
+            let preview = self.studio_mode && self.preview_scene.as_deref() == Some(&scene.name);
+            let background = if scene.active {
+                self.theme.surface_active
+            } else {
+                self.theme.surface_elevated
+            };
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("scene-row-{}", scene.name)))
+                    .cursor_pointer()
+                    .p_2()
+                    .bg(background)
+                    .border_1()
+                    .border_color(if preview {
+                        self.theme.accent
+                    } else {
+                        self.theme.border
+                    })
+                    .rounded_md()
+                    .on_click(cx.listener({
+                        let name = scene.name.clone();
+                        move |this, _, _, cx| {
+                            if let Some(event) = this.select(&name) {
+                                cx.emit(event);
+                                cx.notify();
+                            }
+                        }
+                    }))
+                    .child(SharedString::from(format!(
+                        "{}{}{}",
+                        scene.name,
+                        if scene.active { " [active]" } else { "" },
+                        if scene.locked { " [locked]" } else { "" }
+                    ))),
+            );
+        }
+        panel(self.theme)
+            .child(
+                div().flex().justify_between().child("Scenes").child(
+                    div()
+                        .id("scenes-add")
+                        .cursor_pointer()
+                        .px_2()
+                        .py_1()
+                        .rounded_md()
+                        .bg(self.theme.accent)
+                        .child("Add scene")
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddScene))),
+                ),
+            )
+            .child(list)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scene_selection_updates_active_scene() {
+        let mut panel = ScenesPanel {
+            scenes: vec![
+                SceneItem {
+                    name: "A".into(),
+                    active: true,
+                    locked: false,
+                },
+                SceneItem {
+                    name: "B".into(),
+                    active: false,
+                    locked: false,
+                },
+            ],
+            preview_scene: None,
+            studio_mode: false,
+            rename_draft: None,
+            theme: RevoTheme::classic(),
+        };
+        assert_eq!(
+            panel.select("B"),
+            Some(ComponentEvent::SelectScene("B".into()))
+        );
+        assert_eq!(
+            panel.scenes.iter().find(|scene| scene.active).unwrap().name,
+            "B"
+        );
+    }
+
+    #[test]
+    fn rename_normalizes_whitespace_and_rejects_duplicates() {
+        let mut panel = ScenesPanel {
+            scenes: vec![
+                SceneItem {
+                    name: "A".into(),
+                    active: true,
+                    locked: false,
+                },
+                SceneItem {
+                    name: "B".into(),
+                    active: false,
+                    locked: false,
+                },
+            ],
+            preview_scene: None,
+            studio_mode: false,
+            rename_draft: Some(("A".into(), "  B  ".into())),
+            theme: RevoTheme::classic(),
+        };
+        assert_eq!(panel.commit_rename(), None);
+    }
+}
