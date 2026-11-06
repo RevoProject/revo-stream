@@ -11,6 +11,7 @@ use gpui::{
     Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle,
     WindowOptions,
 };
+use revo_core::models::AppSettings;
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
 
 #[cfg(feature = "obs-backend")]
@@ -26,6 +27,7 @@ use crate::{
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
+        modal::{SettingsEvent, SettingsModal},
         modal_shell::{modal_shell, ModalConfig, ModalSize},
         modules::{
             audio_mixer::{AudioChannel, AudioMixerPanel, MixerEvent},
@@ -103,6 +105,9 @@ pub struct WorkspaceState {
     /// One-shot auxiliary-window request routed from the Tools panel;
     /// consumed (`take`) by the Workspace to open/focus the window.
     pub requested_window: Option<AuxiliaryWindowKind>,
+    /// Persisted settings as most recently reported by the backend snapshot;
+    /// seeds the settings draft when the modal opens.
+    pub settings: Option<AppSettings>,
 }
 
 impl Default for WorkspaceState {
@@ -112,6 +117,7 @@ impl Default for WorkspaceState {
             last_command: None,
             status: "Native mock backend ready".into(),
             requested_window: None,
+            settings: None,
         }
     }
 }
@@ -245,6 +251,7 @@ impl WorkspaceState {
         {
             self.status = "Backend state synced".into();
         }
+        self.settings = snapshot.settings.clone();
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -363,6 +370,7 @@ pub struct Workspace {
     pub mixer_menu: Entity<AudioMixerContextMenu>,
     pub mixer_advanced: Entity<AudioMixerAdvancedModal>,
     pub planner: Entity<GraphicPlannerPanel>,
+    pub settings_modal: Option<Entity<SettingsModal>>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
@@ -672,6 +680,7 @@ impl Workspace {
             mixer_menu,
             mixer_advanced,
             planner,
+            settings_modal: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
@@ -874,7 +883,46 @@ impl Workspace {
         if let Some(kind) = self.state.requested_window.take() {
             self.open_auxiliary_window(kind, cx);
         }
+        if self.state.active_modal == ActiveModal::Settings && self.settings_modal.is_none() {
+            self.open_settings_modal(cx);
+        }
         cx.notify();
+    }
+
+    /// Creates the settings modal entity seeded from the last known persisted
+    /// settings (or framework defaults) and subscribes to its Save/Cancel
+    /// events.
+    fn open_settings_modal(&mut self, cx: &mut Context<'_, Self>) {
+        let settings = self
+            .state
+            .settings
+            .clone()
+            .unwrap_or_else(revo_core::settings::default_settings);
+        let entity = cx.new(|cx| SettingsModal::new(settings, cx));
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
+            SettingsEvent::Saved(settings) => {
+                this.state.settings = Some(settings.clone());
+                if let Err(error) = this.backend.try_dispatch(BackendCommand::SaveSettings {
+                    settings: settings.clone(),
+                }) {
+                    this.state.status = format!("Backend error: {error}");
+                }
+                this.close_settings_modal(cx);
+                this.refresh_snapshot(cx);
+            }
+            SettingsEvent::Cancelled => this.close_settings_modal(cx),
+        });
+        self._subscriptions.push(subscription);
+        self.settings_modal = Some(entity);
+    }
+
+    /// Drops the settings entity and closes the modal when it is active.
+    fn close_settings_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.settings_modal = None;
+        if self.state.active_modal == ActiveModal::Settings {
+            self.state.close_modal();
+            cx.notify();
+        }
     }
 
     /// Immediate local header feedback for lifecycle events; the following
@@ -1049,10 +1097,7 @@ impl Workspace {
     fn modal_content(&self) -> Option<(ModalConfig, Vec<SharedString>)> {
         match &self.state.active_modal {
             ActiveModal::None => None,
-            ActiveModal::Settings => Some((
-                ModalConfig::standard("Settings", ModalSize::Workspace),
-                vec!["Native settings sections are ready for Phase 2 services.".into()],
-            )),
+            ActiveModal::Settings => None,
             ActiveModal::History => Some((
                 ModalConfig::standard("Action History", ModalSize::Medium),
                 vec!["Undo and redo history will be supplied by the backend service.".into()],
@@ -1120,8 +1165,7 @@ impl Render for Workspace {
                             .bg(self.theme.surface_active)
                             .child("Close")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.state.close_modal();
-                                cx.notify();
+                                this.close_settings_modal(cx);
                             })),
                     ),
             );
@@ -1163,6 +1207,20 @@ impl Render for Workspace {
                         .bg(self.theme.overlay)
                         .child(self.planner.clone()),
                 );
+            }
+            ActiveModal::Settings => {
+                if let Some(entity) = self.settings_modal.clone() {
+                    root = root.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .left_0()
+                            .bg(self.theme.overlay)
+                            .child(entity),
+                    );
+                }
             }
             _ => {}
         }

@@ -317,40 +317,10 @@ pub fn format_time_of_day(timestamp_ms: u64) -> String {
     )
 }
 
-/// Search-field keystroke handling for the native (non-web) search box:
-/// printable text appends, backspace pops, escape clears; modifier combos
-/// and navigation keys fall through untouched. Returns the new query when
-/// it changed.
-pub fn apply_search_keystroke(
-    query: &str,
-    key: &str,
-    key_char: Option<&str>,
-    control: bool,
-    alt: bool,
-    platform: bool,
-) -> Option<String> {
-    if control || alt || platform {
-        return None;
-    }
-    match key {
-        "backspace" => {
-            let mut next = query.to_owned();
-            next.pop();
-            Some(next)
-        }
-        "escape" => Some(String::new()),
-        "enter" | "tab" | "up" | "down" | "left" | "right" | "home" | "end" | "pageup"
-        | "pagedown" => None,
-        _ => match key_char {
-            Some(text) if !text.chars().any(char::is_control) => {
-                let mut next = query.to_owned();
-                next.push_str(text);
-                Some(next)
-            }
-            _ => None,
-        },
-    }
-}
+/// Search-field keystroke handling for the native (non-web) search box.
+/// Delegates to the shared single-line policy in `components::text_field`;
+/// kept as a re-export so existing call sites and tests stay stable.
+pub use crate::components::text_field::apply_line_keystroke as apply_search_keystroke;
 
 pub struct DebugConsoleWindow {
     pub entries: Vec<LogEntry>,

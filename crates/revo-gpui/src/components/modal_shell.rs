@@ -86,16 +86,40 @@ pub fn modal_shell(
     theme: RevoTheme,
     lines: impl IntoIterator<Item = SharedString>,
 ) -> gpui::Div {
+    let lines: Vec<gpui::AnyElement> = lines
+        .into_iter()
+        .map(|line| {
+            div()
+                .text_color(theme.text_secondary)
+                .child(line)
+                .into_any_element()
+        })
+        .collect();
+    modal_shell_with_body(
+        config,
+        theme,
+        div().flex().flex_col().gap_2().children(lines),
+        None,
+    )
+}
+
+/// Modal shell variant that renders an arbitrary element body, for
+/// interactive modals such as Settings that own their own field layout. When
+/// `footer` is `Some`, it replaces the default label-only footer so the modal
+/// can wire real confirm/cancel behavior.
+pub fn modal_shell_with_body(
+    config: &ModalConfig,
+    theme: RevoTheme,
+    body: impl IntoElement,
+    footer: Option<gpui::AnyElement>,
+) -> gpui::Div {
     let width = match config.size {
         ModalSize::Small => 360.,
         ModalSize::Medium => 560.,
         ModalSize::Large => 800.,
         ModalSize::Workspace => 1040.,
     };
-    let mut body = div().flex().flex_col().gap_2().p_4();
-    for line in lines {
-        body = body.child(div().text_color(theme.text_secondary).child(line));
-    }
+    let body = div().flex().flex_col().gap_2().p_4().child(body);
     let mut header = div()
         .flex()
         .flex_row()
@@ -115,29 +139,32 @@ pub fn modal_shell(
                 .child("Close"),
         );
     }
-    let mut footer = div().flex().flex_row().justify_end().gap_2().p_3();
-    if let Some(label) = config.cancel_label.clone() {
-        footer = footer.child(
-            div()
-                .id("modal-cancel-structural")
-                .px_3()
-                .py_2()
-                .bg(theme.surface_active)
-                .rounded_md()
-                .child(label),
-        );
-    }
-    if let Some(label) = config.confirm_label.clone() {
-        footer = footer.child(
-            div()
-                .id("modal-confirm-structural")
-                .px_3()
-                .py_2()
-                .bg(theme.accent)
-                .rounded_md()
-                .child(label),
-        );
-    }
+    let footer = footer.unwrap_or_else(|| {
+        let mut footer = div().flex().flex_row().justify_end().gap_2().p_3();
+        if let Some(label) = config.cancel_label.clone() {
+            footer = footer.child(
+                div()
+                    .id("modal-cancel-structural")
+                    .px_3()
+                    .py_2()
+                    .bg(theme.surface_active)
+                    .rounded_md()
+                    .child(label),
+            );
+        }
+        if let Some(label) = config.confirm_label.clone() {
+            footer = footer.child(
+                div()
+                    .id("modal-confirm-structural")
+                    .px_3()
+                    .py_2()
+                    .bg(theme.accent)
+                    .rounded_md()
+                    .child(label),
+            );
+        }
+        footer.into_any_element()
+    });
     div()
         .flex()
         .items_center()
