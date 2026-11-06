@@ -15,10 +15,10 @@
   operations and the future GPUI planner. `revo-core::plugins` owns plugin
   naming and enabled-module normalization. Settings file I/O and plugin window
   capability policy remain in the Tauri adapter.
-- `crates/revo-gpui/` provides native HeaderBar, ScenesPanel, SourcesPanel,
-  DemoMode, all 14 standard modal types, and 5 quick modal types. Header,
-  Scenes, and Sources are interactive typed event emitters; complex modal
-  bodies remain structural until service and window backends migrate.
+- `crates/revo-gpui/` now has a runnable native mock-data shell composing the
+  Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
+  and modal routing. It has no backend/libobs service connection and has not
+  replaced the Tauri application.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
@@ -99,6 +99,8 @@ The commands below operate on the current compatibility application.
   application tests.
 - `cargo check --manifest-path crates/revo-gpui/Cargo.toml`: check the native
   GPUI application.
+- `cargo run --manifest-path crates/revo-gpui/Cargo.toml`: run the native GPUI
+  mock-data shell.
 - `./run.sh`: run `pnpm tauri dev` with libobs paths and the conditional Linux
   EGL/DMABUF workaround.
 - `./run-cef.sh`: run the optional `cef` feature after validating
