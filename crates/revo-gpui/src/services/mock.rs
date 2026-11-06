@@ -1,10 +1,15 @@
+use revo_core::models::{PluginInfo, PluginWindowCapabilities};
 use revo_core::service::{
     clamp_volume_percent, upsert_source_list, BackendCommand, BackendError, BackendRuntime,
     BackendSnapshot, MoveDirection, PlacedSource,
 };
+use std::collections::HashMap;
 
 pub struct MockBackendRuntime {
     snapshot: BackendSnapshot,
+    /// Saved plugin profiles: profile name -> enabled modules. Mirrors the
+    /// file-backed profiles the real backend keeps on disk.
+    plugin_modules: HashMap<String, Vec<String>>,
 }
 
 impl Default for MockBackendRuntime {
@@ -22,8 +27,34 @@ impl Default for MockBackendRuntime {
                 visible_sources: vec!["camera".into(), "lower-third".into(), "browser-chat".into()],
                 locked_sources: vec!["browser-chat".into()],
                 settings: Some(revo_core::settings::default_settings()),
+                plugins: vec![
+                    PluginInfo {
+                        name: "WebSocket".into(),
+                        file_name: "obs-websocket.so".into(),
+                        module_name: "obs-websocket".into(),
+                        window_capabilities: PluginWindowCapabilities {
+                            can_list: true,
+                            can_open: false,
+                            reason: "Native plugin windows require a frontend bridge".into(),
+                        },
+                    },
+                    PluginInfo {
+                        name: "VLC Video Source".into(),
+                        file_name: "vlc-video.so".into(),
+                        module_name: "vlc-video".into(),
+                        window_capabilities: PluginWindowCapabilities {
+                            can_list: true,
+                            can_open: false,
+                            reason: "Native plugin windows require a frontend bridge".into(),
+                        },
+                    },
+                ],
+                plugin_profiles: vec!["default".into()],
+                active_plugin_profile: Some("default".into()),
+                enabled_plugin_modules: Vec::new(),
                 ..BackendSnapshot::default()
             },
+            plugin_modules: HashMap::from([("default".to_string(), Vec::new())]),
         }
     }
 }
@@ -34,6 +65,24 @@ impl BackendRuntime for MockBackendRuntime {
             BackendCommand::Undo | BackendCommand::Redo => {}
             BackendCommand::SaveSettings { settings } => {
                 self.snapshot.settings = Some(settings);
+            }
+            BackendCommand::SetPluginProfile {
+                profile_name,
+                modules,
+            } => {
+                self.plugin_modules
+                    .insert(profile_name.clone(), modules.clone());
+                if !self.snapshot.plugin_profiles.contains(&profile_name) {
+                    self.snapshot.plugin_profiles.push(profile_name.clone());
+                }
+                if self.snapshot.active_plugin_profile.as_deref() == Some(profile_name.as_str()) {
+                    self.snapshot.enabled_plugin_modules = modules;
+                }
+            }
+            BackendCommand::SetActivePluginProfile(name) => {
+                self.snapshot.active_plugin_profile = Some(name.clone());
+                self.snapshot.enabled_plugin_modules =
+                    self.plugin_modules.get(&name).cloned().unwrap_or_default();
             }
             BackendCommand::SetStudioMode(enabled) => self.snapshot.studio_mode = enabled,
             BackendCommand::SetRealtimeRefresh(enabled) => self.snapshot.realtime_refresh = enabled,

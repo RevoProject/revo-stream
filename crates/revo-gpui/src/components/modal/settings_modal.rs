@@ -486,7 +486,7 @@ impl Render for SettingsModal {
                             .rounded_md()
                             .bg(theme.surface_active)
                             .text_color(theme.text)
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(SettingsEvent::Cancelled);
                             }))
                             .child("Cancel"),

@@ -73,6 +73,11 @@ pub enum BackendCommand {
     SaveSettings {
         settings: crate::models::AppSettings,
     },
+    SetPluginProfile {
+        profile_name: String,
+        modules: Vec<String>,
+    },
+    SetActivePluginProfile(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +128,14 @@ pub struct BackendSnapshot {
     /// Persisted application settings as most recently loaded/saved by the
     /// runtime. `None` while the runtime has not read settings yet.
     pub settings: Option<crate::models::AppSettings>,
+    /// Plugin modules discovered by the backend, in report order.
+    pub plugins: Vec<crate::models::PluginInfo>,
+    /// Available plugin profile names (file-backed profiles).
+    pub plugin_profiles: Vec<String>,
+    /// Name of the currently applied plugin profile.
+    pub active_plugin_profile: Option<String>,
+    /// Enabled plugin modules of the currently applied profile.
+    pub enabled_plugin_modules: Vec<String>,
 }
 
 impl Default for BackendSnapshot {
@@ -151,6 +164,10 @@ impl Default for BackendSnapshot {
             audio_levels: Vec::new(),
             last_error: None,
             settings: None,
+            plugins: Vec::new(),
+            plugin_profiles: Vec::new(),
+            active_plugin_profile: None,
+            enabled_plugin_modules: Vec::new(),
         }
     }
 }

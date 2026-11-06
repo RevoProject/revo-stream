@@ -59,7 +59,7 @@ pub struct ThemeInfo {
     pub version: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginInfo {
     pub name: String,
     pub file_name: String,
@@ -67,14 +67,14 @@ pub struct PluginInfo {
     pub window_capabilities: PluginWindowCapabilities,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginWindowCapabilities {
     pub can_list: bool,
     pub can_open: bool,
     pub reason: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginProfile {
     pub enabled_modules: Vec<String>,
 }

@@ -2,7 +2,7 @@
 //! `obs-backend` feature so default builds (and `scripts/core/verify.sh`)
 //! stay green without libobs/openssl host packages.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
 use revo_backend::runtime::lifecycle::ObsPlatform;
@@ -11,6 +11,7 @@ use revo_backend::runtime::{recording, streaming};
 use revo_backend::scenes::scene_ops;
 use revo_backend::sources::source_ops;
 use revo_backend::ObsRuntime;
+use revo_core::models::{PluginProfile, PluginProfileState};
 use revo_core::service::{
     BackendCommand, BackendError, BackendRuntime, BackendSnapshot, MoveDirection, PlacedSource,
     SourceSnapshotItem,
@@ -141,6 +142,12 @@ pub struct ObsBackendRuntime {
     studio_mode: bool,
     realtime_refresh: bool,
     preview_resolution_requests: u64,
+    /// Plugin module enablement and profile state. libobs owns the module
+    /// list; the adapter tracks per-profile enablement and the active profile
+    /// until profile persistence is fully migrated.
+    plugin_modules: HashMap<String, bool>,
+    plugin_profiles: Vec<PluginProfileState>,
+    active_plugin_profile: Option<String>,
 }
 
 impl ObsBackendRuntime {
@@ -161,6 +168,10 @@ impl ObsBackendRuntime {
             studio_mode: false,
             realtime_refresh: false,
             preview_resolution_requests: 0,
+            plugin_modules: HashMap::new(),
+            plugin_profiles: Vec::new(),
+            active_plugin_profile:
+                revo_backend::settings::plugins_profiles::plugin_profile_active_name_internal().ok(),
         }
     }
 }
@@ -252,7 +263,47 @@ impl BackendRuntime for ObsBackendRuntime {
             audio_levels,
             last_error: self.last_error.clone(),
             settings: self.settings.clone(),
+            plugins: revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
+                .unwrap_or_default(),
+            plugin_profiles: revo_backend::settings::plugins_profiles::plugin_profiles_list()
+                .unwrap_or_default(),
+            active_plugin_profile: self.active_plugin_profile.clone(),
+            enabled_plugin_modules: self.enabled_modules_snapshot(),
         })
+    }
+
+    /// Rebuilds the session module map so every discovered module maps to
+    /// its enabled flag for the given enabled list.
+    fn sync_module_map(&mut self, enabled_modules: &[String]) {
+        let available = revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
+            .unwrap_or_default();
+        for plugin in available {
+            let enabled = enabled_modules
+                .iter()
+                .any(|module| *module == plugin.module_name);
+            self.plugin_modules.insert(plugin.module_name, enabled);
+        }
+    }
+
+    /// Enabled module names for the snapshot: explicit session toggles when
+    /// any exist, otherwise every discovered module (the Svelte UI defaults
+    /// to all-enabled until a profile is applied).
+    fn enabled_modules_snapshot(&self) -> Vec<String> {
+        if self.plugin_modules.is_empty() {
+            return revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|plugin| plugin.module_name)
+                .collect();
+        }
+        let mut enabled: Vec<String> = self
+            .plugin_modules
+            .iter()
+            .filter(|(_, &enabled)| *enabled)
+            .map(|(module, _)| module.clone())
+            .collect();
+        enabled.sort();
+        enabled
     }
 
     fn shutdown(&mut self) -> Result<(), BackendError> {
@@ -411,7 +462,49 @@ impl ObsBackendRuntime {
                 width,
                 height,
                 rotation,
-            } => apply_transform_command(self, &id, x, y, width, height, rotation),
+            } => apply_transform_command(self, id, x, y, width, height, rotation),
+            BackendCommand::SetPluginProfile {
+                profile_name,
+                modules,
+            } => {
+                let available: HashSet<String> =
+                    revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()?
+                        .into_iter()
+                        .map(|plugin| plugin.module_name)
+                        .collect();
+                let normalized = revo_core::plugins::normalize_enabled_modules(modules, &available);
+                let profile = PluginProfile {
+                    profile_name: profile_name.clone(),
+                    enabled_modules: normalized.clone(),
+                };
+                revo_backend::settings::plugins_profiles::plugin_profile_save_internal(
+                    &profile_name,
+                    &profile,
+                )?;
+                match self
+                    .plugin_profiles
+                    .iter_mut()
+                    .find(|existing| existing.profile_name == profile_name)
+                {
+                    Some(existing) => existing.enabled_modules = normalized.clone(),
+                    None => self.plugin_profiles.push(PluginProfileState {
+                        profile_name: profile_name.clone(),
+                        enabled_modules: normalized.clone(),
+                    }),
+                }
+                self.sync_module_map(&normalized);
+                Ok(format!("saved plugin profile '{profile_name}'"))
+            }
+            BackendCommand::SetActivePluginProfile(name) => {
+                let profile =
+                    revo_backend::settings::plugins_profiles::plugin_profile_get_internal(&name)?;
+                self.active_plugin_profile = Some(name);
+                self.sync_module_map(&profile.enabled_modules);
+                Ok(format!(
+                    "activated plugin profile '{}'",
+                    self.active_plugin_profile.as_deref().unwrap_or_default()
+                ))
+            }
         }
     }
 
@@ -826,5 +919,30 @@ mod tests {
         assert_eq!(move_direction_label(MoveDirection::Down), "down");
         assert_eq!(move_direction_label(MoveDirection::Top), "top");
         assert_eq!(move_direction_label(MoveDirection::Bottom), "bottom");
+    }
+
+    #[test]
+    fn plugin_profile_commands_persist_and_apply() {
+        let mut backend = movable();
+        backend
+            .apply(BackendCommand::SetPluginProfile {
+                profile_name: "native-test".into(),
+                modules: vec!["obs-websocket".into()],
+            })
+            .expect("profile save should succeed");
+        let snapshot = backend.snapshot().expect("snapshot should build");
+        assert!(snapshot
+            .plugin_profiles
+            .iter()
+            .any(|name| name == "native-test"));
+
+        backend
+            .apply(BackendCommand::SetActivePluginProfile("native-test".into()))
+            .expect("profile activation should succeed");
+        let snapshot = backend.snapshot().expect("snapshot should build");
+        assert_eq!(
+            snapshot.active_plugin_profile.as_deref(),
+            Some("native-test")
+        );
     }
 }
