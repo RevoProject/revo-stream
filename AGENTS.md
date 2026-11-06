@@ -15,6 +15,10 @@
   operations and the future GPUI planner. `revo-core::plugins` owns plugin
   naming and enabled-module normalization. Settings file I/O and plugin window
   capability policy remain in the Tauri adapter.
+- `crates/revo-gpui/` provides native HeaderBar, ScenesPanel, SourcesPanel,
+  DemoMode, all 14 standard modal types, and 5 quick modal types. Header,
+  Scenes, and Sources are interactive typed event emitters; complex modal
+  bodies remain structural until service and window backends migrate.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
@@ -61,6 +65,7 @@ are absent from the final architecture.
 - `src-tauri/src/`: Rust/libobs backend plus current Tauri application adapter.
 - `crates/revo-core/`: framework-neutral Rust domain models and, incrementally,
   backend services shared by the compatibility and GPUI applications.
+- `crates/revo-gpui/`: native GPUI application shell and migrating views.
 - `src-tauri/Cargo.toml`: current Rust manifest. Tauri dependencies remain
   until final cutover.
 - `src-tauri/resources/revo-root/`: generated/staged OBS runtime resources;
@@ -90,6 +95,10 @@ The commands below operate on the current compatibility application.
 
 - `cargo test --manifest-path crates/revo-core/Cargo.toml`: run the extracted
   core tests without Tauri, WebKit, GTK, or libobs system dependencies.
+- `cargo test --manifest-path crates/revo-gpui/Cargo.toml`: run native GPUI
+  application tests.
+- `cargo check --manifest-path crates/revo-gpui/Cargo.toml`: check the native
+  GPUI application.
 - `./run.sh`: run `pnpm tauri dev` with libobs paths and the conditional Linux
   EGL/DMABUF workaround.
 - `./run-cef.sh`: run the optional `cef` feature after validating
