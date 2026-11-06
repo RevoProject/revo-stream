@@ -4,8 +4,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Uzycie:
-#   bash scripts/nix/dev.sh                # cargo run (tylko Rust)
+#   bash scripts/nix/dev.sh                # cargo run (tylko Rust, Tauri backend)
 #   bash scripts/nix/dev.sh tauri          # pnpm tauri dev (frontend + Rust)
+#   bash scripts/nix/dev.sh gpui           # natywna powloka GPUI (crates/revo-gpui)
 
 MODE="${1:-cargo}"
 
@@ -55,6 +56,9 @@ run_inside_shell() {
 
 if [ "$MODE" = "tauri" ]; then
   run_inside_shell "pnpm run tauri dev"
+elif [ "$MODE" = "gpui" ]; then
+  cd "$PROJECT_DIR/crates/revo-gpui"
+  run_inside_shell "cargo run"
 else
   cd "$PROJECT_DIR/src-tauri"
   run_inside_shell "cargo run --no-default-features"

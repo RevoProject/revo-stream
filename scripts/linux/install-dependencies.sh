@@ -13,6 +13,7 @@ sudo apt-get install -y --no-install-recommends \
   libx11-dev libx11-xcb-dev libxcb-randr0-dev libxcb-shm0-dev \
   libxcb-xinerama0-dev libxcb-composite0-dev libxcb-xfixes0-dev \
   libxinerama-dev libxcomposite-dev libxss-dev libxkbcommon-dev \
+  libxkbcommon-x11-dev libvulkan-dev \
   libgl1-mesa-dev libegl1-mesa-dev libwayland-dev \
   libpipewire-0.3-dev libpulse-dev libasound2-dev \
   libjack-jackd2-dev libsndio-dev libspeexdsp-dev \

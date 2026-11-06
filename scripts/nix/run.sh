@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
 # Run RevoStream with Nix-provided GStreamer and other deps
-# Usage: bash run.sh [path-to-binary]
+# Usage: bash run.sh [path-to-binary|gpui|tauri]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DEFAULT_BINARY="$PROJECT_DIR/src-tauri/target/release/revo-ui"
-BINARY="${1:-$DEFAULT_BINARY}"
+DEFAULT_TAURI_BINARY="$PROJECT_DIR/src-tauri/target/release/revo-ui"
+DEFAULT_GPUI_BINARY="$PROJECT_DIR/crates/revo-gpui/target/release/revo-gpui"
+
+MODE="${1:-tauri}"
+if [ "$MODE" = "gpui" ]; then
+  BINARY="$DEFAULT_GPUI_BINARY"
+elif [ "$MODE" = "tauri" ]; then
+  BINARY="$DEFAULT_TAURI_BINARY"
+else
+  BINARY="$1"
+fi
 
 if [ ! -x "$BINARY" ]; then
   echo "Error: executable not found: $BINARY" >&2
-  echo "Build it first with: bash $SCRIPT_DIR/compile.sh" >&2
+  echo "Build the Tauri binary with: bash $SCRIPT_DIR/compile.sh" >&2
+  echo "Build the GPUI binary with: cargo build --release --manifest-path $PROJECT_DIR/crates/revo-gpui/Cargo.toml" >&2
   exit 1
 fi
 
-if [ "$BINARY" = "$DEFAULT_BINARY" ]; then
+if [ "$BINARY" = "$DEFAULT_TAURI_BINARY" ]; then
   STALE_SOURCE="$(find \
     "$PROJECT_DIR/src" \
     "$PROJECT_DIR/static" \
@@ -29,6 +39,18 @@ if [ "$BINARY" = "$DEFAULT_BINARY" ]; then
     echo "A clean build is not required." >&2
     exit 1
   fi
+elif [ "$BINARY" = "$DEFAULT_GPUI_BINARY" ]; then
+  STALE_SOURCE="$(find \
+    "$PROJECT_DIR/crates/revo-core/src" \
+    "$PROJECT_DIR/crates/revo-gpui/src" \
+    "$PROJECT_DIR/crates/revo-core/Cargo.toml" \
+    "$PROJECT_DIR/crates/revo-gpui/Cargo.toml" \
+    -type f -newer "$BINARY" -print -quit 2>/dev/null || true)"
+  if [ -n "$STALE_SOURCE" ]; then
+    echo "Error: GPUI binary is older than source file: $STALE_SOURCE" >&2
+    echo "Rebuild it with: cargo build --release --manifest-path $PROJECT_DIR/crates/revo-gpui/Cargo.toml" >&2
+    exit 1
+  fi
 fi
 
 # Runtime shared libraries and GStreamer plugin dirs from the Nix store.
@@ -40,7 +62,7 @@ eval_out=$(nix eval --impure --raw --expr '
     lib = pkgs.lib;
     getLib = name: lib.getLib (builtins.getAttr name pkgs);
     gst = name: "${lib.getLib pkgs.gst_all_1.${name}}/lib/gstreamer-1.0";
-    libNames = [ "obs-studio" "gtk3" "webkitgtk_4_1" "libsoup_3" "glib" "cairo" "pango" "gdk-pixbuf" "atk" "libxkbcommon" "dbus" "gsettings-desktop-schemas" "libayatana-appindicator" ];
+    libNames = [ "obs-studio" "gtk3" "webkitgtk_4_1" "libsoup_3" "glib" "cairo" "pango" "gdk-pixbuf" "atk" "libxkbcommon" "dbus" "gsettings-desktop-schemas" "libayatana-appindicator" "fontconfig" "wayland" "vulkan-loader" ];
     gstNames = [ "gstreamer" "gst-plugins-base" "gst-plugins-good" "gst-plugins-bad" "gst-plugins-ugly" "gst-libav" ];
   in
     (lib.concatStringsSep ":" (map (name: "${getLib name}/lib") libNames))
@@ -56,7 +78,7 @@ fi
 
 # Fallback: per-package lookup (slower, handles missing flake expr)
 if [ -z "$LIB_PATH" ]; then
-  for pkg in obs-studio gtk3 webkitgtk_4_1 libsoup_3 glib cairo pango gdk-pixbuf atk libxkbcommon dbus libayatana-appindicator; do
+  for pkg in obs-studio gtk3 webkitgtk_4_1 libsoup_3 glib cairo pango gdk-pixbuf atk libxkbcommon dbus libayatana-appindicator fontconfig wayland vulkan-loader; do
     path=$(nix eval --impure "nixpkgs#$pkg.lib" --raw 2>/dev/null || \
            nix eval --impure "nixpkgs#$pkg.out" --raw 2>/dev/null || true)
     if [ -n "$path" ] && [ -d "$path/lib" ]; then
