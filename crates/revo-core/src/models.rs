@@ -59,6 +59,32 @@ pub struct ThemeInfo {
     pub version: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PluginInfo {
+    pub name: String,
+    pub file_name: String,
+    pub module_name: String,
+    pub window_capabilities: PluginWindowCapabilities,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PluginWindowCapabilities {
+    pub can_list: bool,
+    pub can_open: bool,
+    pub reason: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PluginProfile {
+    pub enabled_modules: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PluginProfileState {
+    pub profile_name: String,
+    pub enabled_modules: Vec<String>,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VideoEncoderPreference {
@@ -415,6 +441,54 @@ mod tests {
                 "name": "RevoFuture",
                 "author": "RevoProject",
                 "version": "1.0.0"
+            })
+        );
+    }
+
+    #[test]
+    fn plugin_models_preserve_wire_shapes() {
+        let info = PluginInfo {
+            name: "Websocket".into(),
+            file_name: "obs-websocket.so".into(),
+            module_name: "obs-websocket".into(),
+            window_capabilities: PluginWindowCapabilities {
+                can_list: false,
+                can_open: false,
+                reason: "unsupported".into(),
+            },
+        };
+
+        assert_eq!(
+            serde_json::to_value(info).expect("plugin info should serialize"),
+            json!({
+                "name": "Websocket",
+                "file_name": "obs-websocket.so",
+                "module_name": "obs-websocket",
+                "window_capabilities": {
+                    "can_list": false,
+                    "can_open": false,
+                    "reason": "unsupported"
+                }
+            })
+        );
+
+        let profile = PluginProfile {
+            enabled_modules: vec!["obs-websocket".into()],
+        };
+        let state = PluginProfileState {
+            profile_name: "default".into(),
+            enabled_modules: vec![],
+        };
+
+        assert_eq!(
+            serde_json::to_value(profile).expect("plugin profile should serialize"),
+            json!({ "enabled_modules": ["obs-websocket"] })
+        );
+        assert_eq!(
+            serde_json::to_value(state).expect("plugin profile state should serialize"),
+            json!({
+                "profile_name": "default",
+                "enabled_modules": []
             })
         );
     }

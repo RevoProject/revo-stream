@@ -1,8 +1,4 @@
-pub(crate) fn plugin_display_name_from_module(module_name: &str) -> String {
-	let base = module_name.trim_start_matches("obs-");
-	let words = base.replace(['-', '_'], " ");
-	crate::settings::core::title_case_words(words.trim())
-}
+pub(crate) use revo_core::plugins::plugin_display_name_from_module;
 
 fn plugin_window_capabilities() -> crate::PluginWindowCapabilities {
 	// libobs module discovery is not an OBS Qt frontend/window registration bridge.
@@ -116,10 +112,6 @@ pub(crate) fn plugin_profile_get_internal(name: &str) -> Result<crate::PluginPro
 	let plugins = list_runtime_plugins_internal()?;
 	let available: std::collections::HashSet<String> =
 		plugins.into_iter().map(|p| p.module_name).collect();
-	let normalized_to_available: std::collections::HashMap<String, String> = available
-		.iter()
-		.map(|m| (crate::settings::core::sanitize_profile_name(m), m.clone()))
-		.collect();
 	let file = crate::settings::core::runtime_plugin_profile_file(&safe)?;
 
 	if !file.exists() {
@@ -133,29 +125,10 @@ pub(crate) fn plugin_profile_get_internal(name: &str) -> Result<crate::PluginPro
 	let parsed = serde_json::from_str::<crate::PluginProfile>(&raw)
 		.unwrap_or(crate::PluginProfile { enabled_modules: vec![] });
 
-	let mut filtered: Vec<String> = parsed
-		.enabled_modules
-		.into_iter()
-		.filter_map(|n| {
-			let trimmed = n.trim().to_string();
-			if trimmed.is_empty() {
-				return None;
-			}
-			if available.contains(&trimmed) {
-				return Some(trimmed);
-			}
-			let normalized = crate::settings::core::sanitize_profile_name(&trimmed);
-			if normalized.is_empty() {
-				return None;
-			}
-			normalized_to_available.get(&normalized).cloned()
-		})
-		.collect();
-	filtered.sort();
-	filtered.dedup();
+	let enabled_modules = revo_core::plugins::normalize_enabled_modules(parsed.enabled_modules, &available);
 
 	Ok(crate::PluginProfile {
-		enabled_modules: filtered,
+		enabled_modules,
 	})
 }
 
@@ -290,30 +263,8 @@ pub(crate) fn plugin_profile_save(
 		.into_iter()
 		.map(|p| p.module_name)
 		.collect();
-	let normalized_to_available: std::collections::HashMap<String, String> = available
-		.iter()
-		.map(|m| (crate::settings::core::sanitize_profile_name(m), m.clone()))
-		.collect();
 
-	let mut modules: Vec<String> = enabled_modules
-		.into_iter()
-		.filter_map(|m| {
-			let trimmed = m.trim().to_string();
-			if trimmed.is_empty() {
-				return None;
-			}
-			if available.contains(&trimmed) {
-				return Some(trimmed);
-			}
-			let normalized = crate::settings::core::sanitize_profile_name(&trimmed);
-			if normalized.is_empty() {
-				return None;
-			}
-			normalized_to_available.get(&normalized).cloned()
-		})
-		.collect();
-	modules.sort();
-	modules.dedup();
+	let modules = revo_core::plugins::normalize_enabled_modules(enabled_modules, &available);
 
 	let profile = crate::PluginProfile {
 		enabled_modules: modules,

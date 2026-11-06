@@ -3,9 +3,9 @@ use serde_json::Value as JsonValue;
 
 pub(crate) use revo_core::models::{
 	AppSettings, AudioDevice, ObsSettingsSelectOptions, PlannerInit, PlannerInitInput,
-	ReusableSourceInfo, SceneInfo, SelectOption, SourceCreate, SourceFilterItem, SourceInfo,
-	SourcePropertyOption, SourcePropertySpec, SourceTypeItem, SourceUpdate, ThemeInfo,
-	VideoEncoderPreference,
+	PluginInfo, PluginProfile, PluginProfileState, PluginWindowCapabilities, ReusableSourceInfo,
+	SceneInfo, SelectOption, SourceCreate, SourceFilterItem, SourceInfo, SourcePropertyOption,
+	SourcePropertySpec, SourceTypeItem, SourceUpdate, ThemeInfo, VideoEncoderPreference,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -28,30 +28,4 @@ pub(crate) struct CefBridgeInfo {
 pub(crate) struct BrowserDockState {
 	pub(crate) is_open: bool,
 	pub(crate) url: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PluginInfo {
-	pub(crate) name: String,
-	pub(crate) file_name: String,
-	pub(crate) module_name: String,
-	pub(crate) window_capabilities: PluginWindowCapabilities,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PluginWindowCapabilities {
-	pub(crate) can_list: bool,
-	pub(crate) can_open: bool,
-	pub(crate) reason: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PluginProfile {
-	pub(crate) enabled_modules: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PluginProfileState {
-	pub(crate) profile_name: String,
-	pub(crate) enabled_modules: Vec<String>,
 }

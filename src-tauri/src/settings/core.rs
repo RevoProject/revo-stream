@@ -21,23 +21,8 @@ pub(crate) fn legacy_settings_path(root: &std::path::PathBuf) -> std::path::Path
 pub(crate) use revo_core::settings::{
 	default_active_profile, default_encoder_preference, default_preview_quality,
 	default_record_path, default_scene_resolution, default_whep_url, default_whip_url,
-	default_settings,
+	default_settings, sanitize_profile_name,
 };
-
-pub(crate) fn sanitize_profile_name(name: &str) -> String {
-	let mut out = String::new();
-	for ch in name.trim().chars() {
-		if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-			out.push(ch);
-		} else if ch.is_whitespace() {
-			out.push('_');
-		}
-	}
-	while out.contains("__") {
-		out = out.replace("__", "_");
-	}
-	out.trim_matches('_').to_string()
-}
 
 pub(crate) fn normalize_optional_trimmed(value: &mut Option<String>) {
 	if let Some(raw) = value {
@@ -400,20 +385,6 @@ pub(crate) fn runtime_plugin_profile_file(name: &str) -> Result<std::path::PathB
 
 pub(crate) fn runtime_plugin_active_profile_file() -> Result<std::path::PathBuf, String> {
 	Ok(runtime_plugin_profiles_dir()?.join("active_profile.txt"))
-}
-
-pub(crate) fn title_case_words(input: &str) -> String {
-	input
-		.split_whitespace()
-		.map(|w| {
-			let mut chars = w.chars();
-			match chars.next() {
-				Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-				None => String::new(),
-			}
-		})
-		.collect::<Vec<String>>()
-		.join(" ")
 }
 
 pub(crate) fn runtime_profiles_dir() -> Result<std::path::PathBuf, String> {

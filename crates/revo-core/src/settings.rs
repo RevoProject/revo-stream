@@ -57,6 +57,25 @@ pub fn default_active_profile() -> Option<String> {
     Some("default".to_string())
 }
 
+/// Normalizes a profile name to a filesystem-safe identifier: trims the
+/// input, keeps ASCII alphanumerics, hyphens and underscores, converts other
+/// whitespace to underscores, collapses repeated underscores, and trims
+/// leading/trailing underscores.
+pub fn sanitize_profile_name(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.trim().chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else if ch.is_whitespace() {
+            out.push('_');
+        }
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_string()
+}
+
 pub fn default_settings() -> AppSettings {
     AppSettings {
         root_dir: None,
@@ -135,6 +154,17 @@ mod tests {
         assert_eq!(settings.root_dir, None);
         assert_eq!(settings.auto_retry_preview, None);
         assert_eq!(settings.ui_profile, None);
+    }
+
+    #[test]
+    fn sanitize_profile_name_matches_current_behavior() {
+        assert_eq!(sanitize_profile_name("  My Profile  "), "My_Profile");
+        assert_eq!(sanitize_profile_name("a__b"), "a_b");
+        assert_eq!(sanitize_profile_name("win-dshow"), "win-dshow");
+        assert_eq!(sanitize_profile_name("_leading_"), "leading");
+        assert_eq!(sanitize_profile_name("!!!"), "");
+        assert_eq!(sanitize_profile_name("   "), "");
+        assert_eq!(sanitize_profile_name("Ähem"), "hem");
     }
 
     #[test]
