@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Pakuje binarke revo-ui w jeden plik .sh (self-extracting archive)
-# Uzycie: bash scripts/nix/package-bundle.sh [sciezka-do-binarki]
-# Wynik: RevoStream-2.0.0-x86_64-linux.run (jeden plik do dystrybucji)
+# Pakuje binarke RevoStream w jeden plik .sh (self-extracting archive)
+# Uzycie: bash scripts/nix/package-bundle.sh [gpui|tauri|sciezka-do-binarki]
+# Wynik: RevoStream-<version>-<arch>-linux.run (jeden plik do dystrybucji)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-BINARY="${1:-$PROJECT_DIR/src-tauri/target/release/revo-ui}"
+TARGET="${1:-gpui}"
+case "$TARGET" in
+  gpui)  BINARY="$PROJECT_DIR/crates/revo-gpui/target/release/revo-gpui" ;;
+  tauri) BINARY="$PROJECT_DIR/src-tauri/target/release/revo-ui" ;;
+  *)     BINARY="$TARGET" ;;
+esac
+BINARY_NAME="$(basename "$BINARY")"
 
 if [ ! -f "$BINARY" ]; then
   echo "Blad: binarka nie znaleziona w $BINARY"
-  echo "Najpierw zbuduj: cd $PROJECT_DIR && bash scripts/nix/compile.sh"
+  echo "Najpierw zbuduj: bash scripts/nix/compile.sh gpui   (lub: compile.sh tauri)"
   exit 1
 fi
 
@@ -44,13 +50,13 @@ fi
 LINE=$(grep -n "^__RevoStream_ARCHIVE__$" "$B" | tail -1 | cut -d: -f1)
 LINE=$((LINE + 1))
 mkdir -p "$TMP_DIR"
-tail -n +$LINE "$B" | base64 -d | gzip -d > "$TMP_DIR/revo-ui" 2>/dev/null || {
+tail -n +$LINE "$B" | base64 -d | gzip -d > "$TMP_DIR/__REVO_BINARY_NAME__" 2>/dev/null || {
   echo "Blad wyodrebniania"
   exit 1
 }
-chmod +x "$TMP_DIR/revo-ui"
+chmod +x "$TMP_DIR/__REVO_BINARY_NAME__"
 
-[ $EXTRACT_ONLY -eq 1 ] && { echo "Wyodrebniono do $TMP_DIR/revo-ui"; exit 0; }
+[ $EXTRACT_ONLY -eq 1 ] && { echo "Wyodrebniono do $TMP_DIR/__REVO_BINARY_NAME__"; exit 0; }
 
 # GStreamer env — nix eval first, then fallback to NixOS system paths
 GL=""
@@ -80,10 +86,11 @@ case "$GPU" in
   *)      FLAKE="github:nix-community/nixGL" ;;
 esac
 
-exec nix run --impure "$FLAKE" -- "$TMP_DIR/revo-ui"
+exec nix run --impure "$FLAKE" -- "$TMP_DIR/__REVO_BINARY_NAME__"
 EOF
 
 echo "$BOUNDARY" >> "$OUTPUT"
+sed -i "s/__REVO_BINARY_NAME__/$BINARY_NAME/g" "$OUTPUT"
 gzip -c "$BINARY" | base64 -w 72 >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 

@@ -8,7 +8,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_TAURI_BINARY="$PROJECT_DIR/src-tauri/target/release/revo-ui"
 DEFAULT_GPUI_BINARY="$PROJECT_DIR/crates/revo-gpui/target/release/revo-gpui"
 
-MODE="${1:-tauri}"
+MODE="${1:-gpui}"
 if [ "$MODE" = "gpui" ]; then
   BINARY="$DEFAULT_GPUI_BINARY"
 elif [ "$MODE" = "tauri" ]; then

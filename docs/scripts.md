@@ -38,13 +38,25 @@ Platform equivalents for the same gate:
 
 ## NixOS scripts (`scripts/nix/`)
 
-- `compile.sh` — build the app (deb + rpm bundles) under a Nix shell
-- `dev.sh` — compile and run in development mode under a Nix shell
-  (`bash scripts/nix/dev.sh [tauri]`)
-- `run.sh` — run a pre-built binary (`src-tauri/target/release/revo-ui` by
-  default) with Nix-provided GStreamer deps
-- `all.sh` — full NixOS pipeline: compile → package → clean
-- `package-bundle.sh` — package a built binary into a self-extracting `.run` archive
+GPUI is the default target. The Tauri adapter remains available as the
+`ObsRuntime` parity reference; its main window has no UI since the Svelte
+components were removed.
+
+- `compile.sh` — build the native GPUI release binary (default) or the legacy
+  Tauri deb + rpm bundles (`bash scripts/nix/compile.sh tauri`)
+- `dev.sh` — run the native GPUI shell in a Nix shell (default), the Tauri
+  backend without UI (`dev.sh tauri`), or the legacy frontend (`dev.sh
+  tauri-frontend`)
+- `run.sh` — run a built binary: `gpui` (default,
+  `crates/revo-gpui/target/release/revo-gpui`), `tauri`, or an explicit path,
+  with per-binary staleness checks and Nix-provided media deps
+- `all.sh` — full pipeline: compile (gpui by default) → package `.run` → clean
+- `package-bundle.sh` — package a built GPUI or Tauri binary into a
+  self-extracting `.run` archive (`gpui` by default)
+- `repair-debug-profile.sh` — repair an interrupted Cargo debug profile;
+  accepts an optional Cargo.toml path (defaults to the Tauri adapter)
+- `debug.sh` — run the GPUI shell in debug mode (default); `tauri` and
+  `embedded` run the legacy adapter
 
 ## Release scripts
 

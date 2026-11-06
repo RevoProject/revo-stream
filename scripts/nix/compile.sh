@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
+# Build RevoStream with Nix.
+# Usage:
+#   bash scripts/nix/compile.sh          # native GPUI binary (release)
+#   bash scripts/nix/compile.sh tauri    # legacy Tauri deb + rpm bundles
 set -euo pipefail
 
-echo "=== Building RevoStream with Nix ==="
+MODE="${1:-gpui}"
 cd "$(dirname "$0")/../.."
 
-# Enter nix shell and build
+if [ "$MODE" = "gpui" ]; then
+  echo "=== Building native GPUI binary with Nix ==="
+  nix-shell --run "
+    echo '=== Nix shell ready ==='
+    cargo build --release --manifest-path crates/revo-gpui/Cargo.toml
+    echo '=== Build complete ==='
+    ls -la crates/revo-gpui/target/release/revo-gpui
+  "
+  exit 0
+fi
+
+echo "=== Building RevoStream (legacy Tauri bundles) with Nix ==="
 nix-shell --run "
   echo '=== Nix shell ready ==='
   pnpm install --frozen-lockfile

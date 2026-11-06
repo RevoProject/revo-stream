@@ -4,11 +4,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Uzycie:
-#   bash scripts/nix/dev.sh                # cargo run (tylko Rust, Tauri backend)
-#   bash scripts/nix/dev.sh tauri          # pnpm tauri dev (frontend + Rust)
-#   bash scripts/nix/dev.sh gpui           # natywna powloka GPUI (crates/revo-gpui)
+#   bash scripts/nix/dev.sh                # natywna powloka GPUI (crates/revo-gpui)
+#   bash scripts/nix/dev.sh tauri          # backend Tauri (glowne okno bez UI — parity)
+#   bash scripts/nix/dev.sh tauri-frontend # pnpm tauri dev (legacy frontend)
 
-MODE="${1:-cargo}"
+MODE="${1:-gpui}"
 
 # --- Prepare REVO_ROOT with OBS share data from Nix store ---
 # Umieszczone poza src-tauri/, by Tauri nie watchowalo tych plikow.
@@ -54,7 +54,7 @@ run_inside_shell() {
     "nix run --impure github:nix-community/nixGL -- $1"
 }
 
-if [ "$MODE" = "tauri" ]; then
+if [ "$MODE" = "tauri-frontend" ]; then
   run_inside_shell "pnpm run tauri dev"
 elif [ "$MODE" = "gpui" ]; then
   cd "$PROJECT_DIR/crates/revo-gpui"

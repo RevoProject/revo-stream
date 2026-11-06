@@ -2,24 +2,21 @@
 # Run RevoStream in DEBUG/dev mode.
 #
 # Usage:
-#   bash scripts/nix/debug.sh            # dev mode: vite dev server + debug binary
-#   bash scripts/nix/debug.sh embedded    # standalone: binary with embedded build/
+#   bash scripts/nix/debug.sh            # native GPUI shell (debug build)
+#   bash scripts/nix/debug.sh tauri      # legacy Tauri backend (main window has no UI)
+#   bash scripts/nix/debug.sh embedded   # legacy Tauri standalone binary (embedded build/)
 #
-# dev mode (default):
-#   - starts the frontend dev server via `pnpm tauri dev`
-#     (beforeDevCommand -> `pnpm dev` -> vite dev on http://localhost:1420)
-#   - the debug binary loads the frontend from devUrl, so frontend edits are
-#     picked up live (HMR) without rebuilding the binary
+# gpui mode (default):
+#   - builds and runs the native GPUI application from crates/revo-gpui
 #
-# embedded mode:
-#   - builds with `--features custom-protocol` so the binary serves the
-#     compiled build/ instead of trying to reach localhost:1420
-#   - NOTE: run `pnpm build` first, otherwise you get the STALE frontend
+# tauri / embedded modes:
+#   - legacy Tauri adapter kept as the ObsRuntime parity reference; the main
+#     window has no UI since the Svelte components were removed
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MODE="${1:-dev}"
+MODE="${1:-gpui}"
 
 # Runtime shared libraries and GStreamer plugin dirs from the Nix store.
 # Same resolution as run.sh — lib.getLib picks the library output of
@@ -73,10 +70,17 @@ export REVO_ROOT="${REVO_ROOT:-$PROJECT_DIR/.local/revo-root}"
 export LD_LIBRARY_PATH="$LIB_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # A killed Cargo build may leave fresh fingerprints but missing generated
-# build_script executables. Repair that exact state before Tauri starts its
-# watcher; healthy no-op checks are incremental and finish quickly.
+# build_script executables. Repair that exact state before Cargo runs;
+# healthy no-op checks are incremental and finish quickly.
 nix-shell "$PROJECT_DIR/shell.nix" --run \
   "bash scripts/nix/repair-debug-profile.sh"
+
+if [ "$MODE" = "gpui" ]; then
+  # Native GPUI shell wrapped by nixGL, same GPU handling as run.sh.
+  cd "$PROJECT_DIR"
+  exec nix-shell "$PROJECT_DIR/shell.nix" --run \
+    "nix run --impure github:nix-community/nixGL -- cargo run --manifest-path crates/revo-gpui/Cargo.toml"
+fi
 
 if [ "$MODE" = "embedded" ]; then
   # Standalone binary with build/ compiled in. Requires a fresh `pnpm build`,
@@ -86,9 +90,8 @@ if [ "$MODE" = "embedded" ]; then
   exec nix run --impure github:nix-community/nixGL -- "$PROJECT_DIR/src-tauri/target/debug/revo-ui"
 fi
 
-# dev mode (default): Tauri CLI starts the vite dev server (beforeDevCommand
-# -> `pnpm dev`) and runs the debug binary pointed at devUrl localhost:1420.
-# Frontend edits hot-reload; no stale embedded assets possible.
+# tauri modes: run the legacy adapter through the Tauri CLI (embedded) or
+# pnpm tauri dev. The main window has no UI; used for backend parity runs.
 cd "$PROJECT_DIR"
 exec nix-shell "$PROJECT_DIR/shell.nix" --run \
   "nix run --impure github:nix-community/nixGL -- pnpm tauri dev"
