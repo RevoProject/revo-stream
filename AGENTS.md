@@ -43,7 +43,10 @@
   binary, launcher, and OBS runtime (`prepare-runtime.sh` layout) into a
   portable tar.gz/.run. The remaining src-tauri removal blockers are macOS
   on-hardware verification and installed-artifact validation. The GPUI shell
-  has not replaced the Tauri application yet.
+  has not replaced the Tauri application yet. The settings modal is now
+  functional: a typed draft state machine (dirty tracking, URL/resolution
+  validation, option cycling) persists through the `SaveSettings` backend
+  command, with a shared single-line keystroke text-field helper.
 - The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
   `Modules`) and all auxiliary routes are removed. `src/routes/+page.svelte`
   is a placeholder notice; the legacy Tauri adapter has no interactive UI.
