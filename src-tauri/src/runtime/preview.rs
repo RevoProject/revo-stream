@@ -222,16 +222,6 @@ pub(crate) fn take_screenshot(
 	};
 	ensure_preview_renderer(&mut runtime, render_source)?;
 
-	let parse_resolution = |raw: &str| -> Option<(u32, u32)> {
-		let mut parts = raw.split('x');
-		let w = parts.next()?.trim().parse::<u32>().ok()?;
-		let h = parts.next()?.trim().parse::<u32>().ok()?;
-		if parts.next().is_some() || w == 0 || h == 0 {
-			return None;
-		}
-		Some((w, h))
-	};
-
 	let (req_width, req_height) = if capture_scene_output {
 		let live_resolution = crate::live_scene_resolution()
 			.or_else(|| {
@@ -241,7 +231,7 @@ pub(crate) fn take_screenshot(
 					Some(runtime.scene_resolution.clone())
 				}
 			})
-			.and_then(|raw| parse_resolution(&raw));
+			.and_then(|raw| revo_core::planner::parse_resolution(&raw));
 
 		let (canvas_w, canvas_h) = live_resolution.unwrap_or((640, 360));
 		match (width, height) {

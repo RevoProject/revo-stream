@@ -1,4 +1,5 @@
 //! Framework-neutral RevoStream domain models and services.
 
 pub mod models;
+pub mod planner;
 pub mod settings;

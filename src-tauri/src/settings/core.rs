@@ -51,13 +51,7 @@ pub(crate) fn normalize_optional_trimmed(value: &mut Option<String>) {
 }
 
 pub(crate) fn is_valid_resolution(value: &str) -> bool {
-	let mut parts = value.split('x');
-	let w = parts.next().and_then(|v| v.trim().parse::<u32>().ok());
-	let h = parts.next().and_then(|v| v.trim().parse::<u32>().ok());
-	if parts.next().is_some() {
-		return false;
-	}
-	matches!((w, h), (Some(wv), Some(hv)) if wv > 0 && hv > 0)
+	revo_core::planner::parse_resolution(value).is_some()
 }
 
 pub(crate) fn normalize_settings(settings: &mut crate::AppSettings) {

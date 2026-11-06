@@ -1,47 +1,10 @@
+use revo_core::planner::{centered_position, fit_scale, stretch_scale};
 use tauri::Manager;
 
 const OBS_SOURCE_CAP_DISABLED: u32 = 1 << 10;
 
 fn should_expose_source_type(output_flags: u32, debug_build: bool) -> bool {
 	debug_build || output_flags & OBS_SOURCE_CAP_DISABLED == 0
-}
-
-fn fit_scale(base_width: u32, base_height: u32, canvas_width: u32, canvas_height: u32) -> Option<f32> {
-	if base_width == 0 || base_height == 0 || canvas_width == 0 || canvas_height == 0 {
-		return None;
-	}
-	Some(
-		((canvas_width as f32 / base_width as f32)
-			.min(canvas_height as f32 / base_height as f32))
-		.min(1.0),
-	)
-}
-
-fn stretch_scale(
-	base_width: u32,
-	base_height: u32,
-	canvas_width: u32,
-	canvas_height: u32,
-) -> Option<(f32, f32)> {
-	if base_width == 0 || base_height == 0 || canvas_width == 0 || canvas_height == 0 {
-		return None;
-	}
-	Some((
-		canvas_width as f32 / base_width as f32,
-		canvas_height as f32 / base_height as f32,
-	))
-}
-
-fn centered_position(
-	canvas_width: u32,
-	canvas_height: u32,
-	item_width: f32,
-	item_height: f32,
-) -> (f32, f32) {
-	(
-		(canvas_width as f32 - item_width) * 0.5,
-		(canvas_height as f32 - item_height) * 0.5,
-	)
 }
 
 pub(crate) fn list_external_source_types(
@@ -228,7 +191,8 @@ pub(crate) fn add_existing_source(
 
 #[cfg(test)]
 mod source_type_visibility_tests {
-	use super::{centered_position, fit_scale, resolve_filter_source_ids, reusable_source_type_matches, should_expose_source_type, stretch_scale, OBS_SOURCE_CAP_DISABLED};
+	use super::{resolve_filter_source_ids, reusable_source_type_matches, should_expose_source_type, OBS_SOURCE_CAP_DISABLED};
+	use revo_core::planner::{centered_position, fit_scale, stretch_scale};
 
 	#[test]
 	fn internal_source_types_are_debug_only() {
