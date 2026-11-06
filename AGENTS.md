@@ -37,11 +37,13 @@
   preview loop captures PNG frames on the background executor, and `--obs`
   selects the backend at startup. The feature path was parse-checked only;
   full compile requires a provisioned host (libobs/libssl dev packages). The
-  remaining src-tauri removal blockers are the GPUI packaging layout and
-  macOS main-thread libobs dispatch verification; the auxiliary Svelte routes
-  are removed and replaced by native GPUI windows (Preview, Debug Console,
-  Browser Interaction). The GPUI shell has not replaced the Tauri
-  application yet.
+  macOS libobs hooks dispatch through a GPUI foreground-executor trampoline
+  (`GpuiObsPlatform`); on-hardware verification is still pending. The GPUI
+  packaging layout is defined: `scripts/linux/package-gpui.sh` stages the
+  binary, launcher, and OBS runtime (`prepare-runtime.sh` layout) into a
+  portable tar.gz/.run. The remaining src-tauri removal blockers are macOS
+  on-hardware verification and installed-artifact validation. The GPUI shell
+  has not replaced the Tauri application yet.
 - The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
   `Modules`) and all auxiliary routes are removed. `src/routes/+page.svelte`
   is a placeholder notice; the legacy Tauri adapter has no interactive UI.
