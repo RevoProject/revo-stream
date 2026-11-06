@@ -99,6 +99,9 @@ The commands below operate on the current compatibility application.
 
 ### Desktop application
 
+- `bash scripts/core/verify.sh`: run the standard validation pipeline for
+  `revo-core`/`revo-gpui` (formatting, tests, checks, compatibility metadata)
+  without Tauri/GTK/WebKit/libobs host dependencies.
 - `cargo test --manifest-path crates/revo-core/Cargo.toml`: run the extracted
   core tests without Tauri, WebKit, GTK, or libobs system dependencies.
 - `cargo test --manifest-path crates/revo-gpui/Cargo.toml`: run native GPUI
