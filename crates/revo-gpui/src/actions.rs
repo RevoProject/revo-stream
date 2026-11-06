@@ -1,3 +1,5 @@
+pub use revo_core::service::MoveDirection;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComponentEvent {
     OpenSettings,
@@ -36,14 +38,6 @@ pub enum ComponentEvent {
         id: String,
         action: QuickSourceAction,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MoveDirection {
-    Up,
-    Down,
-    Top,
-    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

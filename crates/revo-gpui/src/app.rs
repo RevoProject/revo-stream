@@ -2,15 +2,17 @@ use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Render,
     SharedString, Subscription, Window, WindowBounds, WindowOptions,
 };
+use revo_core::service::{BackendCommand, BackendService};
 
 use crate::{
-    actions::{ComponentEvent, MoveDirection, QuickSourceAction},
+    actions::{ComponentEvent, QuickSourceAction},
     components::{
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
         modal_shell::{modal_shell, ModalConfig, ModalSize},
     },
+    services::MockBackendRuntime,
     theme::RevoTheme,
 };
 
@@ -64,37 +66,6 @@ pub enum ActiveModal {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BackendCommand {
-    Undo,
-    Redo,
-    SetStudioMode(bool),
-    SetRealtimeRefresh(bool),
-    StartObs,
-    StopObs,
-    StartRecording,
-    StopRecording,
-    StartStreaming,
-    StopStreaming,
-    ForcePreviewResolution,
-    SelectScene(String),
-    RenameScene {
-        from: String,
-        to: String,
-    },
-    ReorderScene {
-        name: String,
-        to_index: usize,
-    },
-    SelectSource(String),
-    ToggleSourceVisibility(String),
-    ToggleSourceLock(String),
-    MoveSource {
-        id: String,
-        direction: MoveDirection,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkspaceState {
     pub active_modal: ActiveModal,
     pub last_command: Option<BackendCommand>,
@@ -112,34 +83,34 @@ impl Default for WorkspaceState {
 }
 
 impl WorkspaceState {
-    pub fn route(&mut self, event: ComponentEvent) {
+    pub fn route(&mut self, event: ComponentEvent) -> Option<BackendCommand> {
         let command = match event {
             ComponentEvent::OpenSettings => {
                 self.active_modal = ActiveModal::Settings;
-                return;
+                return None;
             }
             ComponentEvent::OpenHistory => {
                 self.active_modal = ActiveModal::History;
-                return;
+                return None;
             }
             ComponentEvent::AddScene => {
                 self.active_modal = ActiveModal::AddScene;
-                return;
+                return None;
             }
             ComponentEvent::AddSource => {
                 self.active_modal = ActiveModal::AddSource;
-                return;
+                return None;
             }
             ComponentEvent::EditSource(id) => {
                 self.active_modal = ActiveModal::SourceEditor(id);
-                return;
+                return None;
             }
             ComponentEvent::QuickSourceAction { id, action } => {
                 self.active_modal = ActiveModal::QuickAction {
                     source_id: id,
                     action,
                 };
-                return;
+                return None;
             }
             ComponentEvent::Undo => BackendCommand::Undo,
             ComponentEvent::Redo => BackendCommand::Redo,
@@ -170,7 +141,8 @@ impl WorkspaceState {
         };
 
         self.status = format!("Mock command: {command:?}");
-        self.last_command = Some(command);
+        self.last_command = Some(command.clone());
+        Some(command)
     }
 
     pub fn close_modal(&mut self) {
@@ -184,6 +156,7 @@ pub struct Workspace {
     pub sources: Entity<SourcesPanel>,
     pub demo: Entity<DemoMode>,
     pub state: WorkspaceState,
+    backend: BackendService,
     theme: RevoTheme,
     _subscriptions: Vec<Subscription>,
 }
@@ -191,6 +164,8 @@ pub struct Workspace {
 impl Workspace {
     pub fn new_mock(cx: &mut Context<'_, Self>) -> Self {
         let theme = RevoTheme::future();
+        let backend = BackendService::new(32, MockBackendRuntime::default)
+            .expect("failed to start mock backend service");
         let header = cx.new(|_| HeaderBar {
             state: HeaderBarState {
                 demo_mode: true,
@@ -274,6 +249,7 @@ impl Workspace {
             sources,
             demo,
             state: WorkspaceState::default(),
+            backend,
             theme,
             _subscriptions: subscriptions,
         }
@@ -281,7 +257,11 @@ impl Workspace {
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
         self.update_mock_header(&event, cx);
-        self.state.route(event);
+        if let Some(command) = self.state.route(event) {
+            if let Err(error) = self.backend.try_dispatch(command) {
+                self.state.status = format!("Backend error: {error}");
+            }
+        }
         cx.notify();
     }
 
@@ -520,14 +500,42 @@ mod tests {
     #[test]
     fn lifecycle_events_cross_only_the_typed_backend_boundary() {
         let mut state = WorkspaceState::default();
-        state.route(ComponentEvent::StartStreaming);
+        assert_eq!(
+            state.route(ComponentEvent::StartStreaming),
+            Some(BackendCommand::StartStreaming)
+        );
         assert_eq!(state.last_command, Some(BackendCommand::StartStreaming));
         assert_eq!(state.active_modal, ActiveModal::None);
 
-        state.route(ComponentEvent::SetStudioMode(true));
+        assert_eq!(
+            state.route(ComponentEvent::SetStudioMode(true)),
+            Some(BackendCommand::SetStudioMode(true))
+        );
         assert_eq!(
             state.last_command,
             Some(BackendCommand::SetStudioMode(true))
         );
+    }
+
+    #[test]
+    fn mock_service_executes_lifecycle_scene_and_source_commands() {
+        let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
+        service.execute(BackendCommand::StartObs).unwrap();
+        service
+            .execute(BackendCommand::SelectScene("Be Right Back".into()))
+            .unwrap();
+        service
+            .execute(BackendCommand::SelectSource("camera".into()))
+            .unwrap();
+        service
+            .execute(BackendCommand::ToggleSourceVisibility("camera".into()))
+            .unwrap();
+
+        let snapshot = service.snapshot().unwrap();
+        assert!(snapshot.obs_running);
+        assert_eq!(snapshot.selected_scene.as_deref(), Some("Be Right Back"));
+        assert_eq!(snapshot.selected_source.as_deref(), Some("camera"));
+        assert!(!snapshot.visible_sources.contains(&"camera".into()));
+        service.shutdown().unwrap();
     }
 }
