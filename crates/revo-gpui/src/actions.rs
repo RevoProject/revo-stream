@@ -4,6 +4,7 @@ pub use revo_core::service::MoveDirection;
 pub enum ComponentEvent {
     OpenSettings,
     OpenHistory,
+    OpenGraphicPlanner,
     Undo,
     Redo,
     SetStudioMode(bool),

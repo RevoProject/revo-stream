@@ -1,6 +1,7 @@
 pub mod home;
 pub mod modal;
 pub mod modal_shell;
+pub mod modules;
 pub mod quick_modal;
 
 use gpui::{div, prelude::*, Div};

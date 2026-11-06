@@ -1,5 +1,6 @@
 use revo_core::service::{
-    BackendCommand, BackendError, BackendRuntime, BackendSnapshot, MoveDirection,
+    clamp_volume_percent, upsert_source_list, BackendCommand, BackendError, BackendRuntime,
+    BackendSnapshot, MoveDirection, PlacedSource,
 };
 
 pub struct MockBackendRuntime {
@@ -84,6 +85,58 @@ impl BackendRuntime for MockBackendRuntime {
                         MoveDirection::Bottom => 0,
                     };
                     reorder(&mut self.snapshot.sources, &id, to_index);
+                }
+            }
+            BackendCommand::SetSourceVolume { id, percent } => {
+                let volume = clamp_volume_percent(percent);
+                if let Some(entry) = self
+                    .snapshot
+                    .source_volumes
+                    .iter_mut()
+                    .find(|(source, _)| source == &id)
+                {
+                    entry.1 = volume;
+                } else {
+                    self.snapshot.source_volumes.push((id, volume));
+                }
+            }
+            BackendCommand::SetSourceMuted { id, muted } => {
+                upsert_source_list(&mut self.snapshot.muted_sources, &id, muted);
+            }
+            BackendCommand::SetSourceVolumeLocked { id, locked } => {
+                upsert_source_list(&mut self.snapshot.volume_locked_sources, &id, locked);
+            }
+            BackendCommand::SetTransitionKind(kind) => {
+                self.snapshot.transition_kind = Some(kind);
+            }
+            BackendCommand::SetTransitionDuration(duration_ms) => {
+                self.snapshot.transition_duration_ms = duration_ms;
+            }
+            BackendCommand::SetSourceTransform {
+                id,
+                x,
+                y,
+                width,
+                height,
+                rotation,
+            } => {
+                let placed = PlacedSource {
+                    id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    rotation,
+                };
+                if let Some(entry) = self
+                    .snapshot
+                    .source_transforms
+                    .iter_mut()
+                    .find(|source| source.id == placed.id)
+                {
+                    *entry = placed;
+                } else {
+                    self.snapshot.source_transforms.push(placed);
                 }
             }
         }

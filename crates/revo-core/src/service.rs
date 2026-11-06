@@ -19,7 +19,7 @@ pub enum MoveDirection {
     Bottom,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum BackendCommand {
     Undo,
     Redo,
@@ -48,9 +48,41 @@ pub enum BackendCommand {
         id: String,
         direction: MoveDirection,
     },
+    SetSourceVolume {
+        id: String,
+        percent: f64,
+    },
+    SetSourceMuted {
+        id: String,
+        muted: bool,
+    },
+    SetSourceVolumeLocked {
+        id: String,
+        locked: bool,
+    },
+    SetTransitionKind(String),
+    SetTransitionDuration(u32),
+    SetSourceTransform {
+        id: String,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        rotation: i32,
+    },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlacedSource {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub rotation: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackendSnapshot {
     pub obs_running: bool,
     pub recording: bool,
@@ -64,6 +96,53 @@ pub struct BackendSnapshot {
     pub sources: Vec<String>,
     pub visible_sources: Vec<String>,
     pub locked_sources: Vec<String>,
+    pub source_volumes: Vec<(String, u32)>,
+    pub muted_sources: Vec<String>,
+    pub volume_locked_sources: Vec<String>,
+    pub transition_kind: Option<String>,
+    pub transition_duration_ms: u32,
+    pub source_transforms: Vec<PlacedSource>,
+}
+
+impl Default for BackendSnapshot {
+    fn default() -> Self {
+        Self {
+            obs_running: false,
+            recording: false,
+            streaming: false,
+            studio_mode: false,
+            realtime_refresh: false,
+            preview_resolution_requests: 0,
+            selected_scene: None,
+            selected_source: None,
+            scenes: Vec::new(),
+            sources: Vec::new(),
+            visible_sources: Vec::new(),
+            locked_sources: Vec::new(),
+            source_volumes: Vec::new(),
+            muted_sources: Vec::new(),
+            volume_locked_sources: Vec::new(),
+            transition_kind: Some("fade".into()),
+            transition_duration_ms: 300,
+            source_transforms: Vec::new(),
+        }
+    }
+}
+
+pub fn clamp_volume_percent(percent: f64) -> u32 {
+    if percent.is_finite() {
+        percent.round().clamp(0.0, 200.0) as u32
+    } else {
+        100
+    }
+}
+
+pub fn upsert_source_list(items: &mut Vec<String>, id: &str, present: bool) {
+    if present && !items.iter().any(|item| item == id) {
+        items.push(id.to_owned());
+    } else if !present {
+        items.retain(|item| item != id);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, HashMap};
+
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Render,
     SharedString, Subscription, Window, WindowBounds, WindowOptions,
@@ -11,6 +13,16 @@ use crate::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
         modal_shell::{modal_shell, ModalConfig, ModalSize},
+        modules::{
+            audio_mixer::{AudioChannel, AudioMixerPanel, MixerEvent},
+            audio_mixer_advanced_modal::{AdvancedDraft, AudioMixerAdvancedModal},
+            audio_mixer_context_menu::AudioMixerContextMenu,
+            graphic_planner::{GraphicPlannerPanel, PlannerEvent, PlannerSource, PlannerTransform},
+            transitions::{
+                blend_transition_params, TransitionEvent, TransitionItem, TransitionKind,
+                TransitionsPanel,
+            },
+        },
     },
     services::MockBackendRuntime,
     theme::RevoTheme,
@@ -59,13 +71,15 @@ pub enum ActiveModal {
     AddScene,
     AddSource,
     SourceEditor(String),
+    AudioMixerAdvanced(String),
+    GraphicPlanner,
     QuickAction {
         source_id: String,
         action: QuickSourceAction,
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorkspaceState {
     pub active_modal: ActiveModal,
     pub last_command: Option<BackendCommand>,
@@ -91,6 +105,10 @@ impl WorkspaceState {
             }
             ComponentEvent::OpenHistory => {
                 self.active_modal = ActiveModal::History;
+                return None;
+            }
+            ComponentEvent::OpenGraphicPlanner => {
+                self.active_modal = ActiveModal::GraphicPlanner;
                 return None;
             }
             ComponentEvent::AddScene => {
@@ -148,6 +166,101 @@ impl WorkspaceState {
     pub fn close_modal(&mut self) {
         self.active_modal = ActiveModal::None;
     }
+
+    pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
+        let command = match event {
+            MixerEvent::VolumeChanged { id, percent, mode } => {
+                self.status = format!("Mixer {id} holds {percent:.1}% as {mode:?}");
+                return None;
+            }
+            MixerEvent::VolumeCommitted { id, percent } => BackendCommand::SetSourceVolume {
+                id,
+                percent: percent as f64,
+            },
+            MixerEvent::MuteToggled { id, muted } => BackendCommand::SetSourceMuted { id, muted },
+            MixerEvent::LockToggled { id, locked } => {
+                BackendCommand::SetSourceVolumeLocked { id, locked }
+            }
+            MixerEvent::ContextMenuRequested { id } => {
+                self.status = format!("Mixer context menu for {id}");
+                return None;
+            }
+            MixerEvent::OpenFilters { id } => {
+                self.status = format!("Audio filters channel: {id}");
+                return None;
+            }
+            MixerEvent::OpenAdvanced { id } => {
+                self.status = format!("Advanced audio properties: {id}");
+                return None;
+            }
+            MixerEvent::AdvancedConfirmed { id } => {
+                self.status = format!("Advanced audio confirmed: {id}");
+                return None;
+            }
+            MixerEvent::AdvancedCancelled => {
+                self.status = "Advanced audio cancelled".into();
+                return None;
+            }
+        };
+        self.status = format!("Mock command: {command:?}");
+        self.last_command = Some(command.clone());
+        Some(command)
+    }
+
+    pub fn route_transition(&mut self, event: TransitionEvent) -> Vec<BackendCommand> {
+        let commands = match event {
+            TransitionEvent::Apply { kind, duration_ms } => {
+                vec![
+                    BackendCommand::SetTransitionKind(kind),
+                    BackendCommand::SetTransitionDuration(duration_ms),
+                ]
+            }
+            TransitionEvent::Discard => {
+                self.status = "Transitions draft discarded".into();
+                Vec::new()
+            }
+        };
+        if let Some(command) = commands.last() {
+            self.status = format!("Mock command: {command:?}");
+            self.last_command = Some(command.clone());
+        }
+        commands
+    }
+
+    pub fn route_planner(&mut self, event: PlannerEvent) -> Vec<BackendCommand> {
+        match event {
+            PlannerEvent::Apply { items } => {
+                let commands = items
+                    .into_iter()
+                    .map(|item| BackendCommand::SetSourceTransform {
+                        id: item.id,
+                        x: item.x,
+                        y: item.y,
+                        width: item.width,
+                        height: item.height,
+                        rotation: item.rotation,
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(command) = commands.last() {
+                    self.status = format!("Mock command: {command:?}");
+                    self.last_command = Some(command.clone());
+                }
+                commands
+            }
+            PlannerEvent::Select(id) => {
+                self.status = format!("Planner selected {id}");
+                Vec::new()
+            }
+            PlannerEvent::Op { id, op } => {
+                self.status = format!("Planner {op:?} on {id}");
+                Vec::new()
+            }
+            PlannerEvent::Cancel => {
+                self.status = "Planner closed".into();
+                Vec::new()
+            }
+        }
+    }
 }
 
 pub struct Workspace {
@@ -155,6 +268,12 @@ pub struct Workspace {
     pub scenes: Entity<ScenesPanel>,
     pub sources: Entity<SourcesPanel>,
     pub demo: Entity<DemoMode>,
+    pub tools_mixer: Entity<AudioMixerPanel>,
+    pub tools_transitions: Entity<TransitionsPanel>,
+    pub mixer_menu: Entity<AudioMixerContextMenu>,
+    pub mixer_advanced: Entity<AudioMixerAdvancedModal>,
+    pub planner: Entity<GraphicPlannerPanel>,
+    pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub state: WorkspaceState,
     backend: BackendService<MockBackendRuntime>,
     theme: RevoTheme,
@@ -231,6 +350,59 @@ impl Workspace {
             message: "Native GPUI shell running with representative mock scene data.".into(),
         });
 
+        let mixer_channels = vec![
+            AudioChannel::new("camera", "Camera"),
+            AudioChannel::new("lower-third", "Lower Third"),
+            AudioChannel::new("browser-chat", "Chat Overlay"),
+        ];
+        let advanced_drafts: HashMap<String, AdvancedDraft> = mixer_channels
+            .iter()
+            .map(|channel| (channel.id.clone(), AdvancedDraft::default()))
+            .collect();
+        let tools_mixer = cx.new(|_| AudioMixerPanel::new(mixer_channels, theme));
+        let tools_transitions = cx.new(|_| {
+            let fade = blend_transition_params(&BTreeMap::new(), TransitionKind::Fade);
+            let item = TransitionItem {
+                id: "transition-1".into(),
+                name: "Transition 1".into(),
+                kind: TransitionKind::Fade,
+                params: fade,
+            };
+            TransitionsPanel::new(vec![item], theme)
+        });
+        tools_transitions.update(cx, |panel, cx| {
+            panel.set_active("transition-1");
+            panel.begin_edit();
+            cx.notify();
+        });
+        let mixer_menu = cx.new(|_| AudioMixerContextMenu {
+            theme,
+            ..AudioMixerContextMenu::default()
+        });
+        let mixer_advanced = cx.new(|_| AudioMixerAdvancedModal::new(theme));
+        let planner = cx.new(|_| GraphicPlannerPanel {
+            sources: vec![
+                PlannerSource {
+                    id: "camera".into(),
+                    name: "Camera".into(),
+                    base_width: 1920,
+                    base_height: 1080,
+                    transform: PlannerTransform::default(),
+                },
+                PlannerSource {
+                    id: "lower-third".into(),
+                    name: "Lower Third".into(),
+                    base_width: 640,
+                    base_height: 480,
+                    transform: PlannerTransform::default(),
+                },
+            ],
+            selected_id: Some("lower-third".into()),
+            canvas: "1920x1080".into(),
+            open: false,
+            theme,
+        });
+
         let subscriptions = vec![
             cx.subscribe(&header, |this, _, event, cx| {
                 this.route_event(event.clone(), cx);
@@ -241,6 +413,21 @@ impl Workspace {
             cx.subscribe(&sources, |this, _, event, cx| {
                 this.route_event(event.clone(), cx);
             }),
+            cx.subscribe(&tools_mixer, |this, _, event, cx| {
+                this.handle_mixer_event(event.clone(), cx);
+            }),
+            cx.subscribe(&tools_transitions, |this, _, event, cx| {
+                this.handle_transition_event(event.clone(), cx);
+            }),
+            cx.subscribe(&mixer_menu, |this, _, event, cx| {
+                this.handle_mixer_event(event.clone(), cx);
+            }),
+            cx.subscribe(&mixer_advanced, |this, _, event, cx| {
+                this.handle_mixer_event(event.clone(), cx);
+            }),
+            cx.subscribe(&planner, |this, _, event, cx| {
+                this.handle_planner_event(event.clone(), cx);
+            }),
         ];
 
         Self {
@@ -248,11 +435,91 @@ impl Workspace {
             scenes,
             sources,
             demo,
+            tools_mixer,
+            tools_transitions,
+            mixer_menu,
+            mixer_advanced,
+            planner,
+            advanced_drafts,
             state: WorkspaceState::default(),
             backend,
             theme,
             _subscriptions: subscriptions,
         }
+    }
+
+    fn dispatch(&mut self, commands: impl IntoIterator<Item = BackendCommand>) {
+        for command in commands {
+            self.state.status = format!("Mock command: {command:?}");
+            self.state.last_command = Some(command.clone());
+            if let Err(error) = self.backend.try_dispatch(command) {
+                self.state.status = format!("Backend error: {error}");
+            }
+        }
+    }
+
+    fn handle_mixer_event(&mut self, event: MixerEvent, cx: &mut Context<'_, Self>) {
+        match event {
+            MixerEvent::ContextMenuRequested { id } => {
+                self.mixer_menu.update(cx, |menu, cx| {
+                    menu.open_menu(&id);
+                    cx.notify();
+                });
+            }
+            MixerEvent::OpenAdvanced { id } => {
+                self.mixer_menu.update(cx, |menu, cx| {
+                    menu.close();
+                    cx.notify();
+                });
+                let name = self
+                    .tools_mixer
+                    .read(cx)
+                    .channel(&id)
+                    .map_or_else(|| id.clone(), |channel| channel.name.clone());
+                let draft = self.advanced_drafts.get(&id).cloned().unwrap_or_default();
+                self.mixer_advanced.update(cx, |modal, cx| {
+                    modal.open(id.clone(), name, draft);
+                    cx.notify();
+                });
+                self.state.active_modal = ActiveModal::AudioMixerAdvanced(id);
+            }
+            MixerEvent::AdvancedConfirmed { .. } => {
+                self.mixer_advanced.update(cx, |modal, cx| {
+                    modal.close();
+                    cx.notify();
+                });
+                self.state.close_modal();
+                self.state.status = "Advanced audio properties applied".into();
+            }
+            MixerEvent::AdvancedCancelled => {
+                self.mixer_advanced.update(cx, |modal, cx| {
+                    modal.close();
+                    cx.notify();
+                });
+                self.state.close_modal();
+            }
+            other => {
+                if let Some(command) = self.state.route_mixer(other) {
+                    self.dispatch([command]);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn handle_transition_event(&mut self, event: TransitionEvent, cx: &mut Context<'_, Self>) {
+        let commands = self.state.route_transition(event);
+        self.dispatch(commands);
+        cx.notify();
+    }
+
+    fn handle_planner_event(&mut self, event: PlannerEvent, cx: &mut Context<'_, Self>) {
+        if let PlannerEvent::Cancel = event {
+            self.state.close_modal();
+        }
+        let commands = self.state.route_planner(event);
+        self.dispatch(commands);
+        cx.notify();
     }
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
@@ -284,7 +551,7 @@ impl Workspace {
         });
     }
 
-    fn tools(&self) -> gpui::Div {
+    fn tools(&self, cx: &mut Context<'_, Self>) -> gpui::Div {
         div()
             .flex()
             .flex_col()
@@ -297,9 +564,21 @@ impl Workspace {
             .rounded_md()
             .text_color(self.theme.text)
             .child(div().text_color(self.theme.text_strong).child("Tools"))
-            .child("Audio Mixer")
-            .child("Transitions")
-            .child("Plugins")
+            .child(self.tools_mixer.clone())
+            .child(self.tools_transitions.clone())
+            .child(
+                div()
+                    .id("open-graphic-planner")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .child("Graphic planner")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.route_event(ComponentEvent::OpenGraphicPlanner, cx);
+                    })),
+            )
             .child(
                 div()
                     .text_color(self.theme.text_muted)
@@ -307,16 +586,16 @@ impl Workspace {
             )
     }
 
-    fn lower_panels(&self, mode: LayoutMode) -> gpui::Div {
+    fn lower_panels(&self, cx: &mut Context<'_, Self>, mode: LayoutMode) -> gpui::Div {
         let [first, second, third] = mode.panel_order();
         match mode {
             LayoutMode::Wide => div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .child(div().flex_1().child(self.panel(first)))
-                .child(div().flex_1().child(self.panel(second)))
-                .child(div().flex_1().child(self.panel(third))),
+                .child(div().flex_1().child(self.panel(cx, first)))
+                .child(div().flex_1().child(self.panel(cx, second)))
+                .child(div().flex_1().child(self.panel(cx, third))),
             LayoutMode::Medium => div()
                 .flex()
                 .flex_col()
@@ -326,25 +605,25 @@ impl Workspace {
                         .flex()
                         .flex_row()
                         .gap_2()
-                        .child(div().flex_1().child(self.panel(first)))
-                        .child(div().flex_1().child(self.panel(second))),
+                        .child(div().flex_1().child(self.panel(cx, first)))
+                        .child(div().flex_1().child(self.panel(cx, second))),
                 )
-                .child(self.panel(third)),
+                .child(self.panel(cx, third)),
             LayoutMode::Compact => div()
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(self.panel(first))
-                .child(self.panel(second))
-                .child(self.panel(third)),
+                .child(self.panel(cx, first))
+                .child(self.panel(cx, second))
+                .child(self.panel(cx, third)),
         }
     }
 
-    fn panel(&self, panel: PanelKind) -> gpui::Div {
+    fn panel(&self, cx: &mut Context<'_, Self>, panel: PanelKind) -> gpui::Div {
         match panel {
             PanelKind::Scenes => div().child(self.scenes.clone()),
             PanelKind::Sources => div().child(self.sources.clone()),
-            PanelKind::Tools => div().child(self.tools()),
+            PanelKind::Tools => div().child(self.tools(cx)),
         }
     }
 
@@ -371,6 +650,7 @@ impl Workspace {
                 ModalConfig::standard("Edit Source", ModalSize::Workspace),
                 vec![SharedString::from(format!("Source: {id}"))],
             )),
+            ActiveModal::AudioMixerAdvanced(_) | ActiveModal::GraphicPlanner => None,
             ActiveModal::QuickAction { source_id, action } => Some((
                 ModalConfig::quick(format!("Quick {action:?}")),
                 vec![SharedString::from(format!("Source: {source_id}"))],
@@ -393,7 +673,7 @@ impl Render for Workspace {
             .text_color(self.theme.text)
             .child(self.header.clone())
             .child(div().flex_1().min_h(px(200.)).child(self.demo.clone()))
-            .child(self.lower_panels(mode));
+            .child(self.lower_panels(cx, mode));
 
         if let Some((config, lines)) = self.modal_content() {
             root = root.child(
@@ -422,6 +702,46 @@ impl Render for Workspace {
                             })),
                     ),
             );
+        }
+
+        if self.mixer_menu.read(cx).open {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .child(self.mixer_menu.clone()),
+            );
+        }
+
+        match &self.state.active_modal {
+            ActiveModal::AudioMixerAdvanced(_) => {
+                root = root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .child(self.mixer_advanced.clone()),
+                );
+            }
+            ActiveModal::GraphicPlanner => {
+                root = root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .child(self.planner.clone()),
+                );
+            }
+            _ => {}
         }
 
         root
@@ -537,5 +857,125 @@ mod tests {
         assert_eq!(snapshot.selected_source.as_deref(), Some("camera"));
         assert!(!snapshot.visible_sources.contains(&"camera".into()));
         service.shutdown().unwrap();
+    }
+
+    #[test]
+    fn mixer_events_route_into_typed_backend_commands() {
+        let mut state = WorkspaceState::default();
+        assert_eq!(
+            state.route_mixer(MixerEvent::VolumeCommitted {
+                id: "camera".into(),
+                percent: 150.0,
+            }),
+            Some(BackendCommand::SetSourceVolume {
+                id: "camera".into(),
+                percent: 150.0,
+            })
+        );
+        assert_eq!(
+            state.last_command,
+            Some(BackendCommand::SetSourceVolume {
+                id: "camera".into(),
+                percent: 150.0,
+            })
+        );
+
+        assert_eq!(
+            state.route_mixer(MixerEvent::MuteToggled {
+                id: "camera".into(),
+                muted: true,
+            }),
+            Some(BackendCommand::SetSourceMuted {
+                id: "camera".into(),
+                muted: true,
+            })
+        );
+        assert_eq!(
+            state.route_mixer(MixerEvent::LockToggled {
+                id: "camera".into(),
+                locked: true,
+            }),
+            Some(BackendCommand::SetSourceVolumeLocked {
+                id: "camera".into(),
+                locked: true,
+            })
+        );
+        assert_eq!(state.route_mixer(MixerEvent::AdvancedCancelled), None);
+        assert_eq!(
+            state.route_mixer(MixerEvent::OpenFilters {
+                id: "camera".into()
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn transition_apply_routes_kind_then_clamped_duration() {
+        let mut state = WorkspaceState::default();
+        let commands = state.route_transition(TransitionEvent::Apply {
+            kind: "fade".into(),
+            duration_ms: 5,
+        });
+        assert_eq!(
+            commands,
+            vec![
+                BackendCommand::SetTransitionKind("fade".into()),
+                BackendCommand::SetTransitionDuration(5),
+            ]
+        );
+        assert_eq!(
+            state.last_command,
+            Some(BackendCommand::SetTransitionDuration(5))
+        );
+        assert!(state.route_transition(TransitionEvent::Discard).is_empty());
+    }
+
+    #[test]
+    fn planner_apply_routes_one_transform_command_per_source() {
+        use crate::components::modules::graphic_planner::PlannerApplyItem;
+
+        let mut state = WorkspaceState::default();
+        let commands = state.route_planner(PlannerEvent::Apply {
+            items: vec![PlannerApplyItem {
+                id: "camera".into(),
+                x: 640,
+                y: 300,
+                width: 640,
+                height: 480,
+                rotation: 0,
+            }],
+        });
+        assert_eq!(
+            commands,
+            vec![BackendCommand::SetSourceTransform {
+                id: "camera".into(),
+                x: 640,
+                y: 300,
+                width: 640,
+                height: 480,
+                rotation: 0,
+            }]
+        );
+        assert_eq!(state.last_command, commands.last().cloned());
+        assert!(state
+            .route_planner(PlannerEvent::Select("camera".into()))
+            .is_empty());
+        assert_eq!(state.status, "Planner selected camera");
+    }
+
+    #[test]
+    fn advanced_and_planner_travel_through_active_modal_state() {
+        let mut state = WorkspaceState::default();
+        state.route(ComponentEvent::OpenGraphicPlanner);
+        assert_eq!(state.active_modal, ActiveModal::GraphicPlanner);
+        state.close_modal();
+
+        state.route_mixer(MixerEvent::OpenAdvanced {
+            id: "camera".into(),
+        });
+        assert_eq!(state.status, "Advanced audio properties: camera");
+        state.active_modal = ActiveModal::AudioMixerAdvanced("camera".into());
+        state.close_modal();
+        assert_eq!(state.active_modal, ActiveModal::None);
     }
 }
