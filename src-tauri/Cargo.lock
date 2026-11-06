@@ -3729,6 +3729,7 @@ name = "revo-core"
 version = "0.4.1"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

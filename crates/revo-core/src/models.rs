@@ -1,5 +1,48 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    #[serde(default)]
+    pub root_dir: Option<String>,
+    #[serde(default = "crate::settings::default_record_path")]
+    pub record_path: String,
+    #[serde(default)]
+    pub stream_url: String,
+    #[serde(default)]
+    pub stream_key: String,
+    #[serde(default = "crate::settings::default_preview_quality")]
+    pub preview_quality: Option<String>,
+    #[serde(default)]
+    pub encoder_preference: Option<String>,
+    #[serde(default)]
+    pub scene_resolution: Option<String>,
+    #[serde(default)]
+    pub whep_url: Option<String>,
+    #[serde(default)]
+    pub whip_url: Option<String>,
+    #[serde(default)]
+    pub auto_retry_preview: Option<bool>,
+    #[serde(default)]
+    pub autorescale_inputs: Option<bool>,
+    #[serde(default)]
+    pub minimize_to_tray: Option<bool>,
+    #[serde(default)]
+    pub built_in_browser_enabled: Option<bool>,
+    #[serde(default)]
+    pub obs_plugins_path: Option<String>,
+    #[serde(default)]
+    pub obs_vst_enabled: Option<bool>,
+    #[serde(default)]
+    pub obs_websocket_enabled: Option<bool>,
+    #[serde(default)]
+    pub obs_websocket_password: Option<String>,
+    #[serde(default)]
+    pub ui_profile: Option<JsonValue>,
+    #[serde(default = "crate::settings::default_active_profile")]
+    pub active_profile: Option<String>,
+}
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

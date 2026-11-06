@@ -18,62 +18,11 @@ pub(crate) fn legacy_settings_path(root: &std::path::PathBuf) -> std::path::Path
 	data_dir_from_root(root).join("conf").join("settings.json")
 }
 
-pub(crate) fn user_profile_dir() -> Option<std::path::PathBuf> {
-	if let Ok(val) = std::env::var("USERPROFILE") {
-		return Some(std::path::PathBuf::from(val));
-	}
-	if let Ok(val) = std::env::var("HOME") {
-		return Some(std::path::PathBuf::from(val));
-	}
-	let drive = std::env::var("HOMEDRIVE").ok();
-	let path = std::env::var("HOMEPATH").ok();
-	match (drive, path) {
-		(Some(d), Some(p)) => Some(std::path::PathBuf::from(format!("{d}{p}"))),
-		_ => None,
-	}
-}
-
-pub(crate) fn default_record_path() -> String {
-	if let Some(profile) = user_profile_dir() {
-		return profile
-			.join("Videos")
-			.join("RevoStream")
-			.join("Output")
-			.join("record.mp4")
-			.to_string_lossy()
-			.to_string();
-	}
-	std::path::PathBuf::from("Videos")
-		.join("RevoStream")
-		.join("Output")
-		.join("record.mp4")
-		.to_string_lossy()
-		.to_string()
-}
-
-pub(crate) fn default_preview_quality() -> Option<String> {
-	Some("medium".to_string())
-}
-
-pub(crate) fn default_encoder_preference() -> Option<String> {
-	Some("hardware".to_string())
-}
-
-pub(crate) fn default_scene_resolution() -> Option<String> {
-	Some("1920x1080".to_string())
-}
-
-pub(crate) fn default_whep_url() -> Option<String> {
-	Some("http://127.0.0.1:8080/whep".to_string())
-}
-
-pub(crate) fn default_whip_url() -> Option<String> {
-	Some("http://127.0.0.1:8080/whip".to_string())
-}
-
-pub(crate) fn default_active_profile() -> Option<String> {
-	Some("default".to_string())
-}
+pub(crate) use revo_core::settings::{
+	default_active_profile, default_encoder_preference, default_preview_quality,
+	default_record_path, default_scene_resolution, default_whep_url, default_whip_url,
+	default_settings,
+};
 
 pub(crate) fn sanitize_profile_name(name: &str) -> String {
 	let mut out = String::new();
@@ -283,30 +232,6 @@ pub(crate) fn parse_settings_raw(raw: &str) -> crate::AppSettings {
 
 	normalize_settings(&mut settings);
 	settings
-}
-
-pub(crate) fn default_settings() -> crate::AppSettings {
-	crate::AppSettings {
-		root_dir: None,
-		record_path: default_record_path(),
-		stream_url: String::new(),
-		stream_key: String::new(),
-		preview_quality: default_preview_quality(),
-		encoder_preference: default_encoder_preference(),
-		scene_resolution: default_scene_resolution(),
-		whep_url: default_whep_url(),
-		whip_url: default_whip_url(),
-		auto_retry_preview: Some(true),
-		autorescale_inputs: Some(false),
-		minimize_to_tray: Some(false),
-		built_in_browser_enabled: Some(false),
-		obs_plugins_path: None,
-		obs_vst_enabled: Some(false),
-		obs_websocket_enabled: Some(false),
-		obs_websocket_password: None,
-		ui_profile: None,
-		active_profile: default_active_profile(),
-	}
 }
 
 pub(crate) fn find_file_upwards(
