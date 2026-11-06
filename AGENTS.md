@@ -4,17 +4,25 @@
 
 - Application version: `0.4.1`.
 - Migration branch: `feature/gpui-rewrite`.
-- Current runnable application: Tauri 2, Svelte 5/SvelteKit, and a Rust/libobs
-  backend in `src-tauri/`.
+- Current runnable application: the native GPUI shell (`crates/revo-gpui`,
+  mock backend) and the legacy Tauri adapter (`src-tauri/`, real libobs
+  backend, main window without UI).
+- Extracted backend: `crates/revo-backend/` owns `ObsRuntime`, `SceneState`,
+  `ObsState`, preview stats, and the runtime/scenes/sources/settings/devices/
+  logging/permissions/utils modules with zero Tauri dependencies. `src-tauri`
+  is now a thin adapter: Tauri commands, `TauriObsPlatform`, and the webview
+  auxiliary-window UI. The remaining src-tauri removal blockers are: wiring
+  the real backend behind `BackendService` for GPUI, native preview/audio,
+  auxiliary-window replacement, and the GPUI packaging layout.
 - Extracted core slices: framework-neutral source, planner, media-option,
   settings, scene, theme, and plugin models and pure helpers in
-  `crates/revo-core/`, consumed by the Tauri adapter through a path dependency.
+  `crates/revo-core/`, consumed through path dependencies.
   `revo-core::settings` owns default providers, normalization, and parsing
   recovery. `revo-core::planner` owns the pure scene-canvas geometry
   (fit/stretch scale, centering, resolution parsing) shared by adapter source
-  operations and the future GPUI planner. `revo-core::plugins` owns plugin
+  operations and the GPUI planner. `revo-core::plugins` owns plugin
   naming and enabled-module normalization. Settings file I/O and plugin window
-  capability policy remain in the Tauri adapter. `revo-core` also provides a
+  capability policy remain in `revo-backend`. `revo-core` also provides a
   bounded, typed `BackendService` worker thread with request/reply operations,
   snapshots, nonblocking GPUI dispatch, and lifecycle tests.
 - `crates/revo-gpui/` now has a runnable native mock-data shell composing the
@@ -76,7 +84,9 @@ are absent from the final architecture.
 - `src/`: legacy Svelte UI and route entry points retained for parity.
 - `static/`: legacy semantic theme and component CSS retained as the visual
   source of truth during migration.
-- `src-tauri/src/`: Rust/libobs backend plus current Tauri application adapter.
+- `src-tauri/src/`: thin Tauri adapter — commands, `TauriObsPlatform`, and the
+  webview auxiliary-window UI. The libobs backend lives in
+  `crates/revo-backend/`.
 - `crates/revo-core/`: framework-neutral Rust domain models and, incrementally,
   backend services shared by the compatibility and GPUI applications.
 - `crates/revo-gpui/`: native GPUI application shell and migrating views.
@@ -131,10 +141,11 @@ The commands below operate on the current compatibility application.
 
 ### NixOS
 
-- `bash scripts/nix/dev.sh`: compile/run the Rust application in the Nix
-  environment.
-- `bash scripts/nix/dev.sh tauri`: run the complete Tauri development path.
-- `bash scripts/nix/compile.sh`: build DEB and RPM bundles.
+- `bash scripts/nix/dev.sh`: run the native GPUI shell in the Nix
+  environment (default); `dev.sh tauri` runs the Tauri backend without UI.
+- `bash scripts/nix/dev.sh tauri-frontend`: run the legacy Tauri frontend path.
+- `bash scripts/nix/compile.sh`: build the native GPUI release binary
+  (default); `compile.sh tauri` builds legacy DEB and RPM bundles.
 - `bash scripts/nix/run.sh`: run the default release binary with Nix-provided
   media dependencies; an explicit binary path may be supplied.
 - `bash scripts/nix/all.sh`: run the compile, portable-package, and cleanup
