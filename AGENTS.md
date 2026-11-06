@@ -25,16 +25,22 @@
   capability policy remain in `revo-backend`. `revo-core` also provides a
   bounded, typed `BackendService` worker thread with request/reply operations,
   snapshots, nonblocking GPUI dispatch, and lifecycle tests.
-- `crates/revo-gpui/` now has a runnable native mock-data shell composing the
+- `crates/revo-gpui/` now has a runnable native shell composing the
   Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
   and modal routing, plus native Modules: Audio Mixer (with context menu and
   advanced-properties modal), Transitions, and the Graphic Planner driven by
-  `revo-core::planner` geometry. It currently uses `MockBackendRuntime`; the
-  actual `ObsRuntime` remains in Tauri and has not yet moved behind
-  `BackendService`. The Tauri adapter isolates libobs startup/shutdown behind
-  `runtime::lifecycle::ObsPlatform` and tracks partially started cores with
-  `ObsRuntime::core_started`, but the runtime mutex still serves the remaining
-  command groups. The GPUI shell has not replaced the Tauri application.
+  `revo-core::planner` geometry. With the default `MockBackendRuntime` it runs
+  on mock data. With `--features obs-backend` (and the `--obs` CLI flag) it
+  runs the real libobs backend: `services/obs.rs::ObsBackendRuntime` maps
+  every `BackendCommand` to `revo-backend` operations, `BackendSnapshot`
+  drives the panels (scenes, sources, outputs, mixer levels, errors), the
+  preview loop captures PNG frames on the background executor, and `--obs`
+  selects the backend at startup. The feature path was parse-checked only;
+  full compile requires a provisioned host (libobs/libssl dev packages). The
+  remaining src-tauri removal blockers are the auxiliary-window Svelte routes
+  (interact/debug-console/preview/webview), the GPUI packaging layout, and
+  macOS main-thread libobs dispatch verification. The GPUI shell has not
+  replaced the Tauri application yet.
 - The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
   `Modules`) and their only importers (`src/routes/+page.svelte`,
   `src/routes/source-transform/`) are removed. The remaining Svelte routes
