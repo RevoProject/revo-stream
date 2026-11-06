@@ -82,6 +82,17 @@ pub struct PlacedSource {
     pub rotation: i32,
 }
 
+/// Per-source state lifted out of the real backend for snapshot consumers
+/// that need names and media flags beyond the bare source id list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSnapshotItem {
+    pub id: String,
+    pub name: String,
+    pub source_type: String,
+    pub visible: bool,
+    pub audio_capable: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackendSnapshot {
     pub obs_running: bool,
@@ -93,7 +104,9 @@ pub struct BackendSnapshot {
     pub selected_scene: Option<String>,
     pub selected_source: Option<String>,
     pub scenes: Vec<String>,
+    pub locked_scenes: Vec<String>,
     pub sources: Vec<String>,
+    pub source_items: Vec<SourceSnapshotItem>,
     pub visible_sources: Vec<String>,
     pub locked_sources: Vec<String>,
     pub source_volumes: Vec<(String, u32)>,
@@ -102,6 +115,8 @@ pub struct BackendSnapshot {
     pub transition_kind: Option<String>,
     pub transition_duration_ms: u32,
     pub source_transforms: Vec<PlacedSource>,
+    pub audio_levels: Vec<(String, u32)>,
+    pub last_error: Option<String>,
 }
 
 impl Default for BackendSnapshot {
@@ -116,7 +131,9 @@ impl Default for BackendSnapshot {
             selected_scene: None,
             selected_source: None,
             scenes: Vec::new(),
+            locked_scenes: Vec::new(),
             sources: Vec::new(),
+            source_items: Vec::new(),
             visible_sources: Vec::new(),
             locked_sources: Vec::new(),
             source_volumes: Vec::new(),
@@ -125,6 +142,8 @@ impl Default for BackendSnapshot {
             transition_kind: Some("fade".into()),
             transition_duration_ms: 300,
             source_transforms: Vec::new(),
+            audio_levels: Vec::new(),
+            last_error: None,
         }
     }
 }

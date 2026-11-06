@@ -7,6 +7,13 @@ license = "AGPL-3.0-only"
 [dependencies]
 gpui = "=0.2.2"
 revo-core = { path = "../revo-core" }
+revo-backend = { path = "../revo-backend", optional = true }
+revo-lib = { git = "https://github.com/RevoProject/revo-lib", optional = true }
+base64 = { version = "0.22", optional = true }
+serde_json = { version = "1", optional = true }
+
+[features]
+obs-backend = ["dep:revo-backend", "dep:revo-lib", "dep:base64", "dep:serde_json"]
 
 # xattr 0.2.3, pulled by GPUI's HTTP client, does not compile with libc 0.2.191.
 [target.'cfg(target_os = "linux")'.dependencies]

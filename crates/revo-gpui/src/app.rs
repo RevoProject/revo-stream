@@ -1,10 +1,23 @@
 use std::collections::{BTreeMap, HashMap};
 
+#[cfg(feature = "obs-backend")]
+use std::time::Duration;
+
+#[cfg(feature = "obs-backend")]
+use base64::Engine as _;
+
 use gpui::{
     div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Render,
     SharedString, Subscription, Window, WindowBounds, WindowOptions,
 };
-use revo_core::service::{BackendCommand, BackendService};
+use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
+
+#[cfg(feature = "obs-backend")]
+use gpui::{Image as GpuiImage, ImageFormat};
+
+use crate::services::AnyBackend;
+#[cfg(feature = "obs-backend")]
+use crate::services::{capture_preview_png, ObsBackendRuntime};
 
 use crate::{
     actions::{ComponentEvent, QuickSourceAction},
@@ -24,7 +37,6 @@ use crate::{
             },
         },
     },
-    services::MockBackendRuntime,
     theme::RevoTheme,
 };
 
@@ -96,6 +108,39 @@ impl Default for WorkspaceState {
     }
 }
 
+/// Pure snapshot panels: maps a `BackendSnapshot` onto the Scenes panel items
+/// in backend scene-order, keyed by the snapshot's active/locked sets.
+fn snapshot_scene_items(snapshot: &BackendSnapshot) -> Vec<SceneItem> {
+    snapshot
+        .scenes
+        .iter()
+        .map(|name| SceneItem {
+            name: name.clone(),
+            active: snapshot.selected_scene.as_deref() == Some(name.as_str()),
+            locked: snapshot.locked_scenes.iter().any(|locked| locked == name),
+        })
+        .collect()
+}
+
+/// Pure snapshot panels: maps the snapshot's source items onto the Sources
+/// panel rows, with locks taken from the snapshot's locked-source id list.
+fn snapshot_source_items(snapshot: &BackendSnapshot) -> Vec<SourceItem> {
+    snapshot
+        .source_items
+        .iter()
+        .map(|source| SourceItem {
+            id: source.id.clone(),
+            name: source.name.clone(),
+            source_type: source.source_type.clone(),
+            visible: source.visible,
+            locked: snapshot
+                .locked_sources
+                .iter()
+                .any(|locked| locked == &source.id),
+        })
+        .collect()
+}
+
 impl WorkspaceState {
     pub fn route(&mut self, event: ComponentEvent) -> Option<BackendCommand> {
         let command = match event {
@@ -158,13 +203,25 @@ impl WorkspaceState {
             }
         };
 
-        self.status = format!("Mock command: {command:?}");
+        self.status = format!("Backend command: {command:?}");
         self.last_command = Some(command.clone());
         Some(command)
     }
 
     pub fn close_modal(&mut self) {
         self.active_modal = ActiveModal::None;
+    }
+
+    /// Inline pure state reflecting one backend snapshot: header/navigation
+    /// flags live on their panels, but the status line surfaces the backend's
+    /// last error (real libobs runtime failures do not interrupt dispatch).
+    pub fn apply_snapshot(&mut self, snapshot: &BackendSnapshot) {
+        if let Some(last_error) = &snapshot.last_error {
+            self.status = format!("Backend error: {last_error}");
+        } else if self.status.starts_with("Backend error: ") || self.status.starts_with("Backend: ")
+        {
+            self.status = "Backend state synced".into();
+        }
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -202,7 +259,7 @@ impl WorkspaceState {
                 return None;
             }
         };
-        self.status = format!("Mock command: {command:?}");
+        self.status = format!("Backend command: {command:?}");
         self.last_command = Some(command.clone());
         Some(command)
     }
@@ -221,7 +278,7 @@ impl WorkspaceState {
             }
         };
         if let Some(command) = commands.last() {
-            self.status = format!("Mock command: {command:?}");
+            self.status = format!("Backend command: {command:?}");
             self.last_command = Some(command.clone());
         }
         commands
@@ -242,7 +299,7 @@ impl WorkspaceState {
                     })
                     .collect::<Vec<_>>();
                 if let Some(command) = commands.last() {
-                    self.status = format!("Mock command: {command:?}");
+                    self.status = format!("Backend command: {command:?}");
                     self.last_command = Some(command.clone());
                 }
                 commands
@@ -275,19 +332,42 @@ pub struct Workspace {
     pub planner: Entity<GraphicPlannerPanel>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub state: WorkspaceState,
-    backend: BackendService<MockBackendRuntime>,
+    backend: AnyBackend,
     theme: RevoTheme,
+    #[cfg(feature = "obs-backend")]
+    preview_frame: Option<std::sync::Arc<GpuiImage>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
+    pub fn new(cx: &mut Context<'_, Self>) -> Self {
+        let use_obs_backend = std::env::args().any(|argument| argument == "--obs");
+        Self::with_backend(cx, use_obs_backend)
+    }
+
     pub fn new_mock(cx: &mut Context<'_, Self>) -> Self {
+        Self::with_backend(cx, false)
+    }
+
+    fn with_backend(cx: &mut Context<'_, Self>, use_obs_backend: bool) -> Self {
         let theme = RevoTheme::future();
-        let backend = BackendService::new(32, MockBackendRuntime::default)
-            .expect("failed to start mock backend service");
+        let backend = if use_obs_backend {
+            #[cfg(feature = "obs-backend")]
+            {
+                AnyBackend::obs(None)
+            }
+            #[cfg(not(feature = "obs-backend"))]
+            {
+                let _ = use_obs_backend;
+                AnyBackend::mock()
+            }
+        } else {
+            AnyBackend::mock()
+        };
+
         let header = cx.new(|_| HeaderBar {
             state: HeaderBarState {
-                demo_mode: true,
+                demo_mode: !use_obs_backend,
                 can_undo: true,
                 can_redo: true,
                 version: format!("v{}", env!("CARGO_PKG_VERSION")),
@@ -430,7 +510,7 @@ impl Workspace {
             }),
         ];
 
-        Self {
+        let mut workspace = Self {
             header,
             scenes,
             sources,
@@ -444,18 +524,126 @@ impl Workspace {
             state: WorkspaceState::default(),
             backend,
             theme,
+            #[cfg(feature = "obs-backend")]
+            preview_frame: None,
             _subscriptions: subscriptions,
+        };
+
+        if use_obs_backend {
+            workspace.state.status = "Native libobs backend requested (--obs)".into();
         }
+
+        // One initial snapshot refresh on startup so native state (including
+        // real-data panels for the obs backend) lands without user input.
+        workspace.refresh_snapshot(cx);
+        #[cfg(feature = "obs-backend")]
+        if use_obs_backend {
+            workspace.spawn_preview_loop(cx);
+        }
+        workspace
     }
 
-    fn dispatch(&mut self, commands: impl IntoIterator<Item = BackendCommand>) {
+    /// Runs one snapshot request on the GPUI background executor and applies
+    /// the result back on the foreground context. The backend service call
+    /// blocks only the background thread, never the UI executor.
+    fn refresh_snapshot(&mut self, cx: &mut Context<'_, Self>) {
+        let backend = self.backend.clone();
+        cx.spawn(async move |workspace, cx| {
+            let snapshot = cx
+                .background_executor()
+                .spawn(async move { backend.snapshot() })
+                .await;
+            let _ = workspace.update(cx, |workspace, cx| match snapshot {
+                Ok(snapshot) => workspace.apply_snapshot(snapshot, cx),
+                Err(error) => workspace.handle_snapshot_error(error, cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Applies one backend snapshot to the workspace panels: header
+    /// lifecycle flags, scene rows, source rows, mixer levels, and the
+    /// status-line backend error state.
+    pub fn apply_snapshot(&mut self, snapshot: BackendSnapshot, cx: &mut Context<'_, Self>) {
+        self.scenes.update(cx, |panel, cx| {
+            panel.scenes = snapshot_scene_items(&snapshot);
+            panel.studio_mode = snapshot.studio_mode;
+            cx.notify();
+        });
+        self.sources.update(cx, |panel, cx| {
+            panel.sources = snapshot_source_items(&snapshot);
+            panel.selected_id = snapshot.selected_source.clone();
+            cx.notify();
+        });
+        self.tools_mixer.update(cx, |mixer, cx| {
+            for (id, level) in &snapshot.audio_levels {
+                mixer.set_level(id, *level as f32);
+            }
+            cx.notify();
+        });
+        self.header.update(cx, |header, cx| {
+            header.state.obs_running = snapshot.obs_running;
+            header.state.recording = snapshot.recording;
+            header.state.streaming = snapshot.streaming;
+            header.state.studio_mode = snapshot.studio_mode;
+            header.state.realtime_refresh = snapshot.realtime_refresh;
+            cx.notify();
+        });
+        self.state.apply_snapshot(&snapshot);
+        cx.notify();
+    }
+
+    fn handle_snapshot_error(&mut self, error: BackendError, cx: &mut Context<'_, Self>) {
+        self.state.status = format!("Backend error: {error}");
+        cx.notify();
+    }
+
+    #[cfg(feature = "obs-backend")]
+    /// Bounded preview loop: every 150 ms captures the live scene output on
+    /// the backend worker (blocking `service.call` is backgrounded by the
+    /// executor) and refreshes the newest PNG frame on the foreground.
+    /// Terminates by failing `weak.update` once the Workspace entity drops.
+    fn spawn_preview_loop(&mut self, cx: &mut Context<'_, Self>) {
+        let backend = self.backend.clone();
+        cx.spawn(async move |workspace, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(
+                    crate::services::obs::PREVIEW_CAPTURE_INTERVAL_MS,
+                ))
+                .await;
+            let frame = cx
+                .background_executor()
+                .spawn(async move { capture_preview_png(&backend) })
+                .await;
+            let frame = frame
+                .ok()
+                .and_then(|data_uri| decode_png_data_uri(&data_uri))
+                .map(|bytes| std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes)));
+            let alive = workspace
+                .update(cx, |workspace, cx| {
+                    workspace.preview_frame = frame;
+                    cx.notify();
+                })
+                .is_ok();
+            if !alive {
+                return;
+            }
+        })
+        .detach();
+    }
+
+    fn dispatch(
+        &mut self,
+        commands: impl IntoIterator<Item = BackendCommand>,
+        cx: &mut Context<'_, Self>,
+    ) {
         for command in commands {
-            self.state.status = format!("Mock command: {command:?}");
             self.state.last_command = Some(command.clone());
             if let Err(error) = self.backend.try_dispatch(command) {
                 self.state.status = format!("Backend error: {error}");
             }
         }
+        self.refresh_snapshot(cx);
     }
 
     fn handle_mixer_event(&mut self, event: MixerEvent, cx: &mut Context<'_, Self>) {
@@ -500,7 +688,7 @@ impl Workspace {
             }
             other => {
                 if let Some(command) = self.state.route_mixer(other) {
-                    self.dispatch([command]);
+                    self.dispatch([command], cx);
                 }
             }
         }
@@ -509,7 +697,7 @@ impl Workspace {
 
     fn handle_transition_event(&mut self, event: TransitionEvent, cx: &mut Context<'_, Self>) {
         let commands = self.state.route_transition(event);
-        self.dispatch(commands);
+        self.dispatch(commands, cx);
         cx.notify();
     }
 
@@ -518,21 +706,24 @@ impl Workspace {
             self.state.close_modal();
         }
         let commands = self.state.route_planner(event);
-        self.dispatch(commands);
+        self.dispatch(commands, cx);
         cx.notify();
     }
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
-        self.update_mock_header(&event, cx);
+        self.update_header_flags(&event, cx);
         if let Some(command) = self.state.route(event) {
             if let Err(error) = self.backend.try_dispatch(command) {
                 self.state.status = format!("Backend error: {error}");
             }
+            self.refresh_snapshot(cx);
         }
         cx.notify();
     }
 
-    fn update_mock_header(&self, event: &ComponentEvent, cx: &mut Context<'_, Self>) {
+    /// Immediate local header feedback for lifecycle events; the following
+    /// backend snapshot refresh reconciles this with authoritative state.
+    fn update_header_flags(&self, event: &ComponentEvent, cx: &mut Context<'_, Self>) {
         self.header.update(cx, |header, cx| {
             match event {
                 ComponentEvent::StartObs => header.state.obs_running = true,
@@ -584,6 +775,39 @@ impl Workspace {
                     .text_color(self.theme.text_muted)
                     .child(self.state.status.clone()),
             )
+    }
+
+    /// The demo/preview surface. With the `obs-backend` feature the newest
+    /// PNG preview frame from the real libobs scene output is rendered as a
+    /// GPUI image; until the first frame lands (or for the mock backend) the
+    /// demo placeholder is shown, including its "dims" status line.
+    fn preview_surface(&self) -> gpui::Div {
+        let base = div().flex_1().min_h(px(200.)).child(self.demo.clone());
+        #[cfg(feature = "obs-backend")]
+        {
+            match &self.preview_frame {
+                Some(frame) => base.child(
+                    div().id("preview-frame").size_full().child(
+                        gpui::img(std::sync::Arc::clone(frame))
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    ),
+                ),
+                // Documented placeholder: gpui 0.2.2 `img()` accepts
+                // `Arc<Image>` bytes directly, so this surfaces the libobs
+                // capture state instead of a blank surface while the stream
+                // of frames warms up.
+                None => base.child(
+                    div()
+                        .text_color(self.theme.text_muted)
+                        .child("OBS preview: waiting for first frame (150ms capture loop)"),
+                ),
+            }
+        }
+        #[cfg(not(feature = "obs-backend"))]
+        {
+            base
+        }
     }
 
     fn lower_panels(&self, cx: &mut Context<'_, Self>, mode: LayoutMode) -> gpui::Div {
@@ -659,6 +883,18 @@ impl Workspace {
     }
 }
 
+/// Decodes a `data:image/png;base64,...` preview frame into raw PNG bytes so
+/// it can be handed to GPUI as an in-memory image without touching the
+/// filesystem.
+#[cfg(feature = "obs-backend")]
+fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
+    const PREFIX: &str = "data:image/png;base64,";
+    let payload = data_uri.strip_prefix(PREFIX)?;
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mode = LayoutMode::for_width(f32::from(window.viewport_size().width));
@@ -672,7 +908,7 @@ impl Render for Workspace {
             .bg(self.theme.background)
             .text_color(self.theme.text)
             .child(self.header.clone())
-            .child(div().flex_1().min_h(px(200.)).child(self.demo.clone()))
+            .child(self.preview_surface())
             .child(self.lower_panels(cx, mode));
 
         if let Some((config, lines)) = self.modal_content() {
@@ -758,7 +994,7 @@ pub fn run_native_app() {
                 focus: true,
                 ..WindowOptions::default()
             },
-            |_, cx| cx.new(Workspace::new_mock),
+            |_, cx| cx.new(Workspace::new),
         )
         .expect("failed to open RevoStream native window");
         cx.activate(true);
@@ -768,6 +1004,8 @@ pub fn run_native_app() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::MockBackendRuntime;
+    use revo_core::service::{BackendService, PlacedSource, SourceSnapshotItem};
 
     #[test]
     fn layout_breakpoints_are_classified_at_contract_boundaries() {
@@ -977,5 +1215,121 @@ mod tests {
         state.active_modal = ActiveModal::AudioMixerAdvanced("camera".into());
         state.close_modal();
         assert_eq!(state.active_modal, ActiveModal::None);
+    }
+
+    #[test]
+    fn snapshot_panel_items_preserve_backend_order_and_flags() {
+        let snapshot = BackendSnapshot {
+            selected_scene: Some("Main Cameras".into()),
+            scenes: vec!["Starting Soon".into(), "Main Cameras".into()],
+            locked_scenes: vec!["Main Cameras".into()],
+            locked_sources: vec!["browser-chat".into()],
+            source_items: vec![
+                SourceSnapshotItem {
+                    id: "camera".into(),
+                    name: "Camera".into(),
+                    source_type: "v4l2_input".into(),
+                    visible: true,
+                    audio_capable: true,
+                },
+                SourceSnapshotItem {
+                    id: "lower-third".into(),
+                    name: "Lower Third".into(),
+                    source_type: "text_ft2_source_v2".into(),
+                    visible: false,
+                    audio_capable: false,
+                },
+            ],
+            source_transforms: vec![PlacedSource {
+                id: "camera".into(),
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+                rotation: 0,
+            }],
+            ..BackendSnapshot::default()
+        };
+
+        let scenes = snapshot_scene_items(&snapshot);
+        assert_eq!(
+            scenes,
+            vec![
+                SceneItem {
+                    name: "Starting Soon".into(),
+                    active: false,
+                    locked: false,
+                },
+                SceneItem {
+                    name: "Main Cameras".into(),
+                    active: true,
+                    locked: true,
+                },
+            ]
+        );
+
+        let sources = snapshot_source_items(&snapshot);
+        assert_eq!(
+            sources,
+            vec![
+                SourceItem {
+                    id: "camera".into(),
+                    name: "Camera".into(),
+                    source_type: "v4l2_input".into(),
+                    visible: true,
+                    locked: false,
+                },
+                SourceItem {
+                    id: "lower-third".into(),
+                    name: "Lower Third".into(),
+                    source_type: "text_ft2_source_v2".into(),
+                    visible: false,
+                    locked: false,
+                },
+            ]
+        );
+        assert_eq!(
+            snapshot.source_transforms,
+            vec![PlacedSource {
+                id: "camera".into(),
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+                rotation: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn workspace_state_snapshot_surfaces_backend_errors_and_recovery() {
+        let mut state = WorkspaceState::default();
+        state.route(ComponentEvent::SelectScene("Main Cameras".into()));
+        let errored = String::from("obs_startup failed");
+        state.apply_snapshot(&BackendSnapshot {
+            last_error: Some(errored.clone()),
+            ..BackendSnapshot::default()
+        });
+        assert_eq!(state.status, "Backend error: obs_startup failed");
+
+        state.apply_snapshot(&BackendSnapshot::default());
+        assert_eq!(state.status, "Backend state synced");
+    }
+
+    #[test]
+    fn mock_service_snapshot_round_trip_feeds_panel_builders() {
+        let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
+        let snapshot = service.snapshot().unwrap();
+        service.shutdown().unwrap();
+
+        let scenes = snapshot_scene_items(&snapshot);
+        assert!(scenes.iter().any(|scene| scene.name == "Main Camera"));
+        // The mock runtime models locking via the flat id list only; source
+        // items are a real-backend snapshot field and stay empty here.
+        assert!(snapshot.source_items.is_empty());
+        assert!(snapshot.locked_sources.contains(&"browser-chat".into()));
+        assert!(snapshot_scene_items(&snapshot).iter().all(|scene| {
+            (snapshot.selected_scene.as_deref() == Some(scene.name.as_str())) == scene.active
+        }));
     }
 }
