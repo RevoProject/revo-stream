@@ -7,8 +7,43 @@ use revo_core::service::BackendService;
 
 pub use mock::MockBackendRuntime;
 #[cfg(feature = "obs-backend")]
-pub use obs::{capture_preview_png, ObsBackendRuntime};
+pub use obs::{
+    capture_preview_png, decode_png_data_uri, interact_close_session, interact_dispatch_key,
+    interact_dispatch_mouse, interact_frame_png, interact_reapply, open_interaction_session,
+    ObsBackendRuntime,
+};
 pub use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
+
+/// One forwarded mouse interaction for a browser source, mirroring the
+/// Svelte `obs_interact_mouse` invoke payload fields exactly.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InteractMousePayload {
+    pub source_id: String,
+    /// CDP mouse-event kind: `mousePressed`, `mouseReleased`, `mouseMoved`,
+    /// or `mouseWheel`.
+    pub kind: &'static str,
+    pub x: f64,
+    pub y: f64,
+    /// CDP button label: `left`, `middle`, `right`, or `none`.
+    pub button: &'static str,
+    pub buttons: i64,
+    pub click_count: i64,
+    pub delta_x: f64,
+    pub delta_y: f64,
+}
+
+/// One forwarded key interaction for a browser source, mirroring the Svelte
+/// `obs_interact_key` invoke payload fields exactly.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InteractKeyPayload {
+    pub source_id: String,
+    /// CDP key-event kind: `keyDown`, `char`, or `keyUp`.
+    pub kind: &'static str,
+    pub key: String,
+    pub code: String,
+    pub key_code: i64,
+    pub text: String,
+}
 
 /// Single backend handle for the GPUI application so `app.rs` can hold one
 /// type regardless of which runtime is linked in. The `Obs` variant only

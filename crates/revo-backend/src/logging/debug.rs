@@ -146,3 +146,49 @@ pub fn debug_console_clear() -> Result<(), String> {
     entries.clear();
     Ok(())
 }
+
+/// Snapshot of the retained debug log entries for the native debug-console
+/// window: cloned under the registry lock, capped to the last 1000 entries
+/// exactly like the Svelte console's `history.slice(-1000)`.
+pub fn get_debug_log_entries() -> Vec<crate::LibObsActionEvent> {
+    debug_log_entries()
+        .lock()
+        .map(|entries| {
+            let keep_from = entries.len().saturating_sub(1000);
+            entries[keep_from..].to_vec()
+        })
+        .unwrap_or_default()
+}
+
+/// Clears the retained debug log entries (the in-memory registry twin of the
+/// Svelte console's `debug_console_clear` invoke).
+pub fn clear_debug_log_entries() {
+    if let Ok(mut entries) = debug_log_entries().lock() {
+        entries.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_clear_registry_snapshot_is_capped_and_clears() {
+        // One combined test: the registry is process-global, so a single
+        // serialized test avoids cross-test interference on push/clear.
+        clear_debug_log_entries();
+        for index in 0..1200u64 {
+            push_debug_log_entry(
+                format!("registry-cap-test-{index}"),
+                Some(serde_json::json!({ "index": index })),
+            );
+        }
+        let entries = get_debug_log_entries();
+        assert_eq!(entries.len(), 1000);
+        assert_eq!(entries[0].action, "registry-cap-test-200");
+        assert_eq!(entries[999].action, "registry-cap-test-1199");
+
+        clear_debug_log_entries();
+        assert!(get_debug_log_entries().is_empty());
+    }
+}

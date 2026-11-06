@@ -1,10 +1,22 @@
 pub use revo_core::service::MoveDirection;
 
+/// Which auxiliary (separate native window) surface a Tools-panel request
+/// wants. Opened once per kind; repeated requests focus the existing window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuxiliaryWindowKind {
+    Preview,
+    DebugConsole,
+    BrowserInteraction,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComponentEvent {
     OpenSettings,
     OpenHistory,
     OpenGraphicPlanner,
+    OpenPreviewWindow,
+    OpenDebugConsoleWindow,
+    OpenBrowserInteractionWindow,
     Undo,
     Redo,
     SetStudioMode(bool),

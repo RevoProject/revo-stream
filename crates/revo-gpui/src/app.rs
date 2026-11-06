@@ -7,8 +7,9 @@ use std::time::Duration;
 use base64::Engine as _;
 
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Render,
-    SharedString, Subscription, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement, Pixels,
+    Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle,
+    WindowOptions,
 };
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
 
@@ -20,7 +21,7 @@ use crate::services::AnyBackend;
 use crate::services::{capture_preview_png, ObsBackendRuntime};
 
 use crate::{
-    actions::{ComponentEvent, QuickSourceAction},
+    actions::{AuxiliaryWindowKind, ComponentEvent, QuickSourceAction},
     components::{
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
@@ -38,6 +39,9 @@ use crate::{
         },
     },
     theme::RevoTheme,
+    windows::{
+        debug_console::DebugConsoleWindow, interact::InteractWindow, preview::PreviewWindow,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +100,9 @@ pub struct WorkspaceState {
     pub active_modal: ActiveModal,
     pub last_command: Option<BackendCommand>,
     pub status: String,
+    /// One-shot auxiliary-window request routed from the Tools panel;
+    /// consumed (`take`) by the Workspace to open/focus the window.
+    pub requested_window: Option<AuxiliaryWindowKind>,
 }
 
 impl Default for WorkspaceState {
@@ -104,6 +111,7 @@ impl Default for WorkspaceState {
             active_modal: ActiveModal::None,
             last_command: None,
             status: "Native mock backend ready".into(),
+            requested_window: None,
         }
     }
 }
@@ -154,6 +162,21 @@ impl WorkspaceState {
             }
             ComponentEvent::OpenGraphicPlanner => {
                 self.active_modal = ActiveModal::GraphicPlanner;
+                return None;
+            }
+            ComponentEvent::OpenPreviewWindow => {
+                self.requested_window = Some(AuxiliaryWindowKind::Preview);
+                self.status = "Preview window requested".into();
+                return None;
+            }
+            ComponentEvent::OpenDebugConsoleWindow => {
+                self.requested_window = Some(AuxiliaryWindowKind::DebugConsole);
+                self.status = "Debug console window requested".into();
+                return None;
+            }
+            ComponentEvent::OpenBrowserInteractionWindow => {
+                self.requested_window = Some(AuxiliaryWindowKind::BrowserInteraction);
+                self.status = "Browser interaction window requested".into();
                 return None;
             }
             ComponentEvent::AddScene => {
@@ -320,6 +343,16 @@ impl WorkspaceState {
     }
 }
 
+/// Handles for the auxiliary windows opened from the Tools panel. Each
+/// handle is kept so repeated requests focus the existing window instead of
+/// duplicating it; a stale (closed) handle is replaced on the next request.
+#[derive(Default)]
+pub struct AuxWindows {
+    pub preview: Option<WindowHandle<PreviewWindow>>,
+    pub debug_console: Option<WindowHandle<DebugConsoleWindow>>,
+    pub interact: Option<WindowHandle<InteractWindow>>,
+}
+
 pub struct Workspace {
     pub header: Entity<HeaderBar>,
     pub scenes: Entity<ScenesPanel>,
@@ -331,6 +364,7 @@ pub struct Workspace {
     pub mixer_advanced: Entity<AudioMixerAdvancedModal>,
     pub planner: Entity<GraphicPlannerPanel>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
+    pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
     backend: AnyBackend,
     theme: RevoTheme,
@@ -340,6 +374,124 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// WindowOptions for one auxiliary window: centered on the active
+    /// display at the given size, titled, and focused on open.
+    fn auxiliary_window_options(
+        title: &'static str,
+        width: Pixels,
+        height: Pixels,
+        cx: &App,
+    ) -> WindowOptions {
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(width, height),
+                cx,
+            ))),
+            titlebar: Some(TitlebarOptions {
+                title: Some(title.into()),
+                ..TitlebarOptions::default()
+            }),
+            focus: true,
+            ..WindowOptions::default()
+        }
+    }
+
+    /// Focuses an existing auxiliary window; false when the handle is stale
+    /// (the window was closed by the user).
+    fn focus_auxiliary<V: 'static + Render>(
+        handle: &WindowHandle<V>,
+        cx: &mut Context<'_, Self>,
+    ) -> bool {
+        let app: &mut App = cx;
+        handle
+            .update(app, |_, window, _| window.activate_window())
+            .is_ok()
+    }
+
+    /// Opens (or focuses) the requested auxiliary window with roots
+    /// constructed from the shared backend clone.
+    fn open_auxiliary_window(&mut self, kind: AuxiliaryWindowKind, cx: &mut Context<'_, Self>) {
+        match kind {
+            AuxiliaryWindowKind::Preview => {
+                let handle = self.aux_windows.preview.take();
+                match handle {
+                    Some(handle) if Self::focus_auxiliary(&handle, cx) => {
+                        self.aux_windows.preview = Some(handle);
+                        self.state.status = "Preview window focused".into();
+                    }
+                    _ => {
+                        let backend = self.backend.clone();
+                        let options = Self::auxiliary_window_options(
+                            "Preview - RevoStream",
+                            px(1280.),
+                            px(720.),
+                            cx,
+                        );
+                        self.aux_windows.preview = cx
+                            .open_window(options, |_, cx| {
+                                cx.new(|cx| PreviewWindow::new(backend.clone(), None, cx))
+                            })
+                            .ok();
+                        self.state.status = "Preview window opened".into();
+                    }
+                }
+            }
+            AuxiliaryWindowKind::DebugConsole => {
+                let handle = self.aux_windows.debug_console.take();
+                match handle {
+                    Some(handle) if Self::focus_auxiliary(&handle, cx) => {
+                        self.aux_windows.debug_console = Some(handle);
+                        self.state.status = "Debug console window focused".into();
+                    }
+                    _ => {
+                        let backend = self.backend.clone();
+                        let options = Self::auxiliary_window_options(
+                            "Debug Console - RevoStream",
+                            px(900.),
+                            px(600.),
+                            cx,
+                        );
+                        self.aux_windows.debug_console = cx
+                            .open_window(options, |_, cx| {
+                                cx.new(|cx| DebugConsoleWindow::new(backend.clone(), cx))
+                            })
+                            .ok();
+                        self.state.status = "Debug console window opened".into();
+                    }
+                }
+            }
+            AuxiliaryWindowKind::BrowserInteraction => {
+                let handle = self.aux_windows.interact.take();
+                match handle {
+                    Some(handle) if Self::focus_auxiliary(&handle, cx) => {
+                        self.aux_windows.interact = Some(handle);
+                        self.state.status = "Browser interaction window focused".into();
+                    }
+                    _ => {
+                        let backend = self.backend.clone();
+                        let source_id = self.sources.read(cx).selected_id.clone();
+                        let options = Self::auxiliary_window_options(
+                            "Browser Interaction - RevoStream",
+                            px(1280.),
+                            px(720.),
+                            cx,
+                        );
+                        self.aux_windows.interact = cx
+                            .open_window(options, |_, cx| {
+                                cx.new(|cx| {
+                                    InteractWindow::new(backend.clone(), source_id.clone(), cx)
+                                })
+                            })
+                            .ok();
+                        self.state.status = "Browser interaction window opened".into();
+                    }
+                }
+            }
+        }
+        cx.notify();
+    }
+
     pub fn new(cx: &mut Context<'_, Self>) -> Self {
         let use_obs_backend = std::env::args().any(|argument| argument == "--obs");
         Self::with_backend(cx, use_obs_backend)
@@ -521,6 +673,7 @@ impl Workspace {
             mixer_advanced,
             planner,
             advanced_drafts,
+            aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
             backend,
             theme,
@@ -613,11 +766,11 @@ impl Workspace {
                 .await;
             let frame = cx
                 .background_executor()
-                .spawn(async move { capture_preview_png(&backend) })
+                .spawn(async move { capture_preview_png(&backend, None) })
                 .await;
             let frame = frame
                 .ok()
-                .and_then(|data_uri| decode_png_data_uri(&data_uri))
+                .and_then(|data_uri| crate::services::decode_png_data_uri(&data_uri))
                 .map(|bytes| std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes)));
             let alive = workspace
                 .update(cx, |workspace, cx| {
@@ -718,6 +871,9 @@ impl Workspace {
             }
             self.refresh_snapshot(cx);
         }
+        if let Some(kind) = self.state.requested_window.take() {
+            self.open_auxiliary_window(kind, cx);
+        }
         cx.notify();
     }
 
@@ -768,6 +924,45 @@ impl Workspace {
                     .child("Graphic planner")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.route_event(ComponentEvent::OpenGraphicPlanner, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("open-preview-window")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .child("Preview window")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.route_event(ComponentEvent::OpenPreviewWindow, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("open-debug-console-window")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .child("Debug console window")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.route_event(ComponentEvent::OpenDebugConsoleWindow, cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("open-browser-interaction-window")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .child("Browser interaction window")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.route_event(ComponentEvent::OpenBrowserInteractionWindow, cx);
                     })),
             )
             .child(
@@ -883,17 +1078,9 @@ impl Workspace {
     }
 }
 
-/// Decodes a `data:image/png;base64,...` preview frame into raw PNG bytes so
-/// it can be handed to GPUI as an in-memory image without touching the
-/// filesystem.
-#[cfg(feature = "obs-backend")]
-fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
-    const PREFIX: &str = "data:image/png;base64,";
-    let payload = data_uri.strip_prefix(PREFIX)?;
-    base64::engine::general_purpose::STANDARD
-        .decode(payload)
-        .ok()
-}
+/// Decoding of `data:image/png;base64,...` frames lives in
+/// `services::obs::decode_png_data_uri` so the auxiliary preview and
+/// interact windows share it with the workspace loop.
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
@@ -1073,6 +1260,31 @@ mod tests {
             state.last_command,
             Some(BackendCommand::SetStudioMode(true))
         );
+    }
+
+    #[test]
+    fn auxiliary_window_events_set_requested_window_without_backend_commands() {
+        let mut state = WorkspaceState::default();
+        state.route(ComponentEvent::OpenPreviewWindow);
+        assert_eq!(
+            state.requested_window.take(),
+            Some(AuxiliaryWindowKind::Preview)
+        );
+        assert_eq!(state.requested_window.take(), None);
+        assert_eq!(state.last_command, None);
+
+        state.route(ComponentEvent::OpenDebugConsoleWindow);
+        assert_eq!(
+            state.requested_window.take(),
+            Some(AuxiliaryWindowKind::DebugConsole)
+        );
+
+        state.route(ComponentEvent::OpenBrowserInteractionWindow);
+        assert_eq!(
+            state.requested_window.take(),
+            Some(AuxiliaryWindowKind::BrowserInteraction)
+        );
+        assert_eq!(state.active_modal, ActiveModal::None);
     }
 
     #[test]

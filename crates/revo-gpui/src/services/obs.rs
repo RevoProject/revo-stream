@@ -514,35 +514,210 @@ impl SourceUpdateBuilder {
     }
 }
 
-/// Captures the current scene preview frame as a PNG data-URI string.
+/// Captures a preview frame as a PNG data-URI string.
 ///
-/// Runs through [`revo_core::service::BackendService::call`] on the backend
-/// worker thread: the libobs capture runs with the runtime lock held on a
-/// background thread and the PNG encoding completes without ever blocking the
-/// GPUI foreground executor.
+/// Without a `source_id` the current scene composite is captured (the
+/// workspace preview loop); with one, the matching source is captured
+/// individually (the preview auxiliary window). Runs through
+/// [`revo_core::service::BackendService::call`] on the backend worker
+/// thread: the libobs capture runs with the runtime lock held on a
+/// background thread and the PNG encoding completes without ever blocking
+/// the GPUI foreground executor.
 ///
 /// Returns the `data:image/png;base64,...` frame, or an error for the mock
 /// backend which has no libobs surface to capture.
-pub fn capture_preview_png(backend: &super::AnyBackend) -> Result<String, BackendError> {
+pub fn capture_preview_png(
+    backend: &super::AnyBackend,
+    source_id: Option<&str>,
+) -> Result<String, BackendError> {
+    let source_id = source_id.map(str::to_owned);
     match backend {
-        super::AnyBackend::Obs(service) => service.call(|backend: &mut ObsBackendRuntime| {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
             let capture = revo_backend::runtime::preview::capture_screenshot(
                 &mut backend.runtime,
                 None,
                 None,
-                None,
+                source_id,
                 0,
-            )?;
+            )
+            .map_err(BackendError::Runtime)?;
             match capture {
                 ScreenshotCapture::Serve(frame) => Ok(frame),
                 ScreenshotCapture::Encode(captured) => {
                     revo_backend::runtime::preview::encode_screenshot(captured.frame)
+                        .map_err(BackendError::Runtime)
                 }
             }
         }),
         super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
             "preview capture requires the obs backend".into(),
         )),
+    }
+}
+
+/// Decodes a `data:image/png;base64,...` frame into raw PNG bytes so it can
+/// be handed to GPUI as an in-memory image without touching the filesystem.
+#[cfg(feature = "obs-backend")]
+pub fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
+    const PREFIX: &str = "data:image/png;base64,";
+    let payload = data_uri.strip_prefix(PREFIX)?;
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .ok()
+}
+
+/// Resolves the browser source's interaction settings and opens a persistent
+/// headless-Chromium CDP session for it. Lock-scoped settings reading and the
+/// session launch both run on the backend worker thread.
+#[cfg(feature = "obs-backend")]
+pub fn open_interaction_session(
+    backend: &super::AnyBackend,
+    source_id: &str,
+) -> Result<(), BackendError> {
+    let source_id = source_id.to_owned();
+    match backend {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
+            let (url, css, js, user_agent, width, height) =
+                revo_backend::sources::source_ops::read_interaction_source(
+                    &backend.runtime,
+                    &source_id,
+                )
+                .map_err(BackendError::Runtime)?;
+            revo_backend::sources::browser_interact::ensure_session(
+                &source_id,
+                &url,
+                &user_agent,
+                &css,
+                &js,
+                (width.clamp(64, 4096) as u32, height.clamp(64, 4096) as u32),
+            )
+            .map_err(BackendError::Runtime)
+        }),
+        super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
+            "interaction sessions require the obs backend".into(),
+        )),
+    }
+}
+
+/// Fetches the newest browser-source frame as a data-URI string from the
+/// source's CDP session (backend worker thread; blocks on the session's
+/// screencast wait, never on the GPUI foreground executor).
+#[cfg(feature = "obs-backend")]
+pub fn interact_frame_png(
+    backend: &super::AnyBackend,
+    source_id: &str,
+) -> Result<String, BackendError> {
+    use base64::Engine as _;
+    let source_id = source_id.to_owned();
+    match backend {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
+            if !backend.runtime.initialized {
+                return Err(BackendError::Runtime("OBS not initialized".into()));
+            }
+            let png = revo_backend::sources::browser_interact::frame_png(&source_id)
+                .map_err(BackendError::Runtime)?;
+            Ok(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png)
+            ))
+        }),
+        super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
+            "interaction frames require the obs backend".into(),
+        )),
+    }
+}
+
+/// Forwards one typed mouse interaction to the browser source's CDP session
+/// with the Svelte `obs_interact_mouse` invoke payload fields.
+#[cfg(feature = "obs-backend")]
+pub fn interact_dispatch_mouse(
+    backend: &super::AnyBackend,
+    payload: super::InteractMousePayload,
+) -> Result<(), BackendError> {
+    match backend {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
+            if !backend.runtime.initialized {
+                return Err(BackendError::Runtime("OBS not initialized".into()));
+            }
+            revo_backend::sources::browser_interact::dispatch_mouse(
+                &payload.source_id,
+                payload.kind,
+                payload.x,
+                payload.y,
+                payload.button,
+                payload.buttons,
+                payload.click_count,
+                payload.delta_x,
+                payload.delta_y,
+            )
+            .map_err(BackendError::Runtime)
+        }),
+        super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
+            "interaction input requires the obs backend".into(),
+        )),
+    }
+}
+
+/// Forwards one typed key interaction to the browser source's CDP session
+/// with the Svelte `obs_interact_key` invoke payload fields.
+#[cfg(feature = "obs-backend")]
+pub fn interact_dispatch_key(
+    backend: &super::AnyBackend,
+    payload: super::InteractKeyPayload,
+) -> Result<(), BackendError> {
+    match backend {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
+            if !backend.runtime.initialized {
+                return Err(BackendError::Runtime("OBS not initialized".into()));
+            }
+            revo_backend::sources::browser_interact::dispatch_key(
+                &payload.source_id,
+                payload.kind,
+                &payload.key,
+                &payload.code,
+                payload.key_code,
+                &payload.text,
+            )
+            .map_err(BackendError::Runtime)
+        }),
+        super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
+            "interaction input requires the obs backend".into(),
+        )),
+    }
+}
+
+/// Re-runs the session's custom CSS/JS injection (Svelte
+/// `obs_interact_reapply`).
+#[cfg(feature = "obs-backend")]
+pub fn interact_reapply(backend: &super::AnyBackend, source_id: &str) -> Result<(), BackendError> {
+    let source_id = source_id.to_owned();
+    match backend {
+        super::AnyBackend::Obs(service) => service.call(move |backend: &mut ObsBackendRuntime| {
+            if !backend.runtime.initialized {
+                return Err(BackendError::Runtime("OBS not initialized".into()));
+            }
+            revo_backend::sources::browser_interact::reapply_code(&source_id)
+                .map_err(BackendError::Runtime)
+        }),
+        super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
+            "interaction reapply requires the obs backend".into(),
+        )),
+    }
+}
+
+/// Closes the source's CDP session and its headless browser (Svelte
+/// `obs_interact_close`). Fire-and-forget: errors cannot reach the UI once
+/// the window is gone.
+#[cfg(feature = "obs-backend")]
+pub fn interact_close_session(backend: &super::AnyBackend, source_id: &str) {
+    if let super::AnyBackend::Obs(service) = backend {
+        let source_id = source_id.to_owned();
+        let _ = service.call(move |backend: &mut ObsBackendRuntime| {
+            if backend.runtime.initialized {
+                revo_backend::sources::browser_interact::close_session(&source_id);
+            }
+            Ok::<(), BackendError>(())
+        });
     }
 }
 
