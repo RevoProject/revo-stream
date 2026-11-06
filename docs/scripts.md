@@ -17,12 +17,19 @@ Platform equivalents for the same gate:
 
 ## GPUI development on NixOS (`scripts/nix/`)
 
-- `dev.sh gpui` — run the native GPUI mock-data shell
-  (`crates/revo-gpui`) inside the Nix shell via nixGL.
+- `dev.sh` — run the native GPUI shell (default; delegates to
+  `run-gpui.sh`), the Tauri backend without UI (`dev.sh tauri`), or the
+  legacy frontend (`dev.sh tauri-frontend`)
+- `run-gpui.sh` — the verified GPUI launcher: resolves the X11 client
+  libraries and the Vulkan loader with nix, extends `LD_LIBRARY_PATH`, and
+  runs the shell with the host NVIDIA driver stack (works on the NVIDIA
+  container runtime; requires a desktop session with `DISPLAY` set).
+  GPU rendering uses default Vulkan device discovery — do not set
+  `VK_ICD_FILENAMES`.
 - `run.sh gpui` — run a previously built release GPUI binary
   (`crates/revo-gpui/target/release/revo-gpui`), with staleness checks against
-  the core crate sources; `run.sh tauri` (default) keeps the existing Tauri
-  behavior. The library path now also exposes fontconfig, Wayland, and the
+  the core crate sources; `run.sh tauri` keeps the existing Tauri
+  behavior. The library path also exposes fontconfig, Wayland, and the
   Vulkan loader required by GPUI.
 
 ## Root-level Tauri scripts

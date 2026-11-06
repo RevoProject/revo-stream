@@ -57,8 +57,9 @@ run_inside_shell() {
 if [ "$MODE" = "tauri-frontend" ]; then
   run_inside_shell "pnpm run tauri dev"
 elif [ "$MODE" = "gpui" ]; then
-  cd "$PROJECT_DIR/crates/revo-gpui"
-  run_inside_shell "cargo run"
+  # Native GPUI shell: resolves the X11/Vulkan runtime stack with nix and
+  # runs the binary with the host NVIDIA driver stack (see run-gpui.sh).
+  exec bash "$SCRIPT_DIR/run-gpui.sh"
 else
   cd "$PROJECT_DIR/src-tauri"
   run_inside_shell "cargo run --no-default-features"

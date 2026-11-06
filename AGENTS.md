@@ -153,8 +153,12 @@ The commands below operate on the current compatibility application.
 ### NixOS
 
 - `bash scripts/nix/dev.sh`: run the native GPUI shell in the Nix
-  environment (default); `dev.sh tauri` runs the Tauri backend without UI.
+  environment (default; delegates to `run-gpui.sh`); `dev.sh tauri` runs
+  the Tauri backend without UI.
 - `bash scripts/nix/dev.sh tauri-frontend`: run the legacy Tauri frontend path.
+- `bash scripts/nix/run-gpui.sh`: launch the native GPUI shell with the
+  X11/Vulkan runtime stack resolved by nix and the host NVIDIA driver stack
+  (verified on the NVIDIA container runtime; requires a desktop session).
 - `bash scripts/nix/compile.sh`: build the native GPUI release binary
   (default); `compile.sh tauri` builds legacy DEB and RPM bundles.
 - `bash scripts/nix/run.sh`: run the default release binary with Nix-provided
