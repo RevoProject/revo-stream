@@ -37,16 +37,16 @@
   preview loop captures PNG frames on the background executor, and `--obs`
   selects the backend at startup. The feature path was parse-checked only;
   full compile requires a provisioned host (libobs/libssl dev packages). The
-  remaining src-tauri removal blockers are the auxiliary-window Svelte routes
-  (interact/debug-console/preview/webview), the GPUI packaging layout, and
-  macOS main-thread libobs dispatch verification. The GPUI shell has not
-  replaced the Tauri application yet.
+  remaining src-tauri removal blockers are the GPUI packaging layout and
+  macOS main-thread libobs dispatch verification; the auxiliary Svelte routes
+  are removed and replaced by native GPUI windows (Preview, Debug Console,
+  Browser Interaction). The GPUI shell has not replaced the Tauri
+  application yet.
 - The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
-  `Modules`) and their only importers (`src/routes/+page.svelte`,
-  `src/routes/source-transform/`) are removed. The remaining Svelte routes
-  (`interact`, `debug-console`, `preview`, `webview`) serve Tauri auxiliary
-  windows only; the Tauri main window has no UI. The Tauri Rust backend
-  remains as the parity reference for `ObsRuntime` migration.
+  `Modules`) and all auxiliary routes are removed. `src/routes/+page.svelte`
+  is a placeholder notice; the legacy Tauri adapter has no interactive UI.
+  The Tauri Rust backend remains as the parity reference for `ObsRuntime`
+  migration.
 - Target application: one native Rust process rendered by GPUI, with no
   webview or JavaScript/Rust IPC boundary.
 - Migration specification and dependency analysis: `MIGRATIONS.md`.
