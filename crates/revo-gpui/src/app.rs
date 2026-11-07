@@ -84,6 +84,8 @@ pub enum ActiveModal {
     None,
     Settings,
     History,
+    Plugins,
+    Templates,
     AddScene,
     AddSource,
     SourceEditor(String),
@@ -112,6 +114,10 @@ pub struct WorkspaceState {
     /// Rotation angle of the boot-splash spinner (degrees); animated by a
     /// foreground task while [`Self::booted`] is false.
     pub splash_spin: f32,
+    /// Embedded Audio Mixer module visibility in the Tools panel.
+    pub tools_mixer_visible: bool,
+    /// Embedded Transitions module visibility in the Tools panel.
+    pub tools_transitions_visible: bool,
 }
 
 impl Default for WorkspaceState {
@@ -124,6 +130,8 @@ impl Default for WorkspaceState {
             settings: None,
             booted: false,
             splash_spin: 0.0,
+            tools_mixer_visible: true,
+            tools_transitions_visible: true,
         }
     }
 }
@@ -170,6 +178,14 @@ impl WorkspaceState {
             }
             ComponentEvent::OpenHistory => {
                 self.active_modal = ActiveModal::History;
+                return None;
+            }
+            ComponentEvent::OpenPlugins => {
+                self.active_modal = ActiveModal::Plugins;
+                return None;
+            }
+            ComponentEvent::OpenTemplates => {
+                self.status = "Templates: ready-made scene layouts are on the way".into();
                 return None;
             }
             ComponentEvent::OpenGraphicPlanner => {
@@ -972,6 +988,8 @@ impl Workspace {
                 cx.notify();
             }
             ActiveModal::History
+            | ActiveModal::Plugins
+            | ActiveModal::Templates
             | ActiveModal::AddScene
             | ActiveModal::AddSource
             | ActiveModal::SourceEditor(_)
@@ -1003,21 +1021,80 @@ impl Workspace {
         });
     }
 
+    /// The `.tools` section: four icon+label+description buttons over an
+    /// embedded tool module (mixer/transitions when toggled), plus the
+    /// auxiliary-window shortcuts below.
     fn tools(&self, cx: &mut Context<'_, Self>) -> gpui::Div {
+        let mixer_button = self.tool_button(
+            cx,
+            "tool-audio-mixer",
+            "tool-mixer",
+            "Audio Mixer",
+            "Volume, mute and devices",
+            |this, _, _, cx| {
+                this.state.tools_mixer_visible = !this.state.tools_mixer_visible;
+                cx.notify();
+            },
+        );
+        let transitions_button = self.tool_button(
+            cx,
+            "tool-transitions",
+            "tool-transitions",
+            "Transitions",
+            "Scene change effects",
+            |this, _, _, cx| {
+                this.state.tools_transitions_visible = !this.state.tools_transitions_visible;
+                cx.notify();
+            },
+        );
+        let plugins_button = self.tool_button(
+            cx,
+            "tool-plugins",
+            "tool-plugins",
+            "Plugins",
+            "Extend your control room",
+            |this, event, _, cx| {
+                this.route_event(ComponentEvent::OpenPlugins, cx);
+                cx.stop_propagation();
+            },
+        );
+        let templates_button = self.tool_button(
+            cx,
+            "tool-templates",
+            "tool-templates",
+            "Templates",
+            "Ready-made scene layouts",
+            |this, event, _, cx| {
+                this.route_event(ComponentEvent::OpenTemplates, cx);
+                cx.stop_propagation();
+            },
+        );
+
         div()
             .flex()
             .flex_col()
             .gap_2()
-            .p_3()
             .size_full()
-            .bg(self.theme.sidebar)
-            .border_1()
-            .border_color(self.theme.border)
-            .rounded_md()
             .text_color(self.theme.text)
             .child(div().text_color(self.theme.text_strong).child("Tools"))
-            .child(self.tools_mixer.clone())
-            .child(self.tools_transitions.clone())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(mixer_button)
+                    .child(transitions_button)
+                    .child(plugins_button)
+                    .child(templates_button),
+            )
+            .when(self.state.tools_mixer_visible, |section| {
+                section.child(self.tools_mixer.clone())
+            })
+            .when(self.state.tools_transitions_visible, |section| {
+                section.child(self.tools_transitions.clone())
+            })
             .child(
                 div()
                     .id("open-graphic-planner")
@@ -1077,16 +1154,99 @@ impl Workspace {
             )
     }
 
+    /// One `.tool-list` button: icon, two-line label with description, and a
+    /// chevron, styled per the Svelte reference.
+    #[allow(clippy::too_many_arguments)]
+    fn tool_button(
+        &self,
+        cx: &Context<'_, Self>,
+        id: &'static str,
+        icon_name: &'static str,
+        label: &'static str,
+        desc: &'static str,
+        on_click: impl Fn(&mut Workspace, &gpui::ClickEvent, &mut Window, &mut gpui::Context<'_, Workspace>)
+            + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(SharedString::from(id))
+            .cursor_pointer()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded_lg()
+            .bg(self.theme.surface)
+            .border_1()
+            .border_color(self.theme.border)
+            .text_color(self.theme.text)
+            .hover(|style| style.bg(self.theme.surface_active))
+            .on_click(cx.listener(on_click))
+            .child(crate::components::icon::icon(
+                self.theme.text,
+                icon_name,
+                15.,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .text_size(px(11.2))
+                            .font_weight(gpui::FontWeight(500.))
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .text_color(self.theme.text_muted)
+                            .text_size(px(9.2))
+                            .truncate()
+                            .child(desc),
+                    ),
+            )
+            .child(crate::components::icon::icon(
+                self.theme.text_muted,
+                "chevron-right",
+                13.,
+            ))
+    }
+
     /// The demo/preview surface. With the `obs-backend` feature the newest
     /// PNG preview frame from the real libobs scene output is rendered as a
     /// GPUI image; until the first frame lands (or for the mock backend) the
     /// demo placeholder is shown, including its "dims" status line.
+    /// The `.render` band from the Svelte layout: fills the space above the
+    /// panel section, centers content, and keeps the preview surface inside
+    /// a `min(960px, 100%)` live-preview column.
     fn preview_surface(&self) -> gpui::Div {
-        let base = div().flex_1().min_h(px(200.)).child(self.demo.clone());
+        let base = div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .w_full()
+            .max_w(px(960.))
+            .overflow_hidden()
+            .child(self.demo.clone());
+        let band = div()
+            .flex_1()
+            .min_h(px(200.))
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .px_6()
+            .pb_4()
+            .child(base);
         #[cfg(feature = "obs-backend")]
         {
             match &self.preview_frame {
-                Some(frame) => base.child(
+                Some(frame) => band.child(
                     div().id("preview-frame").size_full().child(
                         gpui::img(std::sync::Arc::clone(frame))
                             .size_full()
@@ -1097,7 +1257,7 @@ impl Workspace {
                 // `Arc<Image>` bytes directly, so this surfaces the libobs
                 // capture state instead of a blank surface while the stream
                 // of frames warms up.
-                None => base.child(
+                None => band.child(
                     div()
                         .text_color(self.theme.text_muted)
                         .child("OBS preview: waiting for first frame (150ms capture loop)"),
@@ -1106,41 +1266,57 @@ impl Workspace {
         }
         #[cfg(not(feature = "obs-backend"))]
         {
-            base
+            band
         }
     }
 
+    /// The bordered `.panel` section from the Svelte layout: fixed 240px
+    /// band (Wide), 1px border, 12px radius, 20px padding, 24px margin, and
+    /// equal-width columns with a 16px gap. Medium/Compact keep the
+    /// documented ordering and scroll instead of a fixed height.
     fn lower_panels(&self, cx: &mut Context<'_, Self>, mode: LayoutMode) -> gpui::Div {
         let [first, second, third] = mode.panel_order();
-        match mode {
+        let cells = match mode {
             LayoutMode::Wide => div()
                 .flex()
                 .flex_row()
-                .gap_2()
-                .child(div().flex_1().child(self.panel(cx, first)))
-                .child(div().flex_1().child(self.panel(cx, second)))
-                .child(div().flex_1().child(self.panel(cx, third))),
+                .gap_4()
+                .child(div().flex_1().min_w_0().child(self.panel(cx, first)))
+                .child(div().flex_1().min_w_0().child(self.panel(cx, second)))
+                .child(div().flex_1().min_w_0().child(self.panel(cx, third))),
             LayoutMode::Medium => div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap_4()
                 .child(
                     div()
                         .flex()
                         .flex_row()
-                        .gap_2()
-                        .child(div().flex_1().child(self.panel(cx, first)))
-                        .child(div().flex_1().child(self.panel(cx, second))),
+                        .gap_4()
+                        .child(div().flex_1().min_w_0().child(self.panel(cx, first)))
+                        .child(div().flex_1().min_w_0().child(self.panel(cx, second))),
                 )
-                .child(self.panel(cx, third)),
+                .child(div().min_h(px(180.)).child(self.panel(cx, third))),
             LayoutMode::Compact => div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap_4()
                 .child(self.panel(cx, first))
                 .child(self.panel(cx, second))
-                .child(self.panel(cx, third)),
-        }
+                .child(div().min_h(px(180.)).child(self.panel(cx, third))),
+        };
+        let band = match mode {
+            LayoutMode::Wide => div().h(px(240.)),
+            LayoutMode::Medium => div().max_h(px(250.)).h(px(420.)),
+            LayoutMode::Compact => div().h(px(560.)),
+        };
+        band.border_1()
+            .border_color(self.theme.border)
+            .rounded_lg()
+            .p_5()
+            .m_6()
+            .overflow_hidden()
+            .child(cells)
     }
 
     fn panel(&self, cx: &mut Context<'_, Self>, panel: PanelKind) -> gpui::Div {
@@ -1158,6 +1334,20 @@ impl Workspace {
             ActiveModal::History => Some((
                 ModalConfig::standard("Action History", ModalSize::Medium),
                 vec!["Undo and redo history will be supplied by the backend service.".into()],
+            )),
+            ActiveModal::Plugins => Some((
+                ModalConfig::standard("Plugins", ModalSize::Medium),
+                vec![
+                    "Plugin profiles and per-module enablement come from the backend service."
+                        .into(),
+                    "The legacy Svelte workflow lists discovered libobs modules with profile"
+                        .into(),
+                    "tabs and enable toggles; the native panel follows in the next slice.".into(),
+                ],
+            )),
+            ActiveModal::Templates => Some((
+                ModalConfig::standard("Templates", ModalSize::Medium),
+                vec!["Ready-made scene layouts are on the way.".into()],
             )),
             ActiveModal::AddScene => Some((
                 ModalConfig::standard("Add Scene", ModalSize::Small),

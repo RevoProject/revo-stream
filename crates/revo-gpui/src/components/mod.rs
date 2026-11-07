@@ -1,4 +1,5 @@
 pub mod home;
+pub mod icon;
 pub mod modal;
 pub mod modal_shell;
 pub mod modules;

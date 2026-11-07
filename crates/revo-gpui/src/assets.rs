@@ -106,6 +106,26 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/monitor.svg"),
     ),
     (
+        "icons/tool-mixer.svg",
+        include_bytes!("../assets/icons/tool-mixer.svg"),
+    ),
+    (
+        "icons/tool-transitions.svg",
+        include_bytes!("../assets/icons/tool-transitions.svg"),
+    ),
+    (
+        "icons/tool-plugins.svg",
+        include_bytes!("../assets/icons/tool-plugins.svg"),
+    ),
+    (
+        "icons/tool-templates.svg",
+        include_bytes!("../assets/icons/tool-templates.svg"),
+    ),
+    (
+        "icons/chevron-right.svg",
+        include_bytes!("../assets/icons/chevron-right.svg"),
+    ),
+    (
         "fonts/space-grotesk-400.ttf",
         include_bytes!("../assets/fonts/space-grotesk-400.ttf"),
     ),

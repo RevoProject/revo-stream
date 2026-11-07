@@ -13,6 +13,8 @@ pub enum AuxiliaryWindowKind {
 pub enum ComponentEvent {
     OpenSettings,
     OpenHistory,
+    OpenPlugins,
+    OpenTemplates,
     OpenGraphicPlanner,
     OpenPreviewWindow,
     OpenDebugConsoleWindow,
