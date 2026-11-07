@@ -383,6 +383,10 @@ impl ObsBackendRuntime {
                 scene_ops::reorder_scene(&mut self.runtime, name.clone(), to_index)
                     .map(|()| format!("scene reordered: {name} -> {to_index}"))
             }
+            BackendCommand::SetSceneLock { name, locked } => {
+                scene_ops::set_scene_lock(&mut self.runtime, name, locked)
+            }
+            BackendCommand::RemoveScene(name) => scene_ops::remove_scene(&mut self.runtime, name),
             BackendCommand::SelectSource(id) => {
                 self.selected_source = Some(id.clone());
                 Ok(format!("selected source: {id}"))
@@ -407,6 +411,18 @@ impl ObsBackendRuntime {
                 let direction = move_direction_label(direction);
                 source_ops::move_source(&self.runtime, id.clone(), direction.to_string())
                     .map(|()| format!("source moved: {id} {direction}"))
+            }
+            BackendCommand::RemoveSource(id) => {
+                source_ops::remove_source(&mut self.runtime, id.clone()).map(|message| {
+                    self.locked_sources.retain(|source| source != &id);
+                    self.muted_sources.retain(|source| source != &id);
+                    self.source_volumes.retain(|(source, _)| source != &id);
+                    self.volume_locked_sources.retain(|source| source != &id);
+                    if self.selected_source.as_deref() == Some(id.as_str()) {
+                        self.selected_source = None;
+                    }
+                    message
+                })
             }
             BackendCommand::SetSourceVolume { id, percent } => {
                 let volume = revo_core::service::clamp_volume_percent(percent);

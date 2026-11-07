@@ -116,6 +116,16 @@ impl BackendRuntime for MockBackendRuntime {
             BackendCommand::ReorderScene { name, to_index } => {
                 reorder(&mut self.snapshot.scenes, &name, to_index);
             }
+            BackendCommand::SetSceneLock { name, locked } => {
+                upsert_source_list(&mut self.snapshot.locked_scenes, &name, locked);
+            }
+            BackendCommand::RemoveScene(name) => {
+                self.snapshot.scenes.retain(|scene| *scene != name);
+                self.snapshot.locked_scenes.retain(|scene| *scene != name);
+                if self.snapshot.selected_scene.as_deref() == Some(name.as_str()) {
+                    self.snapshot.selected_scene = self.snapshot.scenes.first().cloned();
+                }
+            }
             BackendCommand::SelectSource(id) => self.snapshot.selected_source = Some(id),
             BackendCommand::ToggleSourceVisibility(id) => {
                 toggle_membership(&mut self.snapshot.visible_sources, id)
@@ -158,6 +168,14 @@ impl BackendRuntime for MockBackendRuntime {
             }
             BackendCommand::SetSourceVolumeLocked { id, locked } => {
                 upsert_source_list(&mut self.snapshot.volume_locked_sources, &id, locked);
+            }
+            BackendCommand::RemoveSource(id) => {
+                self.snapshot.sources.retain(|source| *source != id);
+                self.snapshot.visible_sources.retain(|source| *source != id);
+                self.snapshot.locked_sources.retain(|source| *source != id);
+                if self.snapshot.selected_source.as_deref() == Some(id.as_str()) {
+                    self.snapshot.selected_source = None;
+                }
             }
             BackendCommand::SetTransitionKind(kind) => {
                 self.snapshot.transition_kind = Some(kind);

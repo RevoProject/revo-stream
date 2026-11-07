@@ -41,6 +41,11 @@ pub enum BackendCommand {
         name: String,
         to_index: usize,
     },
+    SetSceneLock {
+        name: String,
+        locked: bool,
+    },
+    RemoveScene(String),
     SelectSource(String),
     ToggleSourceVisibility(String),
     ToggleSourceLock(String),
@@ -48,6 +53,7 @@ pub enum BackendCommand {
         id: String,
         direction: MoveDirection,
     },
+    RemoveSource(String),
     SetSourceVolume {
         id: String,
         percent: f64,
