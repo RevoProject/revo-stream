@@ -60,6 +60,12 @@ pub enum BackendCommand {
         direction: MoveDirection,
     },
     RemoveSource(String),
+    /// Update one source's name and/or settings params (Svelte parity:
+    /// `obs_update_source`) — powers the quick actions (Edit text, Change
+    /// color) and the source editor's General tab.
+    UpdateSource {
+        update: crate::models::SourceUpdate,
+    },
     SetSourceVolume {
         id: String,
         percent: f64,

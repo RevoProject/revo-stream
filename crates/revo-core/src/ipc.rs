@@ -25,11 +25,22 @@ use crate::service::BackendCommand;
 /// corrupted stream.
 pub const MAX_FRAME_BYTES: u32 = 32 * 1024 * 1024;
 
+/// One libobs debug-log row, mirroring the engine process's debug-log
+/// registry (`revo-backend::logging::debug`). The detail JSON value travels
+/// as its serialized string so the wire format stays JSON-friendly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DebugLogEntry {
+    pub timestamp_ms: u64,
+    pub action: String,
+    pub detail_json: Option<String>,
+}
+
 /// Requests sent from the UI client to the engine process.
 ///
 /// Requests carrying a `request_id` get a correlated reply (same id on
 /// [`EngineToUi::PreviewFrameData`] / [`EngineToUi::InteractReply`] /
-/// [`EngineToUi::Error`]); fire-and-forget requests have none.
+/// [`EngineToUi::DebugLogHistoryData`] / [`EngineToUi::Error`]);
+/// fire-and-forget requests have none.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum UiToEngine {
     /// Apply one typed backend command; the engine replies with a fresh
@@ -76,6 +87,13 @@ pub enum UiToEngine {
     InteractReapply { request_id: u64, source_id: String },
     /// Close the source's CDP session and its headless browser.
     InteractClose { source_id: String },
+    /// Fetch the engine's libobs debug-log history; answered with
+    /// [`EngineToUi::DebugLogHistoryData`]. The debug console reads libobs
+    /// logs this way because the registry lives in the engine process.
+    DebugLogHistory { request_id: u64 },
+    /// Clear the engine's libobs debug-log registry; answered with
+    /// [`EngineToUi::DebugLogCleared`].
+    DebugLogClear { request_id: u64 },
     /// Stop the engine: the libobs runtime shuts down and the process exits.
     Shutdown,
 }
@@ -101,6 +119,14 @@ pub enum EngineToUi {
         request_id: u64,
         data_uri: Option<String>,
     },
+    /// Correlated reply to [`UiToEngine::DebugLogHistory`]: the engine
+    /// process's libobs debug-log registry contents.
+    DebugLogHistoryData {
+        request_id: u64,
+        entries: Vec<DebugLogEntry>,
+    },
+    /// Correlated reply to [`UiToEngine::DebugLogClear`].
+    DebugLogCleared { request_id: u64 },
     /// Text for the status line (command results and startup errors).
     Status(String),
     /// Protocol-level or request failure; `request_id` correlates it with
@@ -194,6 +220,26 @@ mod tests {
         let (decoded, consumed) = decode_frame::<EngineToUi>(&frame).expect("frame decodes");
         assert_eq!(consumed, frame.len());
         assert_eq!(decoded, message);
+    }
+
+    #[test]
+    fn frames_roundtrip_debug_log_payloads() {
+        let request = UiToEngine::DebugLogHistory { request_id: 7 };
+        let frame = encode_frame(&request).expect("request frame encodes");
+        let (decoded, _) = decode_frame::<UiToEngine>(&frame).expect("request decodes");
+        assert_eq!(decoded, request);
+
+        let reply = EngineToUi::DebugLogHistoryData {
+            request_id: 7,
+            entries: vec![DebugLogEntry {
+                timestamp_ms: 12,
+                action: "obs_output_start".into(),
+                detail_json: Some("{\"key\":\"value\"}".into()),
+            }],
+        };
+        let frame = encode_frame(&reply).expect("reply frame encodes");
+        let (decoded, _) = decode_frame::<EngineToUi>(&frame).expect("reply decodes");
+        assert_eq!(decoded, reply);
     }
 
     #[test]

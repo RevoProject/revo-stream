@@ -4,6 +4,11 @@
 /// Canvas dimensions used when no live or configured resolution resolves.
 pub const DEFAULT_SCENE_RESOLUTION: (u32, u32) = (1920, 1080);
 
+/// Aspect ratio (width / height) of [`DEFAULT_SCENE_RESOLUTION`]; the
+/// preview frames use it when no configured resolution resolves.
+pub const DEFAULT_SCENE_RESOLUTION_RATIO: f32 =
+    DEFAULT_SCENE_RESOLUTION.0 as f32 / DEFAULT_SCENE_RESOLUTION.1 as f32;
+
 /// Largest uniform scale that fits `base` inside `canvas`, never upscaling.
 pub fn fit_scale(
     base_width: u32,

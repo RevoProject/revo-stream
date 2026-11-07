@@ -184,7 +184,7 @@ pub struct PlannerInitInput {
     pub scene_name: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct SourceUpdate {
     pub id: String,
     pub name: String,
