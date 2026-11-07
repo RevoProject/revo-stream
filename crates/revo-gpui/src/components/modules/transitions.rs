@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
 
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{
+    div, prelude::*, px, Context, FocusHandle, IntoElement, KeyDownEvent, MouseButton, Render,
+    SharedString, Window,
+};
 
-use crate::theme::RevoTheme;
+use crate::{components::text_field::apply_line_keystroke, theme::RevoTheme};
 
 const DURATION_APPLY_MIN: i64 = 50;
 const DURATION_APPLY_MAX: i64 = 20000;
@@ -150,7 +153,17 @@ pub struct TransitionItem {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransitionEvent {
-    Apply { kind: String, duration_ms: u32 },
+    Apply {
+        kind: String,
+        duration_ms: u32,
+    },
+    /// A transition was created in the draft list (Svelte parity: the
+    /// add-transition section); persistence still happens through `Apply`.
+    Added {
+        name: String,
+    },
+    /// A transition draft was removed from the list.
+    Removed,
     Discard,
 }
 
@@ -169,6 +182,18 @@ pub struct TransitionsPanel {
     snapshot: Option<TransitionsSnapshot>,
     next_id: u64,
     pub theme: RevoTheme,
+    /// Lazily created focus handle for the keystroke-driven text fields, plus
+    /// the slot currently focused.
+    field_focus: Option<FocusHandle>,
+    focused_field: Option<FieldSlot>,
+}
+
+/// Identifies which draft text field currently owns keyboard input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldSlot {
+    NewName,
+    SelectedName,
+    SelectedDuration,
 }
 
 impl gpui::EventEmitter<TransitionEvent> for TransitionsPanel {}
@@ -185,7 +210,16 @@ impl TransitionsPanel {
             snapshot: None,
             next_id,
             theme,
+            field_focus: None,
+            focused_field: None,
         }
+    }
+
+    /// Lazily created focus handle backing the panel's keystroke fields.
+    fn focus_handle_or_create(&mut self, cx: &mut Context<Self>) -> FocusHandle {
+        self.field_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone()
     }
 
     pub fn begin_edit(&mut self) {
@@ -327,15 +361,140 @@ impl TransitionsPanel {
             self.active_id = snapshot.active_id;
         }
     }
+
+    /// Cycles the new-transition kind selector to the next kind.
+    pub fn cycle_new_kind(&mut self) {
+        let all = TransitionKind::all();
+        let index = all
+            .iter()
+            .position(|kind| *kind == self.new_kind)
+            .map_or(0, |index| (index + 1) % all.len());
+        self.new_kind = all[index];
+    }
+
+    /// Cycles the selected transition's kind, blending its params.
+    pub fn cycle_selected_kind(&mut self) {
+        let Some(id) = self.selected_id.clone() else {
+            return;
+        };
+        if let Some(item) = self.items.iter().find(|item| item.id == id) {
+            let all = TransitionKind::all();
+            let next = all
+                .iter()
+                .position(|kind| *kind == item.kind)
+                .map_or(0, |index| (index + 1) % all.len());
+            let kind = all[next];
+            self.set_transition_kind(&id, kind);
+        }
+    }
+
+    /// Routes one keystroke into the focused draft field; digits-only for
+    /// the duration field. Returns true when the value changed.
+    pub fn apply_field_keystroke(&mut self, keystroke: &gpui::Keystroke) -> bool {
+        let Some(slot) = self.focused_field else {
+            return false;
+        };
+        let (current, digits_only) = match slot {
+            FieldSlot::NewName => (self.new_name.clone(), false),
+            FieldSlot::SelectedName => (
+                self.selected_item()
+                    .map(|item| item.name.clone())
+                    .unwrap_or_default(),
+                false,
+            ),
+            FieldSlot::SelectedDuration => (
+                self.selected_item()
+                    .and_then(|item| item.params.get("duration_ms").cloned())
+                    .unwrap_or_default(),
+                true,
+            ),
+        };
+        let key_char = keystroke
+            .key_char
+            .as_deref()
+            .filter(|chars| !digits_only || chars.chars().all(|c| c.is_ascii_digit()));
+        match apply_line_keystroke(
+            &current,
+            &keystroke.key,
+            key_char,
+            keystroke.modifiers.control,
+            keystroke.modifiers.alt,
+            keystroke.modifiers.platform,
+        ) {
+            Some(next) if next != current => {
+                match slot {
+                    FieldSlot::NewName => self.new_name = next,
+                    FieldSlot::SelectedName => {
+                        if let Some(id) = self.selected_id.clone() {
+                            self.set_transition_name(&id, next);
+                        }
+                    }
+                    FieldSlot::SelectedDuration => {
+                        if let Some(id) = self.selected_id.clone() {
+                            let parsed = next.trim().parse::<i64>().unwrap_or(0);
+                            self.set_transition_duration_ms(&id, parsed);
+                        }
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn draft_field(
+        &mut self,
+        id: &'static str,
+        slot: FieldSlot,
+        placeholder: &str,
+        value: String,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let focus = self.focus_handle_or_create(cx);
+        let focused = self.focused_field == Some(slot);
+        div()
+            .id(id)
+            .cursor_pointer()
+            .min_w(px(120.))
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if focused {
+                self.theme.accent
+            } else {
+                self.theme.border_strong
+            })
+            .bg(self.theme.surface_elevated)
+            .text_color(if value.is_empty() {
+                self.theme.text_muted
+            } else {
+                self.theme.text
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    this.focused_field = Some(slot);
+                    focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .child(if value.is_empty() {
+                SharedString::from(placeholder.to_string())
+            } else {
+                SharedString::from(value)
+            })
+    }
 }
 
 impl Render for TransitionsPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mut cards = div().flex().flex_col().gap_1();
-        for (index, item) in self.items.iter().enumerate() {
+        for (index, item) in self.items.clone().into_iter().enumerate() {
             let id = item.id.clone();
             let selected = self.selected_id.as_deref() == Some(&id);
             let active = self.active_id.as_deref() == Some(&id);
+            let remove_id = id.clone();
             cards = cards.child(
                 div()
                     .id(SharedString::from(format!("transition-card-{id}")))
@@ -362,7 +521,31 @@ impl Render for TransitionsPanel {
                             } else {
                                 item.name.clone()
                             })
-                            .child(item.kind.label()),
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(item.kind.label())
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "transition-remove-{id}"
+                                            )))
+                                            .cursor_pointer()
+                                            .px_1()
+                                            .text_color(self.theme.text_muted)
+                                            .hover(|style| style.text_color(self.theme.danger))
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                this.remove_transition(&remove_id);
+                                                cx.emit(TransitionEvent::Removed);
+                                                cx.notify();
+                                            }))
+                                            .child("✕"),
+                                    ),
+                            ),
                     )
                     .child(
                         div()
@@ -381,7 +564,213 @@ impl Render for TransitionsPanel {
             );
         }
 
+        // Svelte-parity "Add transition" section: name field, kind selector,
+        // and a create button appending a draft transition to the list.
+        let new_kind_label = self.new_kind.label().to_string();
+        let add_section = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_2()
+            .rounded_md()
+            .bg(self.theme.surface_elevated)
+            .border_1()
+            .border_color(self.theme.border)
+            .child(
+                div()
+                    .text_color(self.theme.text_secondary)
+                    .text_size(px(11.))
+                    .child("Add transition"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(self.draft_field(
+                        "transition-new-name",
+                        FieldSlot::NewName,
+                        "Transition name…",
+                        self.new_name.clone(),
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .id("transition-new-kind")
+                            .cursor_pointer()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(self.theme.surface_active)
+                            .text_color(self.theme.text)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cycle_new_kind();
+                                cx.notify();
+                            }))
+                            .child(SharedString::from(new_kind_label)),
+                    )
+                    .child(
+                        div()
+                            .id("transition-add")
+                            .cursor_pointer()
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .bg(self.theme.accent)
+                            .text_color(self.theme.text_strong)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(id) = this.add_transition(this.new_kind) {
+                                    this.select(&id);
+                                    cx.emit(TransitionEvent::Added {
+                                        name: this
+                                            .items
+                                            .iter()
+                                            .find(|item| item.id == id)
+                                            .map(|item| item.name.clone())
+                                            .unwrap_or_else(|| id.clone()),
+                                    });
+                                }
+                                cx.notify();
+                            }))
+                            .child("Add transition"),
+                    ),
+            );
+
+        // Selected-transition editor: rename, switch kind, set as the active
+        // program transition, or remove the draft entirely.
+        let selected_section = self
+            .selected_id
+            .clone()
+            .and_then(|id| self.items.iter().find(|item| item.id == id).cloned())
+            .map(|item| {
+                let kind_label = item.kind.label().to_string();
+                let duration = item
+                    .params
+                    .get("duration_ms")
+                    .cloned()
+                    .unwrap_or_else(|| "300".into());
+                let active = self.active_id.as_deref() == Some(item.id.as_str());
+                let item_id = item.id.clone();
+                let set_active_id = item.id.clone();
+                let is_active_id = item.id.clone();
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_elevated)
+                    .border_1()
+                    .border_color(self.theme.border)
+                    .child(
+                        div()
+                            .text_color(self.theme.text_secondary)
+                            .text_size(px(11.))
+                            .child(SharedString::from(format!(
+                                "Editing: {}",
+                                if item.name.is_empty() {
+                                    "Transition".to_string()
+                                } else {
+                                    item.name.clone()
+                                }
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .flex_wrap()
+                            .child(self.draft_field(
+                                "transition-selected-name",
+                                FieldSlot::SelectedName,
+                                "Name…",
+                                item.name.clone(),
+                                cx,
+                            ))
+                            .child(self.draft_field(
+                                "transition-selected-duration",
+                                FieldSlot::SelectedDuration,
+                                "Duration (ms)",
+                                duration,
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .id("transition-selected-kind")
+                                    .cursor_pointer()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(self.theme.surface_active)
+                                    .text_color(self.theme.text)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cycle_selected_kind();
+                                        cx.notify();
+                                    }))
+                                    .child(SharedString::from(kind_label)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("transition-set-active")
+                                    .cursor_pointer()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(if active {
+                                        self.theme.border_selected
+                                    } else {
+                                        self.theme.surface_active
+                                    })
+                                    .text_color(self.theme.text)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.set_active(&set_active_id);
+                                        cx.notify();
+                                    }))
+                                    .child(if active { "Active ✓" } else { "Set active" }),
+                            )
+                            .child(
+                                div()
+                                    .id("transition-selected-remove")
+                                    .cursor_pointer()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(self.theme.surface_active)
+                                    .text_color(self.theme.danger)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.remove_transition(&is_active_id);
+                                        cx.emit(TransitionEvent::Removed);
+                                        cx.notify();
+                                    }))
+                                    .child("Remove"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_color(self.theme.text_muted)
+                            .text_size(px(10.))
+                            .child(SharedString::from(format!("id: {item_id}"))),
+                    )
+            });
+
+        let focus = self.focus_handle_or_create(cx);
+        let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
+            if this.apply_field_keystroke(&event.keystroke) {
+                cx.notify();
+            }
+        });
+
         crate::components::panel(self.theme)
+            .track_focus(&focus)
+            .on_key_down(on_key)
             .child(div().child("Transitions"))
             .child(cards)
             .child(if self.items.is_empty() {
@@ -389,6 +778,11 @@ impl Render for TransitionsPanel {
                     .text_color(self.theme.text_muted)
                     .child("No transitions configured.")
             } else {
+                div()
+            })
+            .child(add_section)
+            .children(selected_section)
+            .child(
                 div()
                     .flex()
                     .flex_row()
@@ -426,8 +820,8 @@ impl Render for TransitionsPanel {
                                 }
                                 cx.notify();
                             })),
-                    )
-            })
+                    ),
+            )
     }
 }
 
