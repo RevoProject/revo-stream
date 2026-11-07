@@ -26,6 +26,10 @@ use crate::service::{BackendCommand, BackendSnapshot};
 pub const MAX_FRAME_BYTES: u32 = 32 * 1024 * 1024;
 
 /// Requests sent from the UI client to the engine process.
+///
+/// Requests carrying a `request_id` get a correlated reply (same id on
+/// [`EngineToUi::PreviewFrameData`] / [`EngineToUi::InteractReply`] /
+/// [`EngineToUi::Error`]); fire-and-forget requests have none.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum UiToEngine {
     /// Apply one typed backend command; the engine replies with a fresh
@@ -33,13 +37,27 @@ pub enum UiToEngine {
     Command(BackendCommand),
     /// Ask for an immediate [`EngineToUi::Snapshot`].
     RequestSnapshot,
+    /// Capture one preview frame now: `None` for the current scene
+    /// composite, `Some(id)` for a single source; answered with
+    /// [`EngineToUi::PreviewFrameData`].
+    PreviewFrameOnce {
+        request_id: u64,
+        source_id: Option<String>,
+    },
     /// Open the browser-interaction CDP session for one source.
-    InteractOpen { source_id: String },
+    InteractOpen {
+        request_id: u64,
+        source_id: String,
+    },
     /// Capture the newest browser-source frame; answered with
-    /// [`EngineToUi::InteractFrame`].
-    InteractFrame { source_id: String },
+    /// [`EngineToUi::InteractReply`].
+    InteractFrame {
+        request_id: u64,
+        source_id: String,
+    },
     /// Forward one typed mouse event to the source's CDP session.
     InteractMouse {
+        request_id: u64,
         source_id: String,
         kind: String,
         x: f64,
@@ -52,6 +70,7 @@ pub enum UiToEngine {
     },
     /// Forward one typed key event to the source's CDP session.
     InteractKey {
+        request_id: u64,
         source_id: String,
         kind: String,
         key: String,
@@ -60,7 +79,10 @@ pub enum UiToEngine {
         text: String,
     },
     /// Re-run the session's custom CSS/JS injection.
-    InteractReapply { source_id: String },
+    InteractReapply {
+        request_id: u64,
+        source_id: String,
+    },
     /// Close the source's CDP session and its headless browser.
     InteractClose { source_id: String },
     /// Stop the engine: the libobs runtime shuts down and the process exits.
@@ -76,17 +98,26 @@ pub enum EngineToUi {
     /// pushes these on its own cadence so the UI never blocks the libobs
     /// graphics thread.
     PreviewFrame { data_uri: String },
-    /// Reply to [`UiToEngine::InteractFrame`]; `None` when the session has
-    /// no frame yet.
-    InteractFrame {
-        source_id: String,
+    /// Correlated reply to [`UiToEngine::PreviewFrameOnce`]; `None` when no
+    /// frame could be captured (engine not running, unknown source).
+    PreviewFrameData {
+        request_id: u64,
+        data_uri: Option<String>,
+    },
+    /// Correlated reply to the browser-interaction requests; `None` when the
+    /// session has no frame yet or the call produced no artifact.
+    InteractReply {
+        request_id: u64,
         data_uri: Option<String>,
     },
     /// Text for the status line (command results and startup errors).
     Status(String),
-    /// Protocol-level failure (undecodable state, capture failure); the UI
-    /// surfaces it as a backend error.
-    Error(String),
+    /// Protocol-level or request failure; `request_id` correlates it with
+    /// the originating request when one exists.
+    Error {
+        request_id: Option<u64>,
+        message: String,
+    },
 }
 
 /// Serializes one message into a length-prefixed frame.

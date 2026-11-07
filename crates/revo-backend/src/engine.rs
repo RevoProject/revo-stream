@@ -13,7 +13,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use revo_core::ipc::{decode_frame, encode_frame, EngineToUi, UiToEngine};
-use revo_core::service::BackendRuntime;
+use revo_core::service::{BackendError, BackendRuntime};
 
 use crate::obs_service::{ObsBackendRuntime, PREVIEW_CAPTURE_INTERVAL_MS};
 
@@ -88,9 +88,15 @@ fn apply_request(
         UiToEngine::Command(command) => {
             let result = backend.execute(command);
             // Command results surface through the next snapshot (including
-            // last_error); the status text is informational only.
+            // last_error); protocol errors travel separately.
             if let Err(error) = result {
-                let _ = send(stream, &EngineToUi::Status(error.to_string()));
+                let _ = send(
+                    stream,
+                    &EngineToUi::Error {
+                        request_id: None,
+                        message: error.to_string(),
+                    },
+                );
             }
             push_snapshot(stream, backend);
             true
@@ -99,25 +105,51 @@ fn apply_request(
             push_snapshot(stream, backend);
             true
         }
-        UiToEngine::InteractOpen { source_id } => {
-            let outcome = backend.interact_open(&source_id);
-            reply_interaction(stream, backend, outcome);
-            true
-        }
-        UiToEngine::InteractFrame { source_id } => {
-            let data_uri = backend.interact_frame(&source_id);
-            let message = match data_uri {
-                Ok(data_uri) => EngineToUi::InteractFrame {
-                    source_id,
+        UiToEngine::PreviewFrameOnce {
+            request_id,
+            source_id,
+        } => {
+            let data_uri = backend.capture_preview_png(source_id.as_deref()).ok();
+            let _ = send(
+                stream,
+                &EngineToUi::PreviewFrameData {
+                    request_id,
                     data_uri,
                 },
-                Err(error) => EngineToUi::Error(error.to_string()),
+            );
+            true
+        }
+        UiToEngine::InteractOpen {
+            request_id,
+            source_id,
+        } => {
+            let message = match backend.interact_open(&source_id) {
+                Ok(()) => EngineToUi::InteractReply {
+                    request_id,
+                    data_uri: None,
+                },
+                Err(error) => error_to_reply(request_id, error),
             };
             let _ = send(stream, &message);
             push_snapshot(stream, backend);
             true
         }
+        UiToEngine::InteractFrame {
+            request_id,
+            source_id,
+        } => {
+            let message = match backend.interact_frame(&source_id) {
+                Ok(data_uri) => EngineToUi::InteractReply {
+                    request_id,
+                    data_uri,
+                },
+                Err(error) => error_to_reply(request_id, error),
+            };
+            let _ = send(stream, &message);
+            true
+        }
         UiToEngine::InteractMouse {
+            request_id,
             source_id,
             kind,
             x,
@@ -128,7 +160,7 @@ fn apply_request(
             delta_x,
             delta_y,
         } => {
-            let outcome = backend.interact_mouse(
+            let message = match backend.interact_mouse(
                 &source_id,
                 &kind,
                 x,
@@ -138,11 +170,18 @@ fn apply_request(
                 click_count,
                 delta_x,
                 delta_y,
-            );
-            reply_interaction(stream, backend, outcome);
+            ) {
+                Ok(()) => EngineToUi::InteractReply {
+                    request_id,
+                    data_uri: None,
+                },
+                Err(error) => error_to_reply(request_id, error),
+            };
+            let _ = send(stream, &message);
             true
         }
         UiToEngine::InteractKey {
+            request_id,
             source_id,
             kind,
             key,
@@ -150,13 +189,29 @@ fn apply_request(
             key_code,
             text,
         } => {
-            let outcome = backend.interact_key(&source_id, &kind, &key, &code, key_code, &text);
-            reply_interaction(stream, backend, outcome);
+            let message =
+                match backend.interact_key(&source_id, &kind, &key, &code, key_code, &text) {
+                    Ok(()) => EngineToUi::InteractReply {
+                        request_id,
+                        data_uri: None,
+                    },
+                    Err(error) => error_to_reply(request_id, error),
+                };
+            let _ = send(stream, &message);
             true
         }
-        UiToEngine::InteractReapply { source_id } => {
-            let outcome = backend.interact_reapply(&source_id);
-            reply_interaction(stream, backend, outcome);
+        UiToEngine::InteractReapply {
+            request_id,
+            source_id,
+        } => {
+            let message = match backend.interact_reapply(&source_id) {
+                Ok(()) => EngineToUi::InteractReply {
+                    request_id,
+                    data_uri: None,
+                },
+                Err(error) => error_to_reply(request_id, error),
+            };
+            let _ = send(stream, &message);
             true
         }
         UiToEngine::InteractClose { source_id } => {
@@ -166,17 +221,17 @@ fn apply_request(
     }
 }
 
-/// Sends one interaction outcome snapshot; errors surface through
-/// `last_error` on the next snapshot rather than the status text.
-fn reply_interaction(
-    stream: &mut UnixStream,
-    backend: &mut ObsBackendRuntime,
-    outcome: Result<(), revo_core::service::BackendError>,
-) {
-    if let Err(revo_core::service::BackendError::Runtime(message)) = &outcome {
-        let _ = send(stream, &EngineToUi::Status(message.clone()));
+/// Correlates a request failure back to the client; runtime failures carry
+/// their message, queue/protocol failures their display form.
+fn error_to_reply(request_id: u64, error: BackendError) -> EngineToUi {
+    let message = match &error {
+        BackendError::Runtime(message) => message.clone(),
+        other => other.to_string(),
+    };
+    EngineToUi::Error {
+        request_id: Some(request_id),
+        message,
     }
-    push_snapshot(stream, backend);
 }
 
 fn push_snapshot(stream: &mut UnixStream, backend: &mut ObsBackendRuntime) {
@@ -239,6 +294,24 @@ mod tests {
         assert!(matches!(
             read_message(&mut client).expect("requested snapshot"),
             EngineToUi::Snapshot(_)
+        ));
+
+        // Correlated preview request; the engine is offline so the reply
+        // carries no frame but must carry this request's id.
+        send_message(
+            &mut client,
+            &UiToEngine::PreviewFrameOnce {
+                request_id: 41,
+                source_id: None,
+            },
+        )
+        .expect("preview request");
+        assert!(matches!(
+            read_message(&mut client).expect("preview reply"),
+            EngineToUi::PreviewFrameData {
+                request_id: 41,
+                data_uri: None,
+            }
         ));
 
         // Shutdown stops the serve loop.
