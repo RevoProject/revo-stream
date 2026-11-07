@@ -14,6 +14,7 @@ pub struct SourceItem {
     pub name: String,
     pub source_type: String,
     pub visible: bool,
+    pub audio_capable: bool,
     pub locked: bool,
 }
 
@@ -107,17 +108,76 @@ impl SourcesPanel {
     }
 }
 
-/// Maps an OBS source type onto the shell's icon vocabulary.
-fn source_type_icon(source_type: &str) -> &'static str {
+/// Audio capture type prefixes, mirrored from the Svelte
+/// `sourceClassification.ts` module.
+const AUDIO_CAPTURE_TYPE_PREFIXES: [&str; 4] = ["wasapi_", "pipewire_", "pulse_", "alsa_"];
+
+fn is_audio_capture_source_type(source_type: &str) -> bool {
+    let value = source_type.to_ascii_lowercase();
+    AUDIO_CAPTURE_TYPE_PREFIXES
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
+        || value.contains("audio_input")
+        || value.contains("audio_output")
+        || value.contains("audio_capture")
+        || value.contains("audio_line")
+}
+
+fn is_video_like_source_type(source_type: &str) -> bool {
+    let value = source_type.to_ascii_lowercase();
+    value.contains("video")
+        || value.contains("v4l2")
+        || value.contains("camera")
+        || value.contains("webcam")
+        || value.contains("dshow")
+        || value.contains("window")
+        || value.contains("xcomposite")
+        || value.contains("display")
+        || value.contains("screen")
+        || value.contains("game_capture")
+}
+
+/// Maps an OBS source type onto the shell's icon vocabulary, mirroring the
+/// Svelte `sourceTypeIconPath` mapping (check order matters).
+pub(crate) fn source_type_icon(source_type: &str, audio_capable: bool) -> &'static str {
     let kind = source_type.to_ascii_lowercase();
     if kind.contains("browser") {
-        "interact"
-    } else if kind.contains("text") {
-        "file-text"
-    } else if kind.contains("capture") || kind.contains("xshm") || kind.contains("window") {
-        "monitor"
+        "browser"
     } else if kind.contains("image") || kind.contains("slideshow") {
-        "monitor"
+        "image"
+    } else if kind.contains("text") {
+        "text-icon"
+    } else if kind.contains("color") {
+        "color"
+    } else if kind.contains("game") {
+        "game"
+    } else if kind.contains("camera")
+        || kind.contains("webcam")
+        || kind.contains("video_capture")
+        || kind.contains("v4l2")
+        || kind == "video"
+    {
+        "camera"
+    } else if kind.contains("pulse")
+        || kind.contains("pipewire")
+        || kind.contains("alsa")
+        || kind.contains("audio")
+    {
+        "audio"
+    } else if kind.contains("ffmpeg") || kind.contains("media") {
+        "media"
+    } else if !is_video_like_source_type(&kind)
+        && (audio_capable || is_audio_capture_source_type(&kind))
+    {
+        "audio"
+    } else if kind.contains("window")
+        || kind.contains("xcomposite")
+        || kind.contains("display")
+        || kind.contains("screen")
+        || kind.contains("capture")
+        || kind == "capture"
+    {
+        "display"
     } else {
         "source"
     }
@@ -180,7 +240,7 @@ impl Render for SourcesPanel {
                         } else {
                             self.theme.text_muted
                         },
-                        source_type_icon(&source.source_type),
+                        source_type_icon(&source.source_type, source.audio_capable),
                         14.,
                     ))
                     .child(
@@ -264,8 +324,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .bg(self.theme.surface_active)
-                            .child(if source.visible { "Visible" } else { "Hidden" })
+                            .child(crate::components::icon::icon(
+                                self.theme.text,
+                                if source.visible { "eye" } else { "eye-off" },
+                                13.,
+                            ))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 if let Some(event) = this.toggle_visibility(&visible_id) {
@@ -281,8 +348,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .bg(self.theme.surface_active)
-                            .child(if source.locked { "Locked" } else { "Unlocked" })
+                            .child(crate::components::icon::icon(
+                                self.theme.text,
+                                if source.locked { "lock" } else { "unlock" },
+                                13.,
+                            ))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 if let Some(event) = this.toggle_lock(&lock_id) {
@@ -298,8 +372,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .bg(self.theme.accent)
-                            .child("Edit")
+                            .child(crate::components::icon::icon(
+                                self.theme.text_strong,
+                                "pencil",
+                                13.,
+                            ))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
                                 cx.emit(ComponentEvent::EditSource(edit_id.clone()));
@@ -367,6 +448,7 @@ mod tests {
                 name: "Lower third".into(),
                 source_type: "text_ft2_source_v2".into(),
                 visible: true,
+                    audio_capable: false,
                 locked: false,
             }],
             selected_id: None,
@@ -394,6 +476,7 @@ mod tests {
                 name: "Camera".into(),
                 source_type: "v4l2_input".into(),
                 visible: false,
+                    audio_capable: false,
                 locked: true,
             }],
             selected_id: None,
@@ -428,6 +511,7 @@ mod tests {
                     name: "Bottom".into(),
                     source_type: "image_source".into(),
                     visible: true,
+                    audio_capable: false,
                     locked: false,
                 },
                 SourceItem {
@@ -435,6 +519,7 @@ mod tests {
                     name: "Top".into(),
                     source_type: "image_source".into(),
                     visible: true,
+                    audio_capable: false,
                     locked: false,
                 },
             ],

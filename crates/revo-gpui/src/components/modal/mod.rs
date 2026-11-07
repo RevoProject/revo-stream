@@ -1,5 +1,3 @@
-use gpui::SharedString;
-
 macro_rules! structural_modal {
     ($name:ident, $title:literal, $size:ident, [$($line:literal),+ $(,)?]) => {
         pub struct $name {

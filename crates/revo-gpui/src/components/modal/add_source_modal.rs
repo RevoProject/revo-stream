@@ -142,7 +142,7 @@ impl AddSourceModal {
                     .cursor_pointer()
                     .flex()
                     .flex_col()
-                    .gap_0p5()
+                    .gap_1()
                     .w(px(148.))
                     .px_2()
                     .py_1p5()
@@ -168,6 +168,18 @@ impl AddSourceModal {
                         this.error = None;
                         cx.notify();
                     }))
+                    .child(crate::components::icon::icon(
+                        if selected {
+                            self.theme.text_strong
+                        } else {
+                            self.theme.text_muted
+                        },
+                        crate::components::home::sources_panel::source_type_icon(
+                            &item.id,
+                            item.audio_capable,
+                        ),
+                        18.,
+                    ))
                     .child(
                         div()
                             .text_size(px(11.2))

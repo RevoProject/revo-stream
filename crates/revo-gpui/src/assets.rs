@@ -149,6 +149,35 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/video.svg"),
     ),
     (
+        "icons/browser.svg",
+        include_bytes!("../assets/icons/browser.svg"),
+    ),
+    (
+        "icons/image.svg",
+        include_bytes!("../assets/icons/image.svg"),
+    ),
+    (
+        "icons/text-icon.svg",
+        include_bytes!("../assets/icons/text-icon.svg"),
+    ),
+    (
+        "icons/color.svg",
+        include_bytes!("../assets/icons/color.svg"),
+    ),
+    ("icons/game.svg", include_bytes!("../assets/icons/game.svg")),
+    (
+        "icons/camera.svg",
+        include_bytes!("../assets/icons/camera.svg"),
+    ),
+    (
+        "icons/media.svg",
+        include_bytes!("../assets/icons/media.svg"),
+    ),
+    (
+        "icons/display.svg",
+        include_bytes!("../assets/icons/display.svg"),
+    ),
+    (
         "fonts/space-grotesk-400.ttf",
         include_bytes!("../assets/fonts/space-grotesk-400.ttf"),
     ),
