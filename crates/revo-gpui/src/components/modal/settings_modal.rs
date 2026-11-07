@@ -29,16 +29,18 @@ impl Focusable for SettingsModal {
     }
 }
 
-const SECTION_LABELS: [(SettingsSection, &str); 9] = [
-    (SettingsSection::General, "General"),
-    (SettingsSection::Look, "Look"),
-    (SettingsSection::Broadcast, "Broadcast"),
-    (SettingsSection::Output, "Output"),
-    (SettingsSection::Audio, "Audio"),
-    (SettingsSection::Video, "Video"),
-    (SettingsSection::Shortcuts, "Shortcuts"),
-    (SettingsSection::Accessibility, "Accessibility"),
-    (SettingsSection::Other, "Other"),
+/// Section chips with their rail icons (Svelte settings parity: icons next
+/// to the section names).
+const SECTION_LABELS: [(SettingsSection, &str, &str); 9] = [
+    (SettingsSection::General, "General", "settings"),
+    (SettingsSection::Look, "Look", "layers"),
+    (SettingsSection::Broadcast, "Broadcast", "media"),
+    (SettingsSection::Output, "Output", "record"),
+    (SettingsSection::Audio, "Audio", "volume"),
+    (SettingsSection::Video, "Video", "video"),
+    (SettingsSection::Shortcuts, "Shortcuts", "sliders"),
+    (SettingsSection::Accessibility, "Accessibility", "user"),
+    (SettingsSection::Other, "Other", "file-text"),
 ];
 
 impl SettingsModal {
@@ -247,6 +249,18 @@ impl SettingsModal {
                         &settings.stream_key,
                         TextField::StreamKey,
                         cx,
+                    ))
+                    .child(self.field_row(
+                        "WHEP URL (playback)",
+                        settings.whep_url.as_deref().unwrap_or(""),
+                        TextField::WhepUrl,
+                        cx,
+                    ))
+                    .child(self.field_row(
+                        "WHIP URL (ingest)",
+                        settings.whip_url.as_deref().unwrap_or(""),
+                        TextField::WhipUrl,
+                        cx,
                     ));
             }
             SettingsSection::Output => {
@@ -333,92 +347,85 @@ impl SettingsModal {
 
 impl Render for SettingsModal {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let mut rail = div().flex().flex_col().gap_1().w(gpui::px(160.));
-        for (section, label) in SECTION_LABELS {
+        // Top section strip: icon chips in one row; the Output sub-tabs sit
+        // on the right side of the same row (Svelte settings parity), not
+        // stacked below the rail.
+        let mut section_strip = div().flex().flex_row().items_center().gap_1().flex_wrap();
+        for (section, label, icon) in SECTION_LABELS {
             let active = self.draft.active_section == section;
-            rail = rail.child(
+            section_strip = section_strip.child(
                 div()
                     .id(SharedString::from(format!("settings-section-{label}")))
                     .cursor_pointer()
                     .px_2()
                     .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_1()
                     .rounded_md()
+                    .border_1()
+                    .border_color(if active {
+                        self.theme.accent
+                    } else {
+                        self.theme.border
+                    })
                     .bg(if active {
                         self.theme.surface_active
                     } else {
                         self.theme.surface
                     })
-                    .text_color(if active {
-                        self.theme.text_strong
-                    } else {
-                        self.theme.text_muted
-                    })
+                    .child(crate::components::icon::icon(
+                        if active {
+                            self.theme.accent
+                        } else {
+                            self.theme.text_muted
+                        },
+                        icon,
+                        12.,
+                    ))
+                    .child(SharedString::from(label))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.draft.select_section(section);
                         this.focused_field = None;
                         cx.notify();
-                    }))
-                    .child(SharedString::from(label)),
+                    })),
             );
         }
 
         if self.draft.active_section == SettingsSection::Output {
-            rail = rail.child(
-                div()
-                    .flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .id("output-tab-streaming")
-                            .cursor_pointer()
-                            .px_2()
-                            .py_1()
-                            .text_color(if self.draft.output_tab == OutputTab::Streaming {
-                                self.theme.text_strong
-                            } else {
-                                self.theme.text_muted
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.draft.select_output_tab(OutputTab::Streaming);
-                                cx.notify();
-                            }))
-                            .child("Streaming"),
-                    )
-                    .child(
-                        div()
-                            .id("output-tab-recording")
-                            .cursor_pointer()
-                            .px_2()
-                            .py_1()
-                            .text_color(if self.draft.output_tab == OutputTab::Recording {
-                                self.theme.text_strong
-                            } else {
-                                self.theme.text_muted
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.draft.select_output_tab(OutputTab::Recording);
-                                cx.notify();
-                            }))
-                            .child("Recording"),
-                    )
-                    .child(
-                        div()
-                            .id("output-tab-audio")
-                            .cursor_pointer()
-                            .px_2()
-                            .py_1()
-                            .text_color(if self.draft.output_tab == OutputTab::Audio {
-                                self.theme.text_strong
-                            } else {
-                                self.theme.text_muted
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.draft.select_output_tab(OutputTab::Audio);
-                                cx.notify();
-                            }))
-                            .child("Audio"),
-                    ),
-            );
+            for (tab, label) in [
+                (OutputTab::Streaming, "Streaming"),
+                (OutputTab::Recording, "Recording"),
+                (OutputTab::Audio, "Audio"),
+            ] {
+                let active = self.draft.output_tab == tab;
+                section_strip = section_strip.child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "output-tab-{}",
+                            label.to_ascii_lowercase()
+                        )))
+                        .cursor_pointer()
+                        .px_2()
+                        .py_1()
+                        .rounded_md()
+                        .bg(if active {
+                            self.theme.accent
+                        } else {
+                            self.theme.surface_active
+                        })
+                        .text_color(if active {
+                            self.theme.text_strong
+                        } else {
+                            self.theme.text_muted
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.draft.select_output_tab(tab);
+                            cx.notify();
+                        }))
+                        .child(label),
+                );
+            }
         }
 
         let dirty_note = if self.draft.is_dirty() {
@@ -521,27 +528,27 @@ impl Render for SettingsModal {
             }
         });
 
-        let close = div()
-            .id("settings-close")
-            .cursor_pointer()
-            .text_color(self.theme.text_muted)
-            .child("Close")
-            .on_click(cx.listener(|_this, _, _, cx| cx.emit(SettingsEvent::Cancelled)))
-            .into_any_element();
         modal_shell_with_body(
             &config,
             self.theme,
             div()
                 .flex()
-                .flex_row()
+                .flex_col()
                 .gap_3()
                 .size_full()
                 .track_focus(&self.field_focus)
-                .child(rail)
-                .child(self.section_body(cx))
+                .child(section_strip)
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .gap_2()
+                        .child(self.section_body(cx)),
+                )
                 .on_key_down(on_key),
             Some(footer),
-            Some(close),
+            None,
         )
     }
 }

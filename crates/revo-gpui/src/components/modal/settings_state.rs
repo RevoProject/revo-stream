@@ -36,6 +36,8 @@ pub enum OutputTab {
 pub enum TextField {
     StreamUrl,
     StreamKey,
+    WhepUrl,
+    WhipUrl,
     RecordPath,
     SceneResolution,
     ObsPluginsPath,
@@ -115,6 +117,8 @@ impl SettingsDraft {
         match field {
             TextField::StreamUrl => &self.settings.stream_url,
             TextField::StreamKey => &self.settings.stream_key,
+            TextField::WhepUrl => self.settings.whep_url.as_deref().unwrap_or(""),
+            TextField::WhipUrl => self.settings.whip_url.as_deref().unwrap_or(""),
             TextField::RecordPath => &self.settings.record_path,
             TextField::SceneResolution => self.settings.scene_resolution.as_deref().unwrap_or(""),
             TextField::ObsPluginsPath => self.settings.obs_plugins_path.as_deref().unwrap_or(""),
@@ -135,6 +139,14 @@ impl SettingsDraft {
                 Err(message) => self.field_error = Some(message),
             },
             TextField::StreamKey => self.settings.stream_key = value,
+            TextField::WhepUrl => match validate_url(&value) {
+                Ok(()) => self.settings.whep_url = Some(value),
+                Err(message) => self.field_error = Some(message),
+            },
+            TextField::WhipUrl => match validate_url(&value) {
+                Ok(()) => self.settings.whip_url = Some(value),
+                Err(message) => self.field_error = Some(message),
+            },
             TextField::RecordPath => {
                 let trimmed = value.trim().to_string();
                 if trimmed.is_empty() {

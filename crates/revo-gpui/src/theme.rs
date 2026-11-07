@@ -32,6 +32,10 @@ pub struct RevoTheme {
     pub danger_pressed: Rgba,
     pub success: Rgba,
     pub success_hover: Rgba,
+    /// Calmer success variant for "already active" states (for example the
+    /// Go live button while streaming) so long-running active states do not
+    /// glow in the bright success accent.
+    pub success_active: Rgba,
     pub warning: Rgba,
     pub overlay: Rgba,
 }
@@ -70,6 +74,7 @@ impl RevoTheme {
             danger_pressed: rgb(0xef4444),
             success: rgb(0x22c55e),
             success_hover: rgb(0x34d399),
+            success_active: rgb(0x15803d),
             warning: rgb(0xf59e0b),
             overlay: rgba(0x0000009e),
         }
@@ -101,6 +106,7 @@ impl RevoTheme {
             danger_pressed: rgb(0xc82028),
             success: rgb(0x20e438),
             success_hover: rgb(0x3cff78),
+            success_active: rgb(0x16a34a),
             warning: rgb(0xf0ac50),
             overlay: rgba(0x0000009e),
         }
@@ -121,6 +127,7 @@ mod tests {
         assert_eq!(theme.accent_hover, rgb(0x7690ff));
         assert_eq!(theme.danger_hover, rgb(0xf26767));
         assert_eq!(theme.success_hover, rgb(0x34d399));
+        assert_eq!(theme.success_active, rgb(0x15803d));
     }
 
     #[test]
@@ -132,6 +139,7 @@ mod tests {
         assert_eq!(theme.border_selected, rgb(0x1c3a78));
         assert_eq!(theme.accent_pressed, rgb(0x2048c8));
         assert_eq!(theme.text_disabled, rgb(0x5a6678));
+        assert_eq!(theme.success_active, rgb(0x16a34a));
         assert_eq!(theme.overlay, rgba(0x0000009e));
     }
 }
