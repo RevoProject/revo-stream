@@ -8,14 +8,17 @@ license = "AGPL-3.0-only"
 anyhow = "1"
 gpui = "=0.2.2"
 revo-core = { path = "../revo-core" }
-revo-backend = { path = "../revo-backend", optional = true }
 base64 = { version = "0.22", optional = true }
 # Typed auxiliary-window state (debug-console log details) is framework
 # neutral and stays available in mock builds.
 serde_json = "1"
 
 [features]
-obs-backend = ["dep:revo-backend", "dep:base64"]
+# The obs feature selects the engine-backed `AnyBackend::Obs` handle and
+# the PNG data-URI decoder; the libobs runtime itself lives in the separate
+# `revo-engine` process (crates/revo-backend), so the UI process carries no
+# revo-backend dependency at all.
+obs-backend = ["dep:base64"]
 
 # xattr 0.2.3, pulled by GPUI's HTTP client, does not compile with libc 0.2.191.
 [target.'cfg(target_os = "linux")'.dependencies]
