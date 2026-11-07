@@ -1376,6 +1376,7 @@ impl Workspace {
                 div()
                     .flex()
                     .flex_col()
+                    .flex_1()
                     .min_w_0()
                     .overflow_hidden()
                     .child(
@@ -2272,9 +2273,13 @@ mod tests {
 
         let scenes = snapshot_scene_items(&snapshot);
         assert!(scenes.iter().any(|scene| scene.name == "Main Camera"));
-        // The mock runtime models locking via the flat id list only; source
-        // items are a real-backend snapshot field and stay empty here.
-        assert!(snapshot.source_items.is_empty());
+        // The mock runtime carries source items now, so the mock shell
+        // renders real source rows (type icon, actions) like the obs
+        // backend does.
+        assert!(snapshot
+            .source_items
+            .iter()
+            .any(|source| source.id == "camera" && source.source_type == "v4l2_input"));
         assert!(snapshot.locked_sources.contains(&"browser-chat".into()));
         assert!(snapshot_scene_items(&snapshot).iter().all(|scene| {
             (snapshot.selected_scene.as_deref() == Some(scene.name.as_str())) == scene.active

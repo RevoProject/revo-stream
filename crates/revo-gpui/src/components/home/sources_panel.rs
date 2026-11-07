@@ -5,7 +5,6 @@ use gpui::{
 
 use crate::{
     actions::{ComponentEvent, ContextMenuTarget, MoveDirection, QuickSourceAction},
-    components::panel,
     theme::RevoTheme,
 };
 
@@ -108,6 +107,22 @@ impl SourcesPanel {
     }
 }
 
+/// Maps an OBS source type onto the shell's icon vocabulary.
+fn source_type_icon(source_type: &str) -> &'static str {
+    let kind = source_type.to_ascii_lowercase();
+    if kind.contains("browser") {
+        "interact"
+    } else if kind.contains("text") {
+        "file-text"
+    } else if kind.contains("capture") || kind.contains("xshm") || kind.contains("window") {
+        "monitor"
+    } else if kind.contains("image") || kind.contains("slideshow") {
+        "monitor"
+    } else {
+        "source"
+    }
+}
+
 impl Render for SourcesPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mut list = div().flex().flex_col().gap_1();
@@ -128,11 +143,12 @@ impl Render for SourcesPanel {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .p_2()
+                    .px_2()
+                    .py_1p5()
                     .bg(if selected {
                         self.theme.surface_selected
                     } else {
-                        self.theme.surface_elevated
+                        self.theme.surface
                     })
                     .border_1()
                     .border_color(if selected {
@@ -140,7 +156,7 @@ impl Render for SourcesPanel {
                     } else {
                         self.theme.border
                     })
-                    .rounded_md()
+                    .rounded_lg()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(event) = this.select(&id) {
                             cx.emit(event);
@@ -158,7 +174,22 @@ impl Render for SourcesPanel {
                             cx.notify();
                         }),
                     )
-                    .child(div().flex_1().child(source.name.clone()))
+                    .child(crate::components::icon::icon(
+                        if selected {
+                            self.theme.text_strong
+                        } else {
+                            self.theme.text_muted
+                        },
+                        source_type_icon(&source.source_type),
+                        14.,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(source.name.clone()),
+                    )
                     .child(
                         div()
                             .id(SharedString::from(format!("source-up-{up_id}")))
@@ -233,15 +264,7 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .flex()
-                            .items_center()
-                            .gap_1()
                             .bg(self.theme.surface_active)
-                            .child(crate::components::icon::icon(
-                                self.theme.text,
-                                if source.visible { "eye" } else { "eye-off" },
-                                12.,
-                            ))
                             .child(if source.visible { "Visible" } else { "Hidden" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -258,15 +281,7 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .flex()
-                            .items_center()
-                            .gap_1()
                             .bg(self.theme.surface_active)
-                            .child(crate::components::icon::icon(
-                                self.theme.text,
-                                if source.locked { "lock" } else { "unlock" },
-                                12.,
-                            ))
                             .child(if source.locked { "Locked" } else { "Unlocked" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -283,15 +298,7 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .flex()
-                            .items_center()
-                            .gap_1()
                             .bg(self.theme.accent)
-                            .child(crate::components::icon::icon(
-                                self.theme.text_strong,
-                                "pencil",
-                                12.,
-                            ))
                             .child("Edit")
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
@@ -300,25 +307,30 @@ impl Render for SourcesPanel {
                     ),
             );
         }
-        let mut header = div().flex().justify_between().child("Sources").child(
-            div()
-                .id("sources-add")
-                .cursor_pointer()
-                .px_2()
-                .py_1()
-                .flex()
-                .items_center()
-                .gap_1()
-                .rounded_md()
-                .bg(self.theme.accent)
-                .child(crate::components::icon::icon(
-                    self.theme.text_strong,
-                    "plus",
-                    12.,
-                ))
-                .child("Add source")
-                .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddSource))),
-        );
+        let mut header = div()
+            .flex()
+            .justify_between()
+            .items_center()
+            .child(div().text_color(self.theme.text_strong).child("Sources"))
+            .child(
+                div()
+                    .id("sources-add")
+                    .cursor_pointer()
+                    .px_2()
+                    .py_1()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .rounded_md()
+                    .bg(self.theme.accent)
+                    .child(crate::components::icon::icon(
+                        self.theme.text_strong,
+                        "plus",
+                        12.,
+                    ))
+                    .child("Add source")
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddSource))),
+            );
         if let Some(event) = self.contextual_action() {
             header = header.child(
                 div()
@@ -332,7 +344,14 @@ impl Render for SourcesPanel {
                     .on_click(cx.listener(move |_, _, _, cx| cx.emit(event.clone()))),
             );
         }
-        panel(self.theme).child(header).child(list)
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .size_full()
+            .text_color(self.theme.text)
+            .child(header)
+            .child(list)
     }
 }
 

@@ -25,6 +25,29 @@ impl Default for MockBackendRuntime {
                 ],
                 sources: vec!["camera".into(), "lower-third".into(), "browser-chat".into()],
                 visible_sources: vec!["camera".into(), "lower-third".into(), "browser-chat".into()],
+                source_items: vec![
+                    revo_core::service::SourceSnapshotItem {
+                        id: "camera".into(),
+                        name: "Camera".into(),
+                        source_type: "v4l2_input".into(),
+                        visible: true,
+                        audio_capable: true,
+                    },
+                    revo_core::service::SourceSnapshotItem {
+                        id: "lower-third".into(),
+                        name: "Lower third".into(),
+                        source_type: "text_ft2_source_v2".into(),
+                        visible: true,
+                        audio_capable: false,
+                    },
+                    revo_core::service::SourceSnapshotItem {
+                        id: "browser-chat".into(),
+                        name: "Chat overlay".into(),
+                        source_type: "browser_source".into(),
+                        visible: true,
+                        audio_capable: false,
+                    },
+                ],
                 locked_sources: vec!["browser-chat".into()],
                 settings: Some(revo_core::settings::default_settings()),
                 plugins: vec![

@@ -5,7 +5,6 @@ use gpui::{
 
 use crate::{
     actions::{ComponentEvent, ContextMenuTarget},
-    components::panel,
     theme::RevoTheme,
 };
 
@@ -89,13 +88,18 @@ impl Render for ScenesPanel {
             let background = if scene.active {
                 self.theme.surface_active
             } else {
-                self.theme.surface_elevated
+                self.theme.surface
             };
             list = list.child(
                 div()
                     .id(SharedString::from(format!("scene-row-{}", scene.name)))
                     .cursor_pointer()
-                    .p_2()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1p5()
                     .bg(background)
                     .border_1()
                     .border_color(if preview {
@@ -103,7 +107,7 @@ impl Render for ScenesPanel {
                     } else {
                         self.theme.border
                     })
-                    .rounded_md()
+                    .rounded_lg()
                     .on_click(cx.listener({
                         let name = scene.name.clone();
                         move |this, _, _, cx| {
@@ -127,35 +131,60 @@ impl Render for ScenesPanel {
                             }
                         }),
                     )
-                    .child(SharedString::from(format!(
-                        "{}{}{}",
-                        scene.name,
-                        if scene.active { " [active]" } else { "" },
-                        if scene.locked { " [locked]" } else { "" }
-                    ))),
+                    .child(crate::components::icon::icon(
+                        if scene.active {
+                            self.theme.text_strong
+                        } else {
+                            self.theme.text_muted
+                        },
+                        "layers",
+                        14.,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(format!(
+                                "{}{}{}",
+                                scene.name,
+                                if scene.active { " [active]" } else { "" },
+                                if scene.locked { " [locked]" } else { "" }
+                            ))),
+                    ),
             );
         }
-        panel(self.theme)
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .size_full()
+            .text_color(self.theme.text)
             .child(
-                div().flex().justify_between().child("Scenes").child(
-                    div()
-                        .id("scenes-add")
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .cursor_pointer()
-                        .px_2()
-                        .py_1()
-                        .rounded_md()
-                        .bg(self.theme.accent)
-                        .child(crate::components::icon::icon(
-                            self.theme.text_strong,
-                            "plus",
-                            12.,
-                        ))
-                        .child("Add scene")
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddScene))),
-                ),
+                div()
+                    .flex()
+                    .justify_between()
+                    .items_center()
+                    .child(div().text_color(self.theme.text_strong).child("Scenes"))
+                    .child(
+                        div()
+                            .id("scenes-add")
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(self.theme.accent)
+                            .child(crate::components::icon::icon(
+                                self.theme.text_strong,
+                                "plus",
+                                12.,
+                            ))
+                            .child("Add scene")
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddScene))),
+                    ),
             )
             .child(list)
     }
