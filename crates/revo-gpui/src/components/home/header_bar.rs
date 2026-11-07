@@ -1,4 +1,4 @@
-use gpui::{div, img, prelude::*, px, Context, Div, IntoElement, Render, Window};
+use gpui::{div, img, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Window};
 
 use crate::{
     actions::ComponentEvent,
@@ -9,12 +9,10 @@ use crate::{
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderBarState {
     pub demo_mode: bool,
-    pub obs_running: bool,
     pub recording: bool,
     pub streaming: bool,
     pub busy: bool,
     pub studio_mode: bool,
-    pub realtime_refresh: bool,
     pub can_undo: bool,
     pub can_redo: bool,
     pub version: String,
@@ -26,6 +24,33 @@ pub struct HeaderBar {
 }
 
 impl gpui::EventEmitter<ComponentEvent> for HeaderBar {}
+
+/// Icon-only utility button: no frame at rest, text hidden, subtle hover.
+/// The caller attaches the click listener (entity-scoped `cx.listener`).
+fn ghost_button(
+    theme: RevoTheme,
+    icon_name: &'static str,
+    enabled: bool,
+    id: &'static str,
+) -> gpui::Stateful<gpui::Div> {
+    let color = if enabled {
+        theme.text_muted
+    } else {
+        theme.text_disabled
+    };
+    div()
+        .id(SharedString::from(id))
+        .when(enabled, |button| button.cursor_pointer())
+        .flex()
+        .items_center()
+        .justify_center()
+        .px_2()
+        .py_2()
+        .rounded_md()
+        .text_color(color)
+        .hover(|style| style.bg(theme.surface_active))
+        .child(icon(color, icon_name, 15.))
+}
 
 fn button(
     theme: RevoTheme,
@@ -64,11 +89,8 @@ impl Render for HeaderBar {
         let busy = self.state.busy;
         let can_undo = self.state.can_undo && !busy;
         let can_redo = self.state.can_redo && !busy;
-        let obs_running = self.state.obs_running;
         let recording = self.state.recording;
         let streaming = self.state.streaming;
-        let show_obs = !self.state.demo_mode;
-
         let undo = button(self.theme, "Undo", can_undo, Some("undo"))
             .id("header-undo")
             .when(can_undo, |button| {
@@ -79,11 +101,11 @@ impl Render for HeaderBar {
             .when(can_redo, |button| {
                 button.on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::Redo)))
             });
-        let history = button(self.theme, "History", true, Some("history"))
-            .id("header-history")
+        let history = ghost_button(self.theme, "history", true, "header-history")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenHistory)));
-        let settings = button(self.theme, "Settings", true, Some("settings"))
-            .id("header-settings")
+        let info = ghost_button(self.theme, "info", true, "header-info")
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenDebugConsoleWindow)));
+        let settings = ghost_button(self.theme, "settings", true, "header-settings")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenSettings)));
         let preview = button(self.theme, "1920x1080 Preview", !busy, Some("monitor"))
             .id("header-force-preview")
@@ -101,33 +123,6 @@ impl Render for HeaderBar {
                     cx.notify();
                 }))
             });
-        let realtime = button(self.theme, "Realtime", !busy, Some("refresh"))
-            .id("header-realtime-toggle")
-            .when(!busy, |button| {
-                button.on_click(cx.listener(|this, _, _, cx| {
-                    this.state.realtime_refresh = !this.state.realtime_refresh;
-                    cx.emit(ComponentEvent::SetRealtimeRefresh(
-                        this.state.realtime_refresh,
-                    ));
-                    cx.notify();
-                }))
-            });
-        let obs = button(
-            self.theme,
-            if obs_running { "Stop OBS" } else { "Start OBS" },
-            !busy,
-            Some("power"),
-        )
-        .id("header-obs-toggle")
-        .when(!busy, |button| {
-            button.on_click(cx.listener(move |_, _, _, cx| {
-                cx.emit(if obs_running {
-                    ComponentEvent::StopObs
-                } else {
-                    ComponentEvent::StartObs
-                });
-            }))
-        });
         let record = button(
             self.theme,
             if recording {
@@ -189,12 +184,8 @@ impl Render for HeaderBar {
             .items_center()
             .gap_1()
             .child(preview)
-            .child(realtime)
             .child(studio)
             .child(settings);
-        if show_obs {
-            actions = actions.child(obs);
-        }
         actions = actions.child(record).child(stream);
 
         panel(self.theme)
@@ -212,7 +203,8 @@ impl Render for HeaderBar {
                     .child(self.state.version.clone())
                     .child(undo)
                     .child(redo)
-                    .child(history),
+                    .child(history)
+                    .child(info),
             )
             .child(actions)
     }

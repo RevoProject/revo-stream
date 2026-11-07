@@ -848,11 +848,9 @@ impl Workspace {
             cx.notify();
         });
         self.header.update(cx, |header, cx| {
-            header.state.obs_running = snapshot.obs_running;
             header.state.recording = snapshot.recording;
             header.state.streaming = snapshot.streaming;
             header.state.studio_mode = snapshot.studio_mode;
-            header.state.realtime_refresh = snapshot.realtime_refresh;
             cx.notify();
         });
         self.state.apply_snapshot(&snapshot);
@@ -1196,16 +1194,11 @@ impl Workspace {
     fn update_header_flags(&self, event: &ComponentEvent, cx: &mut Context<'_, Self>) {
         self.header.update(cx, |header, cx| {
             match event {
-                ComponentEvent::StartObs => header.state.obs_running = true,
-                ComponentEvent::StopObs => header.state.obs_running = false,
                 ComponentEvent::StartRecording => header.state.recording = true,
                 ComponentEvent::StopRecording => header.state.recording = false,
                 ComponentEvent::StartStreaming => header.state.streaming = true,
                 ComponentEvent::StopStreaming => header.state.streaming = false,
                 ComponentEvent::SetStudioMode(enabled) => header.state.studio_mode = *enabled,
-                ComponentEvent::SetRealtimeRefresh(enabled) => {
-                    header.state.realtime_refresh = *enabled
-                }
                 _ => return,
             }
             cx.notify();

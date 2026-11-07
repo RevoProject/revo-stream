@@ -154,7 +154,7 @@ impl Default for BackendSnapshot {
             recording: false,
             streaming: false,
             studio_mode: false,
-            realtime_refresh: false,
+            realtime_refresh: true,
             preview_resolution_requests: 0,
             selected_scene: None,
             selected_source: None,

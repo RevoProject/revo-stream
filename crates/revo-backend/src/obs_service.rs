@@ -99,7 +99,7 @@ impl ObsBackendRuntime {
             transition_kind: "cut".to_string(),
             transition_duration_ms: 300,
             studio_mode: false,
-            realtime_refresh: false,
+            realtime_refresh: true,
             preview_resolution_requests: 0,
             plugin_modules: HashMap::new(),
             plugin_profiles: Vec::new(),
