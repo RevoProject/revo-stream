@@ -56,7 +56,7 @@ pub use settings_modal::SettingsModal;
 pub use settings_state::{OutputTab, SettingsDraft, SettingsEvent, SettingsSection, TextField};
 pub use source_info_modal::SourceInfoModal;
 pub use source_instance_modal::{SourceInstanceModal, SourceInstanceOption};
-pub use source_properties_modal::SourcePropertiesModal;
+pub use source_properties_modal::{SourcePropertiesEvent, SourcePropertiesModal};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextDraft {
