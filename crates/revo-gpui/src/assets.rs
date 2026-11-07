@@ -126,6 +126,29 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/chevron-right.svg"),
     ),
     (
+        "icons/chevron-up.svg",
+        include_bytes!("../assets/icons/chevron-up.svg"),
+    ),
+    (
+        "icons/chevron-down.svg",
+        include_bytes!("../assets/icons/chevron-down.svg"),
+    ),
+    ("icons/undo.svg", include_bytes!("../assets/icons/undo.svg")),
+    ("icons/redo.svg", include_bytes!("../assets/icons/redo.svg")),
+    (
+        "icons/history.svg",
+        include_bytes!("../assets/icons/history.svg"),
+    ),
+    ("icons/plus.svg", include_bytes!("../assets/icons/plus.svg")),
+    (
+        "icons/eye-off.svg",
+        include_bytes!("../assets/icons/eye-off.svg"),
+    ),
+    (
+        "icons/video.svg",
+        include_bytes!("../assets/icons/video.svg"),
+    ),
+    (
         "fonts/space-grotesk-400.ttf",
         include_bytes!("../assets/fonts/space-grotesk-400.ttf"),
     ),

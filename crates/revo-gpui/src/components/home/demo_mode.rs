@@ -1,6 +1,6 @@
 use gpui::{div, prelude::*, Context, IntoElement, Render, Window};
 
-use crate::theme::RevoTheme;
+use crate::{components::icon::icon, theme::RevoTheme};
 
 pub struct DemoMode {
     pub theme: RevoTheme,
@@ -23,9 +23,11 @@ impl Render for DemoMode {
             .flex_col()
             .items_center()
             .justify_center()
+            .gap_2()
             .size_full()
             .bg(self.theme.surface)
             .text_color(self.theme.text)
+            .child(icon(self.theme.text_muted, "monitor", 28.))
             .child(div().text_color(self.theme.text_strong).child("RevoStream"))
             .child(
                 div()

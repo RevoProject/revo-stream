@@ -140,11 +140,19 @@ impl Render for ScenesPanel {
                 div().flex().justify_between().child("Scenes").child(
                     div()
                         .id("scenes-add")
+                        .flex()
+                        .items_center()
+                        .gap_1()
                         .cursor_pointer()
                         .px_2()
                         .py_1()
                         .rounded_md()
                         .bg(self.theme.accent)
+                        .child(crate::components::icon::icon(
+                            self.theme.text_strong,
+                            "plus",
+                            12.,
+                        ))
                         .child("Add scene")
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddScene))),
                 ),

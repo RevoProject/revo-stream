@@ -1,6 +1,10 @@
 use gpui::{div, img, prelude::*, px, Context, Div, IntoElement, Render, Window};
 
-use crate::{actions::ComponentEvent, components::panel, theme::RevoTheme};
+use crate::{
+    actions::ComponentEvent,
+    components::{icon::icon, panel},
+    theme::RevoTheme,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeaderBarState {
@@ -23,8 +27,22 @@ pub struct HeaderBar {
 
 impl gpui::EventEmitter<ComponentEvent> for HeaderBar {}
 
-fn button(theme: RevoTheme, label: &'static str, enabled: bool) -> Div {
-    div()
+fn button(
+    theme: RevoTheme,
+    label: &'static str,
+    enabled: bool,
+    icon_name: Option<&'static str>,
+) -> Div {
+    let color = if enabled {
+        theme.text
+    } else {
+        theme.text_disabled
+    };
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
         .px_3()
         .py_2()
         .rounded_md()
@@ -33,13 +51,12 @@ fn button(theme: RevoTheme, label: &'static str, enabled: bool) -> Div {
         } else {
             theme.surface_elevated
         })
-        .text_color(if enabled {
-            theme.text
-        } else {
-            theme.text_disabled
-        })
-        .when(enabled, |button| button.cursor_pointer())
-        .child(label)
+        .text_color(color)
+        .when(enabled, |button| button.cursor_pointer());
+    if let Some(icon_name) = icon_name {
+        row = row.child(icon(color, icon_name, 13.));
+    }
+    row.child(label)
 }
 
 impl Render for HeaderBar {
@@ -52,30 +69,30 @@ impl Render for HeaderBar {
         let streaming = self.state.streaming;
         let show_obs = !self.state.demo_mode;
 
-        let undo = button(self.theme, "Undo", can_undo)
+        let undo = button(self.theme, "Undo", can_undo, Some("undo"))
             .id("header-undo")
             .when(can_undo, |button| {
                 button.on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::Undo)))
             });
-        let redo = button(self.theme, "Redo", can_redo)
+        let redo = button(self.theme, "Redo", can_redo, Some("redo"))
             .id("header-redo")
             .when(can_redo, |button| {
                 button.on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::Redo)))
             });
-        let history = button(self.theme, "History", true)
+        let history = button(self.theme, "History", true, Some("history"))
             .id("header-history")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenHistory)));
-        let settings = button(self.theme, "Settings", true)
+        let settings = button(self.theme, "Settings", true, Some("settings"))
             .id("header-settings")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenSettings)));
-        let preview = button(self.theme, "1920x1080 Preview", !busy)
+        let preview = button(self.theme, "1920x1080 Preview", !busy, Some("monitor"))
             .id("header-force-preview")
             .when(!busy, |button| {
                 button.on_click(
                     cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::ForcePreviewResolution)),
                 )
             });
-        let studio = button(self.theme, "Studio", !busy)
+        let studio = button(self.theme, "Studio", !busy, Some("layers"))
             .id("header-studio-toggle")
             .when(!busy, |button| {
                 button.on_click(cx.listener(|this, _, _, cx| {
@@ -84,7 +101,7 @@ impl Render for HeaderBar {
                     cx.notify();
                 }))
             });
-        let realtime = button(self.theme, "Realtime", !busy)
+        let realtime = button(self.theme, "Realtime", !busy, Some("refresh"))
             .id("header-realtime-toggle")
             .when(!busy, |button| {
                 button.on_click(cx.listener(|this, _, _, cx| {
@@ -99,6 +116,7 @@ impl Render for HeaderBar {
             self.theme,
             if obs_running { "Stop OBS" } else { "Start OBS" },
             !busy,
+            Some("power"),
         )
         .id("header-obs-toggle")
         .when(!busy, |button| {
@@ -118,6 +136,7 @@ impl Render for HeaderBar {
                 "Record"
             },
             !busy,
+            Some("record"),
         )
         .id("header-record-toggle")
         .bg(if busy {
@@ -144,6 +163,7 @@ impl Render for HeaderBar {
                 "Go live"
             },
             !busy,
+            Some("video"),
         )
         .id("header-stream-toggle")
         .bg(if busy {

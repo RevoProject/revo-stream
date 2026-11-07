@@ -172,7 +172,15 @@ impl Render for SourcesPanel {
                             } else {
                                 self.theme.text
                             })
-                            .child("Up")
+                            .child(crate::components::icon::icon(
+                                if source.locked {
+                                    self.theme.text_disabled
+                                } else {
+                                    self.theme.text
+                                },
+                                "chevron-up",
+                                12.,
+                            ))
                             .when(!source.locked, |control| {
                                 control.on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
@@ -197,7 +205,15 @@ impl Render for SourcesPanel {
                             } else {
                                 self.theme.text
                             })
-                            .child("Down")
+                            .child(crate::components::icon::icon(
+                                if source.locked {
+                                    self.theme.text_disabled
+                                } else {
+                                    self.theme.text
+                                },
+                                "chevron-down",
+                                12.,
+                            ))
                             .when(!source.locked, |control| {
                                 control.on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
@@ -217,7 +233,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .gap_1()
                             .bg(self.theme.surface_active)
+                            .child(crate::components::icon::icon(
+                                self.theme.text,
+                                if source.visible { "eye" } else { "eye-off" },
+                                12.,
+                            ))
                             .child(if source.visible { "Visible" } else { "Hidden" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -234,7 +258,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .gap_1()
                             .bg(self.theme.surface_active)
+                            .child(crate::components::icon::icon(
+                                self.theme.text,
+                                if source.locked { "lock" } else { "unlock" },
+                                12.,
+                            ))
                             .child(if source.locked { "Locked" } else { "Unlocked" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -251,7 +283,15 @@ impl Render for SourcesPanel {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .flex()
+                            .items_center()
+                            .gap_1()
                             .bg(self.theme.accent)
+                            .child(crate::components::icon::icon(
+                                self.theme.text_strong,
+                                "pencil",
+                                12.,
+                            ))
                             .child("Edit")
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
@@ -266,8 +306,16 @@ impl Render for SourcesPanel {
                 .cursor_pointer()
                 .px_2()
                 .py_1()
+                .flex()
+                .items_center()
+                .gap_1()
                 .rounded_md()
                 .bg(self.theme.accent)
+                .child(crate::components::icon::icon(
+                    self.theme.text_strong,
+                    "plus",
+                    12.,
+                ))
                 .child("Add source")
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddSource))),
         );
