@@ -747,6 +747,15 @@ impl Workspace {
         // One initial snapshot refresh on startup so native state (including
         // real-data panels for the obs backend) lands without user input.
         workspace.refresh_snapshot(cx);
+        #[cfg(feature = "obs-backend")]
+        if use_obs_backend {
+            // `--obs` means "run against the real libobs engine": start it at
+            // boot so the preview loop and the real scene data come up
+            // without a manual Start click. The worker queue is FIFO, so the
+            // follow-up snapshot executes after StartObs returns and carries
+            // the initialized state (or its startup error) to the panels.
+            workspace.dispatch([BackendCommand::StartObs], cx);
+        }
         workspace.spawn_splash_spinner(cx);
         #[cfg(feature = "obs-backend")]
         if use_obs_backend {
