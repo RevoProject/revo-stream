@@ -42,6 +42,9 @@ mod imp {
         true
     }
 
+    // Stub mirrors the macOS API surface; the real consent dialog only
+    // exists on macOS, so the standalone Linux build sees this as dead code.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn request_screen_capture() -> bool {
         true
     }
@@ -79,9 +82,9 @@ pub fn open_privacy_pane(pane: String) -> Result<(), String> {
     if !allowed.contains(&pane.as_str()) {
         return Err(format!("unsupported privacy pane: {pane}"));
     }
-    let url = format!("x-apple.systempreferences:com.apple.preference.security?Privacy_{pane}");
     #[cfg(target_os = "macos")]
     {
+        let url = format!("x-apple.systempreferences:com.apple.preference.security?Privacy_{pane}");
         std::process::Command::new("open")
             .arg(url)
             .spawn()

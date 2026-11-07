@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
-#[cfg(feature = "obs-backend")]
-use base64::Engine as _;
-
 use gpui::{
     div, prelude::*, px, rgb, size, svg, App, Application, AssetSource, Bounds, Context, Entity,
     IntoElement, MouseButton, MouseDownEvent, Pixels, Render, SharedString, Subscription,
@@ -15,9 +12,9 @@ use revo_core::service::{BackendCommand, BackendError, BackendSnapshot, MoveDire
 #[cfg(feature = "obs-backend")]
 use gpui::{Image as GpuiImage, ImageFormat};
 
-use crate::services::AnyBackend;
 #[cfg(feature = "obs-backend")]
-use crate::services::{capture_preview_png, ObsBackendRuntime};
+use crate::services::capture_preview_png;
+use crate::services::AnyBackend;
 
 use crate::{
     actions::{
@@ -1175,7 +1172,7 @@ impl Workspace {
             "tool-plugins",
             "Plugins",
             "Extend your control room",
-            |this, event, _, cx| {
+            |this, _, _, cx| {
                 this.route_event(ComponentEvent::OpenPlugins, cx);
                 cx.stop_propagation();
             },
@@ -1186,7 +1183,7 @@ impl Workspace {
             "tool-templates",
             "Templates",
             "Ready-made scene layouts",
-            |this, event, _, cx| {
+            |this, _, _, cx| {
                 this.route_event(ComponentEvent::OpenTemplates, cx);
                 cx.stop_propagation();
             },

@@ -600,6 +600,9 @@ pub fn start_with_platform(
 		}
 
 		revo_lib::obs::obs_post_load_modules();
+		// The macOS target extends this list with its platform capture
+		// types; on the other targets the binding is never mutated.
+		#[allow(unused_mut)]
 		let mut capture_types = [
 			"xshm_input_v2",
 			"xshm_input",

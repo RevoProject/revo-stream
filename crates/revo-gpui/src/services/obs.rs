@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
 use revo_backend::runtime::lifecycle::ObsPlatform;
-use revo_backend::runtime::preview::{encode_screenshot, ScreenshotCapture};
+use revo_backend::runtime::preview::ScreenshotCapture;
 use revo_backend::runtime::{recording, streaming};
 use revo_backend::scenes::scene_ops;
 use revo_backend::sources::source_ops;

@@ -7,7 +7,7 @@ fn should_expose_source_type(output_flags: u32, debug_build: bool) -> bool {
 }
 
 pub fn list_external_source_types(
-	runtime: &crate::ObsRuntime,
+	_runtime: &crate::ObsRuntime,
 ) -> Result<Vec<crate::SourceTypeItem>, String> {
 	let mut out: Vec<crate::SourceTypeItem> = Vec::new();
 	let mut idx: usize = 0;
@@ -122,7 +122,7 @@ unsafe extern "C" fn collect_reusable_source(
 }
 
 pub fn list_reusable_sources(
-	runtime: &crate::ObsRuntime,
+	_runtime: &crate::ObsRuntime,
 	source_type: String,
 ) -> Result<Vec<crate::ReusableSourceInfo>, String> {
 	let mut context = ReusableSourceContext {
