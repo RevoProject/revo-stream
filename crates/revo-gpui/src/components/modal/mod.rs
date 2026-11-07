@@ -43,8 +43,8 @@ mod source_info_modal;
 mod source_instance_modal;
 mod source_properties_modal;
 
-pub use add_scene_modal::AddSceneModal;
-pub use add_source_modal::AddSourceModal;
+pub use add_scene_modal::{AddSceneEvent, AddSceneModal};
+pub use add_source_modal::{AddSourceEvent, AddSourceModal};
 pub use browser_interaction_modal::BrowserInteractionModal;
 pub use confirm_modal::ConfirmModal;
 pub use debug_console_modal::DebugConsoleModal;
@@ -83,10 +83,6 @@ impl TextDraft {
     pub fn is_dirty(&self) -> bool {
         self.value != self.initial
     }
-}
-
-pub(crate) fn draft_line(label: &str, value: &str) -> SharedString {
-    SharedString::from(format!("{label}: {value}"))
 }
 
 #[cfg(test)]

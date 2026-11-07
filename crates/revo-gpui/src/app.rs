@@ -26,7 +26,10 @@ use crate::{
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
-        modal::{PluginsEvent, PluginsModal, SettingsEvent, SettingsModal},
+        modal::{
+            AddSceneEvent, AddSceneModal, AddSourceEvent, AddSourceModal, PluginsEvent,
+            PluginsModal, SettingsEvent, SettingsModal,
+        },
         modal_shell::{modal_card, ModalConfig, ModalSize},
         modules::{
             audio_mixer::{AudioChannel, AudioMixerPanel, MixerEvent},
@@ -124,6 +127,8 @@ pub struct WorkspaceState {
     pub active_plugin_profile: Option<String>,
     /// Enabled module names of the currently applied profile.
     pub enabled_plugin_modules: Vec<String>,
+    /// Source types the engine can create; seeds the add-source modal.
+    pub available_source_types: Vec<revo_core::models::SourceTypeItem>,
     /// False until the first backend snapshot has been applied; drives the
     /// boot splash instead of the workspace shell.
     pub booted: bool,
@@ -150,6 +155,7 @@ impl Default for WorkspaceState {
             plugin_profile_states: Vec::new(),
             active_plugin_profile: None,
             enabled_plugin_modules: Vec::new(),
+            available_source_types: Vec::new(),
             booted: false,
             splash_spin: 0.0,
             tools_mixer_visible: true,
@@ -310,6 +316,7 @@ impl WorkspaceState {
         self.plugin_profile_states = snapshot.plugin_profile_states.clone();
         self.active_plugin_profile = snapshot.active_plugin_profile.clone();
         self.enabled_plugin_modules = snapshot.enabled_plugin_modules.clone();
+        self.available_source_types = snapshot.available_source_types.clone();
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -431,6 +438,8 @@ pub struct Workspace {
     pub context_menu: Entity<WorkspaceContextMenu>,
     pub settings_modal: Option<Entity<SettingsModal>>,
     pub plugins_modal: Option<Entity<PluginsModal>>,
+    pub add_scene_modal: Option<Entity<AddSceneModal>>,
+    pub add_source_modal: Option<Entity<AddSourceModal>>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
@@ -750,6 +759,8 @@ impl Workspace {
             context_menu,
             settings_modal: None,
             plugins_modal: None,
+            add_scene_modal: None,
+            add_source_modal: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
@@ -998,6 +1009,12 @@ impl Workspace {
         if self.state.active_modal == ActiveModal::Plugins && self.plugins_modal.is_none() {
             self.open_plugins_modal(cx);
         }
+        if self.state.active_modal == ActiveModal::AddScene && self.add_scene_modal.is_none() {
+            self.open_add_scene_modal(cx);
+        }
+        if self.state.active_modal == ActiveModal::AddSource && self.add_source_modal.is_none() {
+            self.open_add_source_modal(cx);
+        }
         cx.notify();
     }
 
@@ -1163,12 +1180,77 @@ impl Workspace {
         }
     }
 
+    /// Creates the add-scene modal entity and subscribes to its Create and
+    /// Cancel events; creation dispatches the AddScene backend command.
+    fn open_add_scene_modal(&mut self, cx: &mut Context<'_, Self>) {
+        let entity = cx.new(|cx| AddSceneModal::new(cx));
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
+            AddSceneEvent::Created { name } => {
+                this.state.status = format!("Scene '{name}' created");
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::AddScene(name.clone()))
+                {
+                    this.state.status = format!("Backend error: {error}");
+                }
+                this.close_add_scene_modal(cx);
+                this.refresh_snapshot(cx);
+            }
+            AddSceneEvent::Cancelled => this.close_add_scene_modal(cx),
+        });
+        self._subscriptions.push(subscription);
+        self.add_scene_modal = Some(entity);
+    }
+
+    /// Drops the add-scene entity and closes the modal when it is active.
+    fn close_add_scene_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.add_scene_modal = None;
+        if self.state.active_modal == ActiveModal::AddScene {
+            self.state.close_modal();
+            cx.notify();
+        }
+    }
+
+    /// Creates the add-source modal entity seeded from the backend's
+    /// available source types; creation dispatches the AddSource command.
+    fn open_add_source_modal(&mut self, cx: &mut Context<'_, Self>) {
+        let entity =
+            cx.new(|cx| AddSourceModal::new(self.state.available_source_types.clone(), cx));
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
+            AddSourceEvent::Created { name, source_type } => {
+                this.state.status = format!("Source '{name}' created");
+                if let Err(error) = this.backend.try_dispatch(BackendCommand::AddSource {
+                    name: name.clone(),
+                    source_type: source_type.clone(),
+                }) {
+                    this.state.status = format!("Backend error: {error}");
+                }
+                this.close_add_source_modal(cx);
+                this.refresh_snapshot(cx);
+            }
+            AddSourceEvent::Cancelled => this.close_add_source_modal(cx),
+        });
+        self._subscriptions.push(subscription);
+        self.add_source_modal = Some(entity);
+    }
+
+    /// Drops the add-source entity and closes the modal when it is active.
+    fn close_add_source_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.add_source_modal = None;
+        if self.state.active_modal == ActiveModal::AddSource {
+            self.state.close_modal();
+            cx.notify();
+        }
+    }
+
     /// Closes whichever modal is currently active, cleaning up the matching
     /// entity state.
     fn close_active_modal(&mut self, cx: &mut Context<'_, Self>) {
         match &self.state.active_modal {
             ActiveModal::Settings => self.close_settings_modal(cx),
             ActiveModal::Plugins => self.close_plugins_modal(cx),
+            ActiveModal::AddScene => self.close_add_scene_modal(cx),
+            ActiveModal::AddSource => self.close_add_source_modal(cx),
             ActiveModal::AudioMixerAdvanced(_)
             | ActiveModal::GraphicPlanner
             | ActiveModal::None => {
@@ -1179,8 +1261,6 @@ impl Workspace {
             }
             ActiveModal::History
             | ActiveModal::Templates
-            | ActiveModal::AddScene
-            | ActiveModal::AddSource
             | ActiveModal::SourceEditor(_)
             | ActiveModal::QuickAction { .. } => {
                 self.state.close_modal();
@@ -1539,14 +1619,8 @@ impl Workspace {
                 ModalConfig::standard("Templates", ModalSize::Medium),
                 vec!["Ready-made scene layouts are on the way.".into()],
             )),
-            ActiveModal::AddScene => Some((
-                ModalConfig::standard("Add Scene", ModalSize::Small),
-                vec!["Scene name".into()],
-            )),
-            ActiveModal::AddSource => Some((
-                ModalConfig::standard("Add Source", ModalSize::Large),
-                vec!["Choose a native OBS source type".into()],
-            )),
+            ActiveModal::AddScene => None,
+            ActiveModal::AddSource => None,
             ActiveModal::SourceEditor(id) => Some((
                 ModalConfig::standard("Edit Source", ModalSize::Workspace),
                 vec![SharedString::from(format!("Source: {id}"))],
@@ -1694,6 +1768,34 @@ impl Render for Workspace {
 
         if self.state.active_modal == ActiveModal::Plugins {
             if let Some(entity) = self.plugins_modal.clone() {
+                root = root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .child(entity),
+                );
+            }
+        }
+        if self.state.active_modal == ActiveModal::AddScene {
+            if let Some(entity) = self.add_scene_modal.clone() {
+                root = root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .child(entity),
+                );
+            }
+        }
+        if self.state.active_modal == ActiveModal::AddSource {
+            if let Some(entity) = self.add_source_modal.clone() {
                 root = root.child(
                     div()
                         .absolute()
