@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use revo_core::ipc::{decode_frame, encode_frame, EngineToUi, UiToEngine};
+use revo_core::ipc::{decode_frame, encode_frame, DebugLogEntry, EngineToUi, UiToEngine};
 use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
 
 /// UI-side preview poll cadence; the engine also pushes frames between
@@ -68,6 +68,7 @@ impl DrainTarget {
 struct Inbox {
     snapshot: Option<BackendSnapshot>,
     reply_data_uri: Option<String>,
+    reply_log_entries: Option<Vec<DebugLogEntry>>,
     reply_error: Option<String>,
     /// A correlated reply arrived — `true` even when it carried no frame
     /// (source offline), so the drain does not wait for data that will
@@ -261,6 +262,20 @@ impl Connection {
                 if target.matches_id(request_id) {
                     inbox.reply_seen = true;
                     inbox.reply_data_uri = data_uri;
+                }
+            }
+            EngineToUi::DebugLogHistoryData {
+                request_id,
+                entries,
+            } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_log_entries = Some(entries);
+                }
+            }
+            EngineToUi::DebugLogCleared { request_id } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
                 }
             }
             EngineToUi::Status(_) => {}
@@ -501,6 +516,32 @@ impl EngineClient {
         let _ = self.connection.send_request(&UiToEngine::InteractClose {
             source_id: source_id.to_owned(),
         });
+    }
+
+    /// Fetches the engine process's libobs debug-log history so the debug
+    /// console shows revo-lib entries even though the registry lives in the
+    /// engine process.
+    pub fn debug_log_history(&mut self) -> Result<Vec<DebugLogEntry>, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection
+            .send_request(&UiToEngine::DebugLogHistory { request_id })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(inbox.reply_log_entries.unwrap_or_default())
+    }
+
+    /// Clears the engine process's libobs debug-log registry.
+    pub fn debug_log_clear(&mut self) -> Result<(), BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection
+            .send_request(&UiToEngine::DebugLogClear { request_id })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(())
     }
 
     fn interact_fire(

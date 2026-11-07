@@ -2,9 +2,9 @@
 //! (`src/routes/debug-console/+page.svelte`): libobs log parsing, level
 //! tabs, fuzzy search, autoscroll, and clear.
 //!
-//! Mock mode placeholder: the `revo-backend` debug-log registry is only
-//! linked with the `obs-backend` feature, so in mock builds entries stay
-//! local/empty and the 1200 ms registry-pull loop is not started.
+//! The libobs log registry lives in the engine process, so the obs path
+//! pulls and clears it over IPC; mock builds keep entries local/empty and
+//! skip the pull loop.
 
 use gpui::{
     div, prelude::*, px, Context, FocusHandle, IntoElement, Render, ScrollHandle, SharedString,
@@ -332,6 +332,10 @@ pub struct DebugConsoleWindow {
     list_scroll: ScrollHandle,
     /// Owned registry-pull loop; dropped (cancelling it) with the view.
     refresh_task: Option<Task<()>>,
+    /// Backend handle: libobs log history lives in the engine process and
+    /// travels over IPC on this path.
+    #[cfg(feature = "obs-backend")]
+    backend: Option<AnyBackend>,
 }
 
 impl DebugConsoleWindow {
@@ -346,33 +350,40 @@ impl DebugConsoleWindow {
             search_focus: cx.focus_handle(),
             list_scroll: ScrollHandle::new(),
             refresh_task: None,
+            #[cfg(feature = "obs-backend")]
+            backend: Some(backend.clone()),
         };
         window.refresh_task = Some(window.spawn_refresh(backend, cx));
         window
     }
 
-    /// Starts the 1200 ms registry-pull loop only for the obs backend; mock
-    /// builds keep entries local/empty (documented placeholder).
+    /// Starts the 1200 ms pull loop for the obs backend: libobs log
+    /// entries live in the engine process, so they travel over IPC
+    /// (`services::obs::debug_log_history`) instead of reading a local
+    /// registry that is always empty in the UI process. Mock builds keep
+    /// entries local/empty (documented placeholder).
     fn spawn_refresh(&self, backend: AnyBackend, cx: &mut Context<Self>) -> Task<()> {
         #[cfg(feature = "obs-backend")]
-        if matches!(backend, AnyBackend::Obs(_)) {
+        if let AnyBackend::Obs(service) = &backend {
+            let service = service.clone();
             return cx.spawn(async move |window, cx| loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(DEBUG_CONSOLE_POLL_INTERVAL_MS))
                     .await;
-                let history = cx
-                    .background_executor()
-                    .spawn(async move {
-                        revo_backend::logging::debug::get_debug_log_entries()
+                let history = crate::services::obs::debug_log_history(&service)
+                    .map(|entries| {
+                        entries
                             .into_iter()
-                            .map(|event| LogEntry {
-                                timestamp_ms: event.timestamp_ms,
-                                action: event.action,
-                                detail_json: event.detail,
+                            .map(|entry| LogEntry {
+                                timestamp_ms: entry.timestamp_ms,
+                                action: entry.action,
+                                detail_json: entry
+                                    .detail_json
+                                    .and_then(|raw| serde_json::from_str(&raw).ok()),
                             })
                             .collect::<Vec<_>>()
                     })
-                    .await;
+                    .unwrap_or_default();
                 let alive = window
                     .update(cx, |window, cx| window.replace_history(history, cx))
                     .is_ok();
@@ -424,13 +435,19 @@ impl DebugConsoleWindow {
         cx.notify();
     }
 
-    /// Local clear plus registry clear behind `obs-backend` (the Svelte
-    /// window clears local rows then invokes `debug_console_clear`).
+    /// Local clear plus engine-registry clear over IPC on the obs path
+    /// (the Svelte window clears local rows then invokes
+    /// `debug_console_clear`).
     pub fn clear(&mut self, cx: &mut Context<'_, Self>) {
         self.entries.clear();
         #[cfg(feature = "obs-backend")]
-        {
-            revo_backend::logging::debug::clear_debug_log_entries();
+        if let Some(AnyBackend::Obs(service)) = self.backend.as_ref() {
+            let service = service.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    crate::services::obs::clear_debug_logs(&service).ok();
+                })
+                .detach();
         }
         cx.notify();
     }

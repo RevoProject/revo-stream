@@ -8,7 +8,8 @@
 //! routing each one through [`crate::services::EngineClient`] on the
 //! backend worker thread.
 
-use revo_core::service::BackendError;
+use revo_core::ipc::DebugLogEntry;
+use revo_core::service::{BackendError, BackendService};
 
 pub use crate::services::engine::{EngineClient, UI_PREVIEW_INTERVAL_MS};
 
@@ -37,6 +38,20 @@ pub fn capture_preview_png(
 
 /// Decodes a `data:image/png;base64,...` frame into raw PNG bytes so it can
 /// be handed to GPUI as an in-memory image without touching the filesystem.
+/// Fetches the engine process's libobs debug-log history over IPC so the
+/// debug console shows revo-lib entries (the registry lives in the engine,
+/// not in the UI process). Runs on the backend worker thread.
+pub fn debug_log_history(
+    service: &BackendService<EngineClient>,
+) -> Result<Vec<DebugLogEntry>, BackendError> {
+    service.call(|client: &mut EngineClient| client.debug_log_history())
+}
+
+/// Clears the engine process's libobs debug-log registry over IPC.
+pub fn clear_debug_logs(service: &BackendService<EngineClient>) -> Result<(), BackendError> {
+    service.call(|client: &mut EngineClient| client.debug_log_clear())
+}
+
 pub fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
     const PREFIX: &str = "data:image/png;base64,";
