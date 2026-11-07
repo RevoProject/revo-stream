@@ -1779,42 +1779,24 @@ impl Workspace {
                     };
                     // Fetch the current settings first so the undo entry can
                     // restore the previous value (Svelte
-                    // recordSourceSettingsHistory parity).
-                    let service = match &this.backend {
-                        crate::services::AnyBackend::Obs(service) => Some(service.clone()),
-                        crate::services::AnyBackend::Mock(_) => None,
-                    };
-                    let (id, value) = (id.clone(), value.clone());
-                    let key_owned = key.to_string();
-                    match service {
-                        Some(service) => {
-                            cx.spawn(async move |workspace, cx| {
-                                let id_for_fetch = id.clone();
-                                let previous = cx
-                                    .background_executor()
-                                    .spawn(async move {
-                                        crate::services::obs::source_settings(
-                                            &service,
-                                            &id_for_fetch,
-                                        )
-                                        .ok()
-                                        .and_then(|data| data.params.get(&key_owned).cloned())
-                                    })
-                                    .await;
-                                let _ = workspace.update(cx, |this, cx| {
-                                    this.apply_quick_action_edit(
-                                        id, key, value, previous, cx,
-                                    );
-                                });
+                    // recordSourceSettingsHistory parity). Mock builds fetch
+                    // nothing and apply without a history entry.
+                    let (id, value, key) = (id.clone(), value.clone(), key.to_string());
+                    let backend = this.backend.clone();
+                    cx.spawn(async move |workspace, cx| {
+                        let (fetch_id, fetch_key) = (id.clone(), key.clone());
+                        let previous = cx
+                            .background_executor()
+                            .spawn(async move {
+                                crate::services::fetch_source_settings(&backend, &fetch_id)
+                                    .and_then(|data| data.params.get(&fetch_key).cloned())
                             })
-                            .detach();
-                        }
-                        None => {
-                            // Mock backend: no settings store to diff against,
-                            // so the edit applies without a history entry.
-                            this.apply_quick_action_edit(id, key, value, None, cx);
-                        }
-                    }
+                            .await;
+                        let _ = workspace.update(cx, |this, cx| {
+                            this.apply_quick_action_edit(id, key, value, previous, cx);
+                        });
+                    })
+                    .detach();
                 }
                 QuickActionEvent::Interact { id: _ } => {
                     this.close_quick_action_modal(cx);
@@ -1863,8 +1845,6 @@ impl Workspace {
                 }],
             });
         }
-        let redo_params = std::collections::HashMap::new();
-        let _ = redo_params;
         self.state.status = format!("Quick action applied ({key})");
         let mut dispatch_params = std::collections::HashMap::new();
         dispatch_params.insert(key, value);

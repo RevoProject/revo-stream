@@ -152,3 +152,21 @@ impl AnyBackend {
         }
     }
 }
+
+/// Fetches one source's full settings on whichever backend is available;
+/// `None` for mock builds (no settings store to diff against for undo).
+/// Runs on the calling context — callers should background this.
+pub fn fetch_source_settings(
+    backend: &AnyBackend,
+    id: &str,
+) -> Option<revo_core::models::SourceSettingsData> {
+    #[cfg(feature = "obs-backend")]
+    if let AnyBackend::Obs(service) = backend {
+        return crate::services::obs::source_settings(service, id).ok();
+    }
+    #[cfg(not(feature = "obs-backend"))]
+    {
+        let _ = (backend, id);
+    }
+    None
+}
