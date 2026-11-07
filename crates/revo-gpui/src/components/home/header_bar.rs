@@ -1,4 +1,4 @@
-use gpui::{div, img, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, svg, Context, Div, IntoElement, Render, SharedString, Window};
 
 use crate::{
     actions::ComponentEvent,
@@ -116,6 +116,15 @@ impl Render for HeaderBar {
             });
         let studio = button(self.theme, "Studio", !busy, Some("layers"))
             .id("header-studio-toggle")
+            // Studio mode active: darker blue so the toggled state reads
+            // clearly instead of blending with the default button.
+            .bg(if busy {
+                self.theme.surface_elevated
+            } else if self.state.studio_mode {
+                self.theme.accent_pressed
+            } else {
+                self.theme.surface_active
+            })
             .when(!busy, |button| {
                 button.on_click(cx.listener(|this, _, _, cx| {
                     this.state.studio_mode = !this.state.studio_mode;
@@ -164,7 +173,9 @@ impl Render for HeaderBar {
         .bg(if busy {
             self.theme.surface_elevated
         } else if streaming {
-            self.theme.success
+            // While live the button drops to a calmer, darker green instead
+            // of the bright success accent.
+            self.theme.success_active
         } else {
             self.theme.accent
         })
@@ -198,7 +209,16 @@ impl Render for HeaderBar {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(img("brand/favicon.png").w(px(20.)).h(px(20.)).flex_none())
+                    .child(
+                        // Brand mark (same asset as the boot splash), tinted
+                        // like the Svelte header brand.
+                        svg()
+                            .path("brand/mark.svg")
+                            .w(px(20.))
+                            .h(px(20.))
+                            .flex_none()
+                            .text_color(self.theme.accent),
+                    )
                     .child(div().text_color(self.theme.text_strong).child("RevoStream"))
                     .child(self.state.version.clone())
                     .child(undo)

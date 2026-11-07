@@ -290,6 +290,9 @@ impl Render for AudioMixerPanel {
                                 .flex()
                                 .flex_row()
                                 .gap_1()
+                                // Icon controls per the Svelte mixer strip
+                                // (`volume-x`/`volume` mute button, lock
+                                // icon, `⋯` menu).
                                 .child(
                                     div()
                                         .id(SharedString::from(format!("mixer-mute-{id}")))
@@ -298,12 +301,15 @@ impl Render for AudioMixerPanel {
                                         .py_1()
                                         .rounded_md()
                                         .bg(self.theme.surface_active)
-                                        .text_color(if channel.muted {
-                                            self.theme.danger
-                                        } else {
-                                            self.theme.text
-                                        })
-                                        .child(if channel.muted { "Unmute" } else { "Mute" })
+                                        .child(crate::components::icon::icon(
+                                            if channel.muted {
+                                                self.theme.danger
+                                            } else {
+                                                self.theme.text
+                                            },
+                                            if channel.muted { "volume-x" } else { "volume" },
+                                            14.,
+                                        ))
                                         .on_click(cx.listener({
                                             let id = id.clone();
                                             move |this, _, _, cx| {
@@ -322,7 +328,15 @@ impl Render for AudioMixerPanel {
                                         .py_1()
                                         .rounded_md()
                                         .bg(self.theme.surface_active)
-                                        .child(if channel.locked { "Unlock" } else { "Lock" })
+                                        .child(crate::components::icon::icon(
+                                            if channel.locked {
+                                                self.theme.accent
+                                            } else {
+                                                self.theme.text_muted
+                                            },
+                                            if channel.locked { "lock" } else { "unlock" },
+                                            13.,
+                                        ))
                                         .on_click(cx.listener({
                                             let id = id.clone();
                                             move |this, _, _, cx| {
@@ -341,7 +355,11 @@ impl Render for AudioMixerPanel {
                                         .py_1()
                                         .rounded_md()
                                         .bg(self.theme.surface_active)
-                                        .child("Menu")
+                                        .child(crate::components::icon::icon(
+                                            self.theme.text,
+                                            "dots",
+                                            14.,
+                                        ))
                                         .on_click(cx.listener({
                                             let id = id.clone();
                                             move |this, _, _, cx| {

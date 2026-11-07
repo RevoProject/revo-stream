@@ -29,15 +29,46 @@ pub enum ContextMenuEvent {
     Dismissed,
 }
 
+/// One context-menu row: a direct action or a submenu group whose children
+/// render indented below the group header (Svelte-style `Transform`
+/// grouping for the move actions).
+#[derive(Clone, Debug, PartialEq)]
+pub enum MenuEntry {
+    Action(ContextMenuAction, String),
+    Submenu {
+        label: String,
+        children: Vec<(ContextMenuAction, String)>,
+    },
+}
+
+impl MenuEntry {
+    /// Expanded row count: a closed submenu is one row; an open one adds
+    /// its children.
+    fn rows(&self, submenu_open: bool) -> usize {
+        match self {
+            Self::Action(..) => 1,
+            Self::Submenu { children, .. } => {
+                if submenu_open {
+                    1 + children.len()
+                } else {
+                    1
+                }
+            }
+        }
+    }
+}
+
 /// Menu entries for one target, in display order. Labels reflect the
 /// target's current state (lock/visibility), matching the OBS right-click
-/// workflow the panels mirror.
-pub fn entries(target: &ContextMenuTarget) -> Vec<(ContextMenuAction, String)> {
+/// workflow the panels mirror. The move directions live in a `Transform`
+/// submenu, and the quick action stays on the panel header (not duplicated
+/// here).
+pub fn entries(target: &ContextMenuTarget) -> Vec<MenuEntry> {
     match target {
         ContextMenuTarget::Scene { locked, .. } => {
             vec![
-                (ContextMenuAction::Select, "Select scene".into()),
-                (
+                MenuEntry::Action(ContextMenuAction::Select, "Select scene".into()),
+                MenuEntry::Action(
                     ContextMenuAction::ToggleLock,
                     if *locked {
                         "Unlock scene"
@@ -46,55 +77,63 @@ pub fn entries(target: &ContextMenuTarget) -> Vec<(ContextMenuAction, String)> {
                     }
                     .into(),
                 ),
-                (ContextMenuAction::Move(MoveDirection::Up), "Move up".into()),
-                (
-                    ContextMenuAction::Move(MoveDirection::Down),
-                    "Move down".into(),
-                ),
-                (ContextMenuAction::Remove, "Remove scene".into()),
+                MenuEntry::Submenu {
+                    label: "Transform".into(),
+                    children: move_children(),
+                },
+                MenuEntry::Action(ContextMenuAction::Remove, "Remove scene".into()),
             ]
         }
         ContextMenuTarget::Source {
             visible, locked, ..
         } => {
             vec![
-                (ContextMenuAction::Edit, "Properties".into()),
-                (ContextMenuAction::QuickAction, "Quick action".into()),
-                (
+                MenuEntry::Action(ContextMenuAction::Edit, "Properties".into()),
+                MenuEntry::Action(
                     ContextMenuAction::ToggleVisibility,
                     if *visible { "Hide" } else { "Show" }.into(),
                 ),
-                (
+                MenuEntry::Action(
                     ContextMenuAction::ToggleLock,
                     if *locked { "Unlock" } else { "Lock" }.into(),
                 ),
-                (ContextMenuAction::Move(MoveDirection::Up), "Move up".into()),
-                (
-                    ContextMenuAction::Move(MoveDirection::Down),
-                    "Move down".into(),
-                ),
-                (
-                    ContextMenuAction::Move(MoveDirection::Top),
-                    "Move to top".into(),
-                ),
-                (
-                    ContextMenuAction::Move(MoveDirection::Bottom),
-                    "Move to bottom".into(),
-                ),
-                (ContextMenuAction::Remove, "Remove source".into()),
+                MenuEntry::Submenu {
+                    label: "Transform".into(),
+                    children: move_children(),
+                },
+                MenuEntry::Action(ContextMenuAction::Remove, "Remove source".into()),
             ]
         }
         ContextMenuTarget::Preview => vec![
-            (
+            MenuEntry::Action(
                 ContextMenuAction::ForcePreviewResolution,
                 "Force preview resolution".into(),
             ),
-            (
+            MenuEntry::Action(
                 ContextMenuAction::ToggleStudioMode,
                 "Toggle studio mode".into(),
             ),
         ],
     }
+}
+
+/// The four ordering actions shared by the scene and source menus.
+fn move_children() -> Vec<(ContextMenuAction, String)> {
+    vec![
+        (ContextMenuAction::Move(MoveDirection::Up), "Move up".into()),
+        (
+            ContextMenuAction::Move(MoveDirection::Down),
+            "Move down".into(),
+        ),
+        (
+            ContextMenuAction::Move(MoveDirection::Top),
+            "Move to top".into(),
+        ),
+        (
+            ContextMenuAction::Move(MoveDirection::Bottom),
+            "Move to bottom".into(),
+        ),
+    ]
 }
 
 /// Keeps the menu inside the window: shifts left/up when the cursor sits too
@@ -118,6 +157,8 @@ pub struct WorkspaceContextMenu {
     pub target: Option<ContextMenuTarget>,
     pub position: (f32, f32),
     pub selected_index: Option<usize>,
+    /// Whether the `Transform` submenu group is expanded.
+    pub submenu_open: bool,
     pub theme: RevoTheme,
 }
 
@@ -128,6 +169,7 @@ impl Default for WorkspaceContextMenu {
             target: None,
             position: (0.0, 0.0),
             selected_index: None,
+            submenu_open: false,
             theme: RevoTheme::future(),
         }
     }
@@ -141,6 +183,7 @@ impl WorkspaceContextMenu {
         self.target = Some(target);
         self.position = position;
         self.selected_index = Some(0);
+        self.submenu_open = false;
     }
 
     pub fn close(&mut self) {
@@ -148,6 +191,7 @@ impl WorkspaceContextMenu {
         self.target = None;
         self.position = (0.0, 0.0);
         self.selected_index = None;
+        self.submenu_open = false;
     }
 
     /// Applies one choice, closing the menu; `None` while closed or when the
@@ -181,13 +225,14 @@ impl Render for WorkspaceContextMenu {
             return div();
         }
         let rows = entries(&target);
+        let effective_rows: usize = rows.iter().map(|entry| entry.rows(self.submenu_open)).sum();
         let (x, y) = clamp_position(
             self.position,
             {
                 let size = window.viewport_size();
                 (f32::from(size.width), f32::from(size.height))
             },
-            rows.len(),
+            effective_rows,
         );
         let mut menu = div()
             .absolute()
@@ -201,30 +246,115 @@ impl Render for WorkspaceContextMenu {
             .border_color(self.theme.border_strong)
             .rounded_md()
             .shadow_md();
-        for (index, (action, label)) in rows.into_iter().enumerate() {
-            menu = menu.child(
-                div()
-                    .id(SharedString::from(format!("context-menu-{index}")))
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(if self.selected_index == Some(index) {
-                        self.theme.surface_selected
-                    } else {
-                        self.theme.surface_elevated
-                    })
-                    .text_color(self.theme.text)
-                    .text_size(px(11.2))
-                    .truncate()
-                    .child(label)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(event) = this.choose(action) {
-                            cx.emit(event);
+        let mut flat_index = 0usize;
+        for entry in rows.into_iter() {
+            match entry {
+                MenuEntry::Action(action, label) => {
+                    let index = flat_index;
+                    flat_index += 1;
+                    menu = menu.child(
+                        div()
+                            .id(SharedString::from(format!("context-menu-{index}")))
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .rounded_sm()
+                            .bg(if self.selected_index == Some(index) {
+                                self.theme.surface_selected
+                            } else {
+                                self.theme.surface_elevated
+                            })
+                            .text_color(self.theme.text)
+                            .text_size(px(11.2))
+                            .truncate()
+                            .child(label)
+                            // Pointer hover moves the highlight, so the
+                            // selected row always follows the cursor.
+                            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                if *hovered && this.selected_index != Some(index) {
+                                    this.selected_index = Some(index);
+                                    cx.notify();
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(event) = this.choose(action) {
+                                    cx.emit(event);
+                                }
+                                cx.notify();
+                            })),
+                    );
+                }
+                MenuEntry::Submenu { label, children } => {
+                    let index = flat_index;
+                    flat_index += 1;
+                    let open = self.submenu_open;
+                    menu = menu.child(
+                        div()
+                            .id(SharedString::from(format!("context-menu-{index}")))
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .rounded_sm()
+                            .bg(if self.selected_index == Some(index) {
+                                self.theme.surface_selected
+                            } else {
+                                self.theme.surface_elevated
+                            })
+                            .text_color(self.theme.text)
+                            .text_size(px(11.2))
+                            .flex()
+                            .justify_between()
+                            .child(label)
+                            .child(if open { "▾" } else { "▸" })
+                            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                if *hovered && this.selected_index != Some(index) {
+                                    this.selected_index = Some(index);
+                                    cx.notify();
+                                }
+                            }))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.submenu_open = !this.submenu_open;
+                                cx.notify();
+                            })),
+                    );
+                    if open {
+                        for (action, child_label) in children.into_iter() {
+                            let child_index = flat_index;
+                            flat_index += 1;
+                            menu = menu.child(
+                                div()
+                                    .id(SharedString::from(format!("context-menu-{child_index}")))
+                                    .cursor_pointer()
+                                    .pl_5()
+                                    .pr_2()
+                                    .py_1()
+                                    .rounded_sm()
+                                    .bg(if self.selected_index == Some(child_index) {
+                                        self.theme.surface_selected
+                                    } else {
+                                        self.theme.surface_elevated
+                                    })
+                                    .text_color(self.theme.text_secondary)
+                                    .text_size(px(11.2))
+                                    .truncate()
+                                    .child(child_label)
+                                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                        if *hovered && this.selected_index != Some(child_index) {
+                                            this.selected_index = Some(child_index);
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if let Some(event) = this.choose(action) {
+                                            cx.emit(event);
+                                        }
+                                        cx.notify();
+                                    })),
+                            );
                         }
-                        cx.notify();
-                    })),
-            );
+                    }
+                }
+            }
         }
         div()
             .absolute()
@@ -236,6 +366,7 @@ impl Render for WorkspaceContextMenu {
                     .size_full()
                     .top_0()
                     .left_0()
+                    .occlude()
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
@@ -279,48 +410,75 @@ mod tests {
         }
     }
 
+    /// Flattens entries the way the renderer does for an open submenu.
+    fn actions_with_submenu(
+        target: &ContextMenuTarget,
+        submenu_open: bool,
+    ) -> Vec<ContextMenuAction> {
+        let mut actions = Vec::new();
+        for entry in entries(target) {
+            match entry {
+                MenuEntry::Action(action, _) => actions.push(action),
+                MenuEntry::Submenu { children, .. } => {
+                    if submenu_open {
+                        actions.extend(children.into_iter().map(|(action, _)| action));
+                    }
+                }
+            }
+        }
+        actions
+    }
+
     #[test]
     fn scene_entries_follow_the_obs_right_click_workflow() {
-        let open = entries(&scene_target(false));
+        let open = actions_with_submenu(&scene_target(false), true);
         assert_eq!(
-            open.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+            open,
             vec![
                 ContextMenuAction::Select,
                 ContextMenuAction::ToggleLock,
                 ContextMenuAction::Move(MoveDirection::Up),
                 ContextMenuAction::Move(MoveDirection::Down),
+                ContextMenuAction::Move(MoveDirection::Top),
+                ContextMenuAction::Move(MoveDirection::Bottom),
                 ContextMenuAction::Remove,
             ]
         );
-        assert_eq!(open[1].1, "Lock scene");
-        assert_eq!(entries(&scene_target(true))[1].1, "Unlock scene");
     }
 
     #[test]
-    fn source_entries_reflect_visibility_and_lock_state() {
-        let open = entries(&source_target(true, false));
+    fn source_entries_hide_quick_action_and_group_moves() {
+        let open = actions_with_submenu(&source_target(true, false), true);
+        assert!(!open.contains(&ContextMenuAction::QuickAction));
+        assert_eq!(open.first(), Some(&ContextMenuAction::Edit));
+        assert_eq!(open[1], ContextMenuAction::ToggleVisibility);
+        assert_eq!(open[2], ContextMenuAction::ToggleLock);
+        assert_eq!(open[3], ContextMenuAction::Move(MoveDirection::Up));
+        assert_eq!(open.last(), Some(&ContextMenuAction::Remove));
+        // Closed submenu keeps only the direct actions.
         assert_eq!(
-            open.iter()
-                .position(|(action, _)| *action == ContextMenuAction::Remove),
-            Some(8)
+            actions_with_submenu(&source_target(true, false), false).len(),
+            4
         );
-        assert_eq!(open[2].1, "Hide");
-        assert_eq!(open[3].1, "Lock");
-        assert_eq!(entries(&source_target(false, true))[2].1, "Show");
-        assert_eq!(entries(&source_target(false, true))[3].1, "Unlock");
+    }
+
+    #[test]
+    fn submenu_row_count_tracks_the_expanded_group() {
+        let rows: Vec<usize> = entries(&source_target(true, false))
+            .iter()
+            .map(|entry| entry.rows(true))
+            .collect();
+        assert_eq!(rows, vec![1, 1, 1, 5, 1]);
     }
 
     #[test]
     fn preview_entries_cover_resolution_and_studio_mode() {
-        let labels: Vec<String> = entries(&ContextMenuTarget::Preview)
-            .into_iter()
-            .map(|(_, label)| label)
-            .collect();
+        let actions = actions_with_submenu(&ContextMenuTarget::Preview, false);
         assert_eq!(
-            labels,
+            actions,
             vec![
-                "Force preview resolution".to_string(),
-                "Toggle studio mode".to_string(),
+                ContextMenuAction::ForcePreviewResolution,
+                ContextMenuAction::ToggleStudioMode,
             ]
         );
     }

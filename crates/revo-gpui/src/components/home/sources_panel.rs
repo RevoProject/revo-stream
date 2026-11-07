@@ -68,10 +68,26 @@ impl SourcesPanel {
         })
     }
 
-    pub fn contextual_action(&self) -> Option<ComponentEvent> {
+    /// The contextual quick action plus its user-facing label, mirroring the
+    /// Svelte header (`Interact` / `Text Edit` / `Change color` / `Select
+    /// file` / device label).
+    pub fn contextual_action(&self) -> Option<(ComponentEvent, &'static str)> {
         let id = self.selected_id.as_ref()?.clone();
         let action = self.quick_action_for(&id)?;
-        Some(ComponentEvent::QuickSourceAction { id, action })
+        let label = match action {
+            QuickSourceAction::Interact => "Interact",
+            QuickSourceAction::EditText => "Edit text",
+            QuickSourceAction::ChangeColor => "Change color",
+            QuickSourceAction::SelectFile => "Select image",
+            QuickSourceAction::SelectDevice => "Select device",
+        };
+        Some((
+            ComponentEvent::QuickSourceAction {
+                id: id.clone(),
+                action,
+            },
+            label,
+        ))
     }
 
     /// Quick action implied by one source's type; shared by the header
@@ -388,43 +404,56 @@ impl Render for SourcesPanel {
                     ),
             );
         }
-        let mut header = div()
+        // Svelte header parity: the contextual action (labeled with what it
+        // does — Interact / Text Edit / Change color / Select file / Select
+        // device) sits before the "+" add button.
+        let action_button = self.contextual_action().map(|(event, label)| {
+            div()
+                .id("sources-contextual-action")
+                .cursor_pointer()
+                .px_2()
+                .py_1()
+                .flex()
+                .items_center()
+                .gap_1()
+                .rounded_md()
+                .bg(self.theme.surface_active)
+                .child(label)
+                .on_click(cx.listener(move |_, _, _, cx| cx.emit(event.clone())))
+        });
+        let header = div()
             .flex()
             .justify_between()
             .items_center()
             .child(div().text_color(self.theme.text_strong).child("Sources"))
             .child(
                 div()
-                    .id("sources-add")
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
                     .flex()
                     .items_center()
                     .gap_1()
-                    .rounded_md()
-                    .bg(self.theme.accent)
-                    .child(crate::components::icon::icon(
-                        self.theme.text_strong,
-                        "plus",
-                        12.,
-                    ))
-                    .child("Add source")
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddSource))),
+                    .children(action_button)
+                    .child(
+                        div()
+                            .id("sources-add")
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .rounded_md()
+                            .bg(self.theme.accent)
+                            .child(crate::components::icon::icon(
+                                self.theme.text_strong,
+                                "plus",
+                                12.,
+                            ))
+                            .child("Add source")
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::AddSource)),
+                            ),
+                    ),
             );
-        if let Some(event) = self.contextual_action() {
-            header = header.child(
-                div()
-                    .id("sources-contextual-action")
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .bg(self.theme.surface_active)
-                    .child("Quick action")
-                    .on_click(cx.listener(move |_, _, _, cx| cx.emit(event.clone()))),
-            );
-        }
         div()
             .flex()
             .flex_col()
@@ -461,10 +490,13 @@ mod tests {
         );
         assert_eq!(
             panel.contextual_action(),
-            Some(ComponentEvent::QuickSourceAction {
-                id: "text-1".into(),
-                action: QuickSourceAction::EditText
-            })
+            Some((
+                ComponentEvent::QuickSourceAction {
+                    id: "text-1".into(),
+                    action: QuickSourceAction::EditText
+                },
+                "Edit text"
+            ))
         );
     }
 

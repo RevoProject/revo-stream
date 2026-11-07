@@ -106,7 +106,10 @@ pub fn modal_shell(
 
 /// Modal card without the full-screen overlay wrapper. Callers that need
 /// their own backdrop-click-to-close behavior render this above a backdrop
-/// sibling instead of using [`modal_shell_with_body`].
+/// sibling instead of using [`modal_shell_with_body`]. When a caller supplies
+/// no footer/close elements, the structural footer renders inert labels only
+/// for configs that declare `show_close` false; otherwise a `✕` header
+/// button is expected to be wired by the caller.
 pub fn modal_card(
     config: &ModalConfig,
     theme: RevoTheme,
@@ -134,11 +137,9 @@ pub fn modal_card(
         );
     if config.show_close {
         header = header.child(close.unwrap_or_else(|| {
-            div()
-                .id("modal-close-structural")
-                .text_color(theme.text_muted)
-                .child("Close")
-                .into_any_element()
+            // No wired close: hide the control instead of rendering a dead
+            // label (the footer Cancel is the working dismissal path).
+            div().into_any_element()
         }));
     }
     let footer = footer.unwrap_or_else(|| {
