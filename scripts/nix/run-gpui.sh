@@ -48,4 +48,4 @@ fi
 export LD_LIBRARY_PATH="$LIB_PATHS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 cd "$PROJECT_DIR"
-exec cargo run --manifest-path crates/revo-gpui/Cargo.toml ${ARGS+"${ARGS[@]}"}
+exec cargo run --manifest-path crates/revo-gpui/Cargo.toml -- ${ARGS+"${ARGS[@]}"}
