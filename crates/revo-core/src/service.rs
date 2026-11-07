@@ -47,6 +47,11 @@ pub enum BackendCommand {
         locked: bool,
     },
     RemoveScene(String),
+    AddScene(String),
+    AddSource {
+        name: String,
+        source_type: String,
+    },
     SelectSource(String),
     ToggleSourceVisibility(String),
     ToggleSourceLock(String),
@@ -145,6 +150,9 @@ pub struct BackendSnapshot {
     pub enabled_plugin_modules: Vec<String>,
     /// Saved plugin profiles with their module enablement (profile tabs).
     pub plugin_profile_states: Vec<crate::models::PluginProfileState>,
+    /// Source types the engine can create (add-source modal tiles); empty
+    /// while libobs is not running.
+    pub available_source_types: Vec<crate::models::SourceTypeItem>,
 }
 
 impl Default for BackendSnapshot {
@@ -178,6 +186,7 @@ impl Default for BackendSnapshot {
             active_plugin_profile: None,
             enabled_plugin_modules: Vec::new(),
             plugin_profile_states: Vec::new(),
+            available_source_types: Vec::new(),
         }
     }
 }

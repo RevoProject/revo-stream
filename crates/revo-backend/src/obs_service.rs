@@ -370,6 +370,11 @@ impl BackendRuntime for ObsBackendRuntime {
                         })
                 })
                 .collect(),
+            available_source_types: if runtime.initialized {
+                source_ops::list_external_source_types(runtime).unwrap_or_default()
+            } else {
+                Vec::new()
+            },
             active_plugin_profile: self.active_plugin_profile.clone(),
             enabled_plugin_modules: self.enabled_modules_snapshot(),
         })
@@ -452,6 +457,29 @@ impl ObsBackendRuntime {
                 scene_ops::set_scene_lock(&mut self.runtime, name, locked)
             }
             BackendCommand::RemoveScene(name) => scene_ops::remove_scene(&mut self.runtime, name),
+            BackendCommand::AddScene(name) => scene_ops::create_scene(&mut self.runtime, name),
+            BackendCommand::AddSource { name, source_type } => {
+                let slug = slugify_source_name(&name);
+                let existing: HashSet<String> = crate::collect_sources(&self.runtime)
+                    .iter()
+                    .map(|source| source.id.clone())
+                    .collect();
+                let mut id = slug.clone();
+                let mut counter = 1;
+                while existing.contains(&id) {
+                    counter += 1;
+                    id = format!("{slug}-{counter}");
+                }
+                source_ops::create_source(
+                    &mut self.runtime,
+                    revo_core::models::SourceCreate {
+                        id,
+                        name,
+                        source_type,
+                        params: HashMap::new(),
+                    },
+                )
+            }
             BackendCommand::SelectSource(id) => {
                 self.selected_source = Some(id.clone());
                 Ok(format!("selected source: {id}"))
@@ -625,6 +653,23 @@ fn update_source_runtime(
     update: revo_core::models::SourceUpdate,
 ) -> Result<String, String> {
     source_ops::update_source(&backend.runtime, update)
+}
+
+/// URL-style slug for generated source ids: lowercase, non-alphanumeric
+/// characters collapse to dashes.
+fn slugify_source_name(name: &str) -> String {
+    let slug: String = name
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = slug.trim_matches('-');
+    if trimmed.is_empty() {
+        "source".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn move_direction_label(direction: MoveDirection) -> &'static str {

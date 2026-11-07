@@ -137,7 +137,7 @@ pub struct SourceInfo {
     pub params: HashMap<String, String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SourceTypeItem {
     pub id: String,
     pub label: String,

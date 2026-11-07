@@ -1993,6 +1993,55 @@ mod tests {
     }
 
     #[test]
+    fn mock_service_creates_scenes_and_sources() {
+        let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
+        service
+            .execute(BackendCommand::AddScene("Interview".into()))
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert!(snapshot.scenes.contains(&"Interview".into()));
+        // Creating a scene switches to it, mirroring obs create_scene.
+        assert_eq!(snapshot.selected_scene.as_deref(), Some("Interview"));
+
+        service
+            .execute(BackendCommand::AddSource {
+                name: "Alerts overlay".into(),
+                source_type: "browser_source".into(),
+            })
+            .unwrap();
+        service
+            .execute(BackendCommand::AddSource {
+                name: "Alerts overlay".into(),
+                source_type: "browser_source".into(),
+            })
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        let created: Vec<&revo_core::service::SourceSnapshotItem> = snapshot
+            .source_items
+            .iter()
+            .filter(|source| source.name == "Alerts overlay")
+            .collect();
+        assert_eq!(created.len(), 2);
+        assert_eq!(created[0].id, "alerts-overlay");
+        assert_eq!(created[1].id, "alerts-overlay-2");
+        assert!(snapshot
+            .sources
+            .iter()
+            .all(|id| id != "camera" || snapshot.sources.iter().any(|other| other == id)));
+
+        // The add-source modal tiles read the available types.
+        assert!(snapshot
+            .available_source_types
+            .iter()
+            .any(|item| item.id == "browser_source" && item.label == "Browser"));
+
+        service
+            .execute(BackendCommand::AddScene("".into()))
+            .expect_err("empty scene names are rejected");
+        service.shutdown().unwrap();
+    }
+
+    #[test]
     fn mock_service_tracks_plugin_profile_states() {
         let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
         service

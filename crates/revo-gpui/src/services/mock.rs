@@ -79,6 +79,33 @@ impl Default for MockBackendRuntime {
                     profile_name: "default".into(),
                     enabled_modules: Vec::new(),
                 }],
+                available_source_types: vec![
+                    revo_core::models::SourceTypeItem {
+                        id: "color_source".into(),
+                        label: "Color source".into(),
+                        audio_capable: false,
+                    },
+                    revo_core::models::SourceTypeItem {
+                        id: "text_ft2_source_v2".into(),
+                        label: "Text (FreeType 2)".into(),
+                        audio_capable: false,
+                    },
+                    revo_core::models::SourceTypeItem {
+                        id: "image_source".into(),
+                        label: "Image".into(),
+                        audio_capable: false,
+                    },
+                    revo_core::models::SourceTypeItem {
+                        id: "browser_source".into(),
+                        label: "Browser".into(),
+                        audio_capable: false,
+                    },
+                    revo_core::models::SourceTypeItem {
+                        id: "monitor_capture".into(),
+                        label: "Display capture".into(),
+                        audio_capable: true,
+                    },
+                ],
                 ..BackendSnapshot::default()
             },
             plugin_modules: HashMap::from([("default".to_string(), Vec::new())]),
@@ -162,8 +189,49 @@ impl BackendRuntime for MockBackendRuntime {
                 self.snapshot.scenes.retain(|scene| *scene != name);
                 self.snapshot.locked_scenes.retain(|scene| *scene != name);
                 if self.snapshot.selected_scene.as_deref() == Some(name.as_str()) {
+                    self.snapshot.selected_source = None;
                     self.snapshot.selected_scene = self.snapshot.scenes.first().cloned();
                 }
+            }
+            BackendCommand::AddScene(name) => {
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Err(BackendError::Runtime("scene name required".into()));
+                }
+                if self.snapshot.scenes.contains(&name) {
+                    return Err(BackendError::Runtime("scene already exists".into()));
+                }
+                self.snapshot.scenes.push(name.clone());
+                self.snapshot.selected_scene = Some(name);
+            }
+            BackendCommand::AddSource { name, source_type } => {
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return Err(BackendError::Runtime("source name required".into()));
+                }
+                let slug = slugify_source_name(&name);
+                let mut id = slug.clone();
+                let mut counter = 1;
+                while self
+                    .snapshot
+                    .source_items
+                    .iter()
+                    .any(|source| source.id == id)
+                {
+                    counter += 1;
+                    id = format!("{slug}-{counter}");
+                }
+                self.snapshot.sources.push(id.clone());
+                self.snapshot.visible_sources.push(id.clone());
+                self.snapshot
+                    .source_items
+                    .push(revo_core::service::SourceSnapshotItem {
+                        id,
+                        name,
+                        source_type,
+                        visible: true,
+                        audio_capable: false,
+                    });
             }
             BackendCommand::SelectSource(id) => self.snapshot.selected_source = Some(id),
             BackendCommand::ToggleSourceVisibility(id) => {
@@ -255,6 +323,23 @@ impl BackendRuntime for MockBackendRuntime {
 
     fn snapshot(&self) -> Result<BackendSnapshot, BackendError> {
         Ok(self.snapshot.clone())
+    }
+}
+
+/// URL-style slug for generated source ids: lowercase, non-alphanumeric
+/// characters collapse to dashes.
+fn slugify_source_name(name: &str) -> String {
+    let slug: String = name
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = slug.trim_matches('-');
+    if trimmed.is_empty() {
+        "source".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
