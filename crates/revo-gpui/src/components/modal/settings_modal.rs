@@ -521,6 +521,13 @@ impl Render for SettingsModal {
             }
         });
 
+        let close = div()
+            .id("settings-close")
+            .cursor_pointer()
+            .text_color(self.theme.text_muted)
+            .child("Close")
+            .on_click(cx.listener(|_this, _, _, cx| cx.emit(SettingsEvent::Cancelled)))
+            .into_any_element();
         modal_shell_with_body(
             &config,
             self.theme,
@@ -529,10 +536,12 @@ impl Render for SettingsModal {
                 .flex_row()
                 .gap_3()
                 .size_full()
+                .track_focus(&self.field_focus)
                 .child(rail)
                 .child(self.section_body(cx))
                 .on_key_down(on_key),
             Some(footer),
+            Some(close),
         )
     }
 }

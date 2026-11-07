@@ -26,7 +26,7 @@ use crate::{
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
-        modal::{SettingsEvent, SettingsModal},
+        modal::{PluginsEvent, PluginsModal, SettingsEvent, SettingsModal},
         modal_shell::{modal_card, ModalConfig, ModalSize},
         modules::{
             audio_mixer::{AudioChannel, AudioMixerPanel, MixerEvent},
@@ -113,6 +113,17 @@ pub struct WorkspaceState {
     /// Persisted settings as most recently reported by the backend snapshot;
     /// seeds the settings draft when the modal opens.
     pub settings: Option<AppSettings>,
+    /// Discovered libobs modules from the backend snapshot; seeds the
+    /// plugins modal.
+    pub plugins: Vec<revo_core::models::PluginInfo>,
+    /// Saved plugin profile names from the backend snapshot.
+    pub plugin_profiles: Vec<String>,
+    /// Saved plugin profiles with their module enablement.
+    pub plugin_profile_states: Vec<revo_core::models::PluginProfileState>,
+    /// Name of the currently applied plugin profile.
+    pub active_plugin_profile: Option<String>,
+    /// Enabled module names of the currently applied profile.
+    pub enabled_plugin_modules: Vec<String>,
     /// False until the first backend snapshot has been applied; drives the
     /// boot splash instead of the workspace shell.
     pub booted: bool,
@@ -134,6 +145,11 @@ impl Default for WorkspaceState {
             requested_window: None,
             requested_menu: None,
             settings: None,
+            plugins: Vec::new(),
+            plugin_profiles: Vec::new(),
+            plugin_profile_states: Vec::new(),
+            active_plugin_profile: None,
+            enabled_plugin_modules: Vec::new(),
             booted: false,
             splash_spin: 0.0,
             tools_mixer_visible: true,
@@ -289,6 +305,11 @@ impl WorkspaceState {
             self.status = "Backend state synced".into();
         }
         self.settings = snapshot.settings.clone();
+        self.plugins = snapshot.plugins.clone();
+        self.plugin_profiles = snapshot.plugin_profiles.clone();
+        self.plugin_profile_states = snapshot.plugin_profile_states.clone();
+        self.active_plugin_profile = snapshot.active_plugin_profile.clone();
+        self.enabled_plugin_modules = snapshot.enabled_plugin_modules.clone();
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -409,6 +430,7 @@ pub struct Workspace {
     pub planner: Entity<GraphicPlannerPanel>,
     pub context_menu: Entity<WorkspaceContextMenu>,
     pub settings_modal: Option<Entity<SettingsModal>>,
+    pub plugins_modal: Option<Entity<PluginsModal>>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
@@ -727,6 +749,7 @@ impl Workspace {
             planner,
             context_menu,
             settings_modal: None,
+            plugins_modal: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
@@ -974,6 +997,9 @@ impl Workspace {
         if self.state.active_modal == ActiveModal::Settings && self.settings_modal.is_none() {
             self.open_settings_modal(cx);
         }
+        if self.state.active_modal == ActiveModal::Plugins && self.plugins_modal.is_none() {
+            self.open_plugins_modal(cx);
+        }
         cx.notify();
     }
 
@@ -1093,11 +1119,58 @@ impl Workspace {
         }
     }
 
+    /// Creates the plugins modal entity seeded from the last known backend
+    /// plugin data (discovered modules, saved profile states, applied
+    /// profile) and subscribes to its Save/Cancel events.
+    fn open_plugins_modal(&mut self, cx: &mut Context<'_, Self>) {
+        let draft = crate::components::modal::PluginsDraft::load(
+            self.state.plugins.clone(),
+            self.state.plugin_profiles.clone(),
+            self.state
+                .plugin_profile_states
+                .iter()
+                .map(|state| (state.profile_name.clone(), state.enabled_modules.clone()))
+                .collect(),
+            self.state.active_plugin_profile.clone(),
+            self.state.enabled_plugin_modules.clone(),
+        );
+        let entity = cx.new(|cx| PluginsModal::new(draft, cx));
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
+            PluginsEvent::Saved {
+                profile_name,
+                modules,
+            } => {
+                this.state.status = format!("Plugin profile '{profile_name}' saved");
+                if let Err(error) = this.backend.try_dispatch(BackendCommand::SetPluginProfile {
+                    profile_name: profile_name.clone(),
+                    modules: modules.clone(),
+                }) {
+                    this.state.status = format!("Backend error: {error}");
+                }
+                this.close_plugins_modal(cx);
+                this.refresh_snapshot(cx);
+            }
+            PluginsEvent::Cancelled => this.close_plugins_modal(cx),
+        });
+        self._subscriptions.push(subscription);
+        self.plugins_modal = Some(entity);
+    }
+
+    /// Drops the plugins entity and closes the modal when it is active.
+    fn close_plugins_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.plugins_modal = None;
+        if self.state.active_modal == ActiveModal::Plugins {
+            self.state.close_modal();
+            cx.notify();
+        }
+    }
+
     /// Closes whichever modal is currently active, cleaning up the matching
     /// entity state.
     fn close_active_modal(&mut self, cx: &mut Context<'_, Self>) {
         match &self.state.active_modal {
             ActiveModal::Settings => self.close_settings_modal(cx),
+            ActiveModal::Plugins => self.close_plugins_modal(cx),
             ActiveModal::AudioMixerAdvanced(_)
             | ActiveModal::GraphicPlanner
             | ActiveModal::None => {
@@ -1107,7 +1180,6 @@ impl Workspace {
                 cx.notify();
             }
             ActiveModal::History
-            | ActiveModal::Plugins
             | ActiveModal::Templates
             | ActiveModal::AddScene
             | ActiveModal::AddSource
@@ -1464,19 +1536,10 @@ impl Workspace {
         match &self.state.active_modal {
             ActiveModal::None => None,
             ActiveModal::Settings => None,
+            ActiveModal::Plugins => None,
             ActiveModal::History => Some((
                 ModalConfig::standard("Action History", ModalSize::Medium),
                 vec!["Undo and redo history will be supplied by the backend service.".into()],
-            )),
-            ActiveModal::Plugins => Some((
-                ModalConfig::standard("Plugins", ModalSize::Medium),
-                vec![
-                    "Plugin profiles and per-module enablement come from the backend service."
-                        .into(),
-                    "The legacy Svelte workflow lists discovered libobs modules with profile"
-                        .into(),
-                    "tabs and enable toggles; the native panel follows in the next slice.".into(),
-                ],
             )),
             ActiveModal::Templates => Some((
                 ModalConfig::standard("Templates", ModalSize::Medium),
@@ -1611,6 +1674,7 @@ impl Render for Workspace {
                             self.theme,
                             div().flex().flex_col().gap_2().children(lines),
                             None,
+                            None,
                         )),
                 );
             if config.show_close {
@@ -1630,6 +1694,21 @@ impl Render for Workspace {
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_active_modal(cx);
                         })),
+                );
+            }
+        }
+
+        if self.state.active_modal == ActiveModal::Plugins {
+            if let Some(entity) = self.plugins_modal.clone() {
+                root = root.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .bg(self.theme.overlay)
+                        .child(entity),
                 );
             }
         }

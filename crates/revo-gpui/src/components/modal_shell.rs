@@ -100,6 +100,7 @@ pub fn modal_shell(
         theme,
         div().flex().flex_col().gap_2().children(lines),
         None,
+        None,
     )
 }
 
@@ -111,6 +112,7 @@ pub fn modal_card(
     theme: RevoTheme,
     body: impl IntoElement,
     footer: Option<gpui::AnyElement>,
+    close: Option<gpui::AnyElement>,
 ) -> gpui::Div {
     let width = match config.size {
         ModalSize::Small => 360.,
@@ -131,12 +133,13 @@ pub fn modal_card(
                 .child(config.title.clone()),
         );
     if config.show_close {
-        header = header.child(
+        header = header.child(close.unwrap_or_else(|| {
             div()
                 .id("modal-close-structural")
                 .text_color(theme.text_muted)
-                .child("Close"),
-        );
+                .child("Close")
+                .into_any_element()
+        }));
     }
     let footer = footer.unwrap_or_else(|| {
         let mut footer = div().flex().flex_row().justify_end().gap_2().p_3();
@@ -186,6 +189,7 @@ pub fn modal_shell_with_body(
     theme: RevoTheme,
     body: impl IntoElement,
     footer: Option<gpui::AnyElement>,
+    close: Option<gpui::AnyElement>,
 ) -> gpui::Div {
     div()
         .flex()
@@ -193,7 +197,7 @@ pub fn modal_shell_with_body(
         .justify_center()
         .size_full()
         .bg(theme.overlay)
-        .child(modal_card(config, theme, body, footer))
+        .child(modal_card(config, theme, body, footer, close))
 }
 
 impl Render for ModalShell {
