@@ -1,15 +1,13 @@
 use std::collections::{BTreeMap, HashMap};
-
-#[cfg(feature = "obs-backend")]
 use std::time::Duration;
 
 #[cfg(feature = "obs-backend")]
 use base64::Engine as _;
 
 use gpui::{
-    div, img, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement,
-    MouseButton, Pixels, Render, SharedString, Subscription, TitlebarOptions, Window, WindowBounds,
-    WindowHandle, WindowOptions,
+    div, prelude::*, px, rgb, size, svg, App, Application, AssetSource, Bounds, Context, Entity,
+    IntoElement, MouseButton, Pixels, Render, SharedString, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowHandle, WindowOptions,
 };
 use revo_core::models::AppSettings;
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
@@ -111,6 +109,9 @@ pub struct WorkspaceState {
     /// False until the first backend snapshot has been applied; drives the
     /// boot splash instead of the workspace shell.
     pub booted: bool,
+    /// Rotation angle of the boot-splash spinner (degrees); animated by a
+    /// foreground task while [`Self::booted`] is false.
+    pub splash_spin: f32,
 }
 
 impl Default for WorkspaceState {
@@ -118,10 +119,11 @@ impl Default for WorkspaceState {
         Self {
             active_modal: ActiveModal::None,
             last_command: None,
-            status: "Native mock backend ready".into(),
+            status: "Starting core...".into(),
             requested_window: None,
             settings: None,
             booted: false,
+            splash_spin: 0.0,
         }
     }
 }
@@ -702,11 +704,34 @@ impl Workspace {
         // One initial snapshot refresh on startup so native state (including
         // real-data panels for the obs backend) lands without user input.
         workspace.refresh_snapshot(cx);
+        workspace.spawn_splash_spinner(cx);
         #[cfg(feature = "obs-backend")]
         if use_obs_backend {
             workspace.spawn_preview_loop(cx);
         }
         workspace
+    }
+
+    /// Animates the boot-splash spinner while the shell is not booted; the
+    /// loop exits as soon as the first snapshot marks the state booted.
+    fn spawn_splash_spinner(&mut self, cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |workspace, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(60))
+                .await;
+            let alive = workspace.update(cx, |workspace, cx| {
+                if workspace.state.booted {
+                    return false;
+                }
+                workspace.state.splash_spin = (workspace.state.splash_spin + 15.0) % 360.0;
+                cx.notify();
+                true
+            });
+            if !alive.unwrap_or(false) {
+                return;
+            }
+        })
+        .detach();
     }
 
     /// Runs one snapshot request on the GPUI background executor and applies
@@ -1164,27 +1189,52 @@ impl Render for Workspace {
         let mode = LayoutMode::for_width(f32::from(window.viewport_size().width));
 
         if !self.state.booted {
-            // Boot splash: brand + status until the first backend snapshot
-            // lands, then the workspace shell takes over.
+            // Boot splash: port of the Svelte startup screen — brand mark in
+            // the accent color, status line, animated spinner ring.
+            let spin =
+                gpui::Transformation::rotate(gpui::radians(self.state.splash_spin.to_radians()));
             return div()
                 .flex()
-                .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_3()
                 .size_full()
-                .bg(self.theme.background)
-                .child(img("brand/favicon.png").w(px(56.)).h(px(56.)))
+                .bg(rgb(0x080c12))
+                .font_family("Space Grotesk")
                 .child(
                     div()
-                        .text_color(self.theme.text_strong)
-                        .text_size(px(22.))
-                        .child("RevoStream"),
-                )
-                .child(
-                    div()
-                        .text_color(self.theme.text_muted)
-                        .child(SharedString::from(self.state.status.clone())),
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_2p5()
+                        .child(
+                            svg()
+                                .path("brand/mark.svg")
+                                .w(px(64.))
+                                .h(px(64.))
+                                .text_color(self.theme.accent),
+                        )
+                        .child(
+                            div()
+                                .text_color(self.theme.text_strong)
+                                .text_size(px(21.6))
+                                .font_weight(gpui::FontWeight::BOLD)
+                                .child("RevoStream"),
+                        )
+                        .child(
+                            div()
+                                .text_color(self.theme.text_muted)
+                                .text_size(px(14.4))
+                                .child(SharedString::from(self.state.status.clone())),
+                        )
+                        .child(
+                            svg()
+                                .path("icons/spinner.svg")
+                                .w(px(16.))
+                                .h(px(16.))
+                                .mt_1p5()
+                                .text_color(self.theme.accent)
+                                .with_transformation(spin),
+                        ),
                 );
         }
 
@@ -1194,9 +1244,9 @@ impl Render for Workspace {
             .flex_col()
             .gap_2()
             .size_full()
-            .p_2()
             .bg(self.theme.background)
             .text_color(self.theme.text)
+            .font_family("Space Grotesk")
             .child(self.header.clone())
             .child(self.preview_surface())
             .child(self.lower_panels(cx, mode));
@@ -1319,10 +1369,27 @@ impl Render for Workspace {
     }
 }
 
+/// Registers the bundled UI font (Space Grotesk) with the text system so
+/// the shell can set `font_family` like the Svelte build did.
+fn register_ui_fonts(cx: &mut App) {
+    let fonts: Vec<std::borrow::Cow<'static, [u8]>> = crate::assets::EmbeddedAssets
+        .list("fonts")
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|path| crate::assets::EmbeddedAssets.load(&path).ok().flatten())
+        .collect();
+    if !fonts.is_empty() {
+        if let Err(error) = cx.text_system().add_fonts(fonts) {
+            eprintln!("failed to register bundled fonts: {error}");
+        }
+    }
+}
+
 pub fn run_native_app() {
     Application::new()
         .with_assets(crate::assets::EmbeddedAssets)
         .run(|cx: &mut App| {
+            register_ui_fonts(cx);
             let bounds = Bounds::centered(None, size(px(1280.), px(720.)), cx);
             cx.open_window(
                 WindowOptions {

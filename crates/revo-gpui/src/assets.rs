@@ -13,6 +13,11 @@ const ASSETS: &[(&str, &[u8])] = &[
         "brand/favicon.png",
         include_bytes!("../assets/brand/favicon.png"),
     ),
+    ("brand/mark.svg", include_bytes!("../assets/brand/mark.svg")),
+    (
+        "icons/spinner.svg",
+        include_bytes!("../assets/icons/spinner.svg"),
+    ),
     (
         "icons/close.svg",
         include_bytes!("../assets/icons/close.svg"),
@@ -99,6 +104,18 @@ const ASSETS: &[(&str, &[u8])] = &[
     (
         "icons/monitor.svg",
         include_bytes!("../assets/icons/monitor.svg"),
+    ),
+    (
+        "fonts/space-grotesk-400.ttf",
+        include_bytes!("../assets/fonts/space-grotesk-400.ttf"),
+    ),
+    (
+        "fonts/space-grotesk-600.ttf",
+        include_bytes!("../assets/fonts/space-grotesk-600.ttf"),
+    ),
+    (
+        "fonts/space-grotesk-700.ttf",
+        include_bytes!("../assets/fonts/space-grotesk-700.ttf"),
     ),
 ];
 
