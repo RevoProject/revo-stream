@@ -2,6 +2,7 @@ pub mod actions;
 pub mod app;
 pub mod assets;
 pub mod components;
+pub mod history;
 pub mod services;
 pub mod theme;
 pub mod windows;
