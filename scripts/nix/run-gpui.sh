@@ -37,7 +37,15 @@ if [ -z "${DISPLAY:-}" ]; then
 	exit 1
 fi
 
+# Real libobs backend: compiles only inside the shell.nix environment
+# (openssl + glib/gobject via pkg-config). Runtime wiring below is shared
+# with the mock shell.
+if [ "${REVO_GPUI_OBS:-0}" = "1" ]; then
+	nix-shell shell.nix --run "cargo build --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml"
+	ARGS=("--obs")
+fi
+
 export LD_LIBRARY_PATH="$LIB_PATHS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 cd "$PROJECT_DIR"
-exec cargo run --manifest-path crates/revo-gpui/Cargo.toml
+exec cargo run --manifest-path crates/revo-gpui/Cargo.toml ${ARGS+"${ARGS[@]}"}

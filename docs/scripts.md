@@ -25,7 +25,10 @@ Platform equivalents for the same gate:
   runs the shell with the host NVIDIA driver stack (works on the NVIDIA
   container runtime; requires a desktop session with `DISPLAY` set).
   GPU rendering uses default Vulkan device discovery — do not set
-  `VK_ICD_FILENAMES`.
+  `VK_ICD_FILENAMES`. With `REVO_GPUI_OBS=1` the launcher compiles the real
+  libobs backend inside `shell.nix` (needs openssl + glib via pkg-config)
+  and starts the shell with `--obs` for live OBS communication:
+  `REVO_GPUI_OBS=1 bash scripts/nix/run-gpui.sh`
 - `run.sh gpui` — run a previously built release GPUI binary
   (`crates/revo-gpui/target/release/revo-gpui`), with staleness checks against
   the core crate sources; `run.sh tauri` keeps the existing Tauri
