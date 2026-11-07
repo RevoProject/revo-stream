@@ -79,7 +79,7 @@ pub struct PluginProfile {
     pub enabled_modules: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PluginProfileState {
     pub profile_name: String,
     pub enabled_modules: Vec<String>,

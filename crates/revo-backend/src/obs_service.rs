@@ -358,6 +358,18 @@ impl BackendRuntime for ObsBackendRuntime {
                 .unwrap_or_default(),
             plugin_profiles: crate::settings::plugins_profiles::plugin_profiles_list()
                 .unwrap_or_default(),
+            plugin_profile_states: crate::settings::plugins_profiles::plugin_profiles_list()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|name| {
+                    crate::settings::plugins_profiles::plugin_profile_get_internal(name)
+                        .ok()
+                        .map(|profile| crate::models::PluginProfileState {
+                            profile_name: name.clone(),
+                            enabled_modules: profile.enabled_modules,
+                        })
+                })
+                .collect(),
             active_plugin_profile: self.active_plugin_profile.clone(),
             enabled_plugin_modules: self.enabled_modules_snapshot(),
         })
@@ -796,6 +808,17 @@ mod tests {
             .plugin_profiles
             .iter()
             .any(|name| name == "native-test"));
+        // Module enablement normalizes against the discovered module list;
+        // the test runtime discovers nothing, so the persisted profile
+        // stores an empty set. The profile tabs read exactly what the
+        // backend persisted (the mock test covers the full module
+        // round-trip without normalization).
+        let saved_state = snapshot
+            .plugin_profile_states
+            .iter()
+            .find(|state| state.profile_name == "native-test")
+            .expect("saved profile state in snapshot");
+        assert_eq!(saved_state.enabled_modules, Vec::<String>::new());
 
         backend
             .apply(BackendCommand::SetActivePluginProfile("native-test".into()))

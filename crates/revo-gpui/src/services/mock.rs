@@ -52,6 +52,10 @@ impl Default for MockBackendRuntime {
                 plugin_profiles: vec!["default".into()],
                 active_plugin_profile: Some("default".into()),
                 enabled_plugin_modules: Vec::new(),
+                plugin_profile_states: vec![revo_core::models::PluginProfileState {
+                    profile_name: "default".into(),
+                    enabled_modules: Vec::new(),
+                }],
                 ..BackendSnapshot::default()
             },
             plugin_modules: HashMap::from([("default".to_string(), Vec::new())]),
@@ -75,6 +79,18 @@ impl BackendRuntime for MockBackendRuntime {
                 if !self.snapshot.plugin_profiles.contains(&profile_name) {
                     self.snapshot.plugin_profiles.push(profile_name.clone());
                 }
+                self.snapshot
+                    .plugin_profile_states
+                    .retain(|state| state.profile_name != profile_name);
+                self.snapshot
+                    .plugin_profile_states
+                    .push(revo_core::models::PluginProfileState {
+                        profile_name: profile_name.clone(),
+                        enabled_modules: modules.clone(),
+                    });
+                self.snapshot
+                    .plugin_profile_states
+                    .sort_by(|a, b| a.profile_name.cmp(&b.profile_name));
                 if self.snapshot.active_plugin_profile.as_deref() == Some(profile_name.as_str()) {
                     self.snapshot.enabled_plugin_modules = modules;
                 }

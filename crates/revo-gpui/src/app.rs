@@ -1920,6 +1920,38 @@ mod tests {
     }
 
     #[test]
+    fn mock_service_tracks_plugin_profile_states() {
+        let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
+        service
+            .execute(BackendCommand::SetPluginProfile {
+                profile_name: "streaming".into(),
+                modules: vec!["obs-websocket".into(), "obs-vst".into()],
+            })
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        let state = snapshot
+            .plugin_profile_states
+            .iter()
+            .find(|state| state.profile_name == "streaming")
+            .expect("saved profile state in snapshot");
+        assert_eq!(
+            state.enabled_modules,
+            vec!["obs-websocket".to_owned(), "obs-vst".to_owned()]
+        );
+
+        service
+            .execute(BackendCommand::SetActivePluginProfile("streaming".into()))
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert_eq!(snapshot.active_plugin_profile.as_deref(), Some("streaming"));
+        assert_eq!(
+            snapshot.enabled_plugin_modules,
+            vec!["obs-websocket".to_owned(), "obs-vst".to_owned()]
+        );
+        service.shutdown().unwrap();
+    }
+
+    #[test]
     fn mock_service_executes_lifecycle_scene_and_source_commands() {
         let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
         service.execute(BackendCommand::StartObs).unwrap();

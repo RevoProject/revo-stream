@@ -143,6 +143,8 @@ pub struct BackendSnapshot {
     pub active_plugin_profile: Option<String>,
     /// Enabled plugin modules of the currently applied profile.
     pub enabled_plugin_modules: Vec<String>,
+    /// Saved plugin profiles with their module enablement (profile tabs).
+    pub plugin_profile_states: Vec<crate::models::PluginProfileState>,
 }
 
 impl Default for BackendSnapshot {
@@ -175,6 +177,7 @@ impl Default for BackendSnapshot {
             plugin_profiles: Vec::new(),
             active_plugin_profile: None,
             enabled_plugin_modules: Vec::new(),
+            plugin_profile_states: Vec::new(),
         }
     }
 }
