@@ -28,7 +28,8 @@ use crate::{
         },
         modal::{
             AddSceneEvent, AddSceneModal, AddSourceEvent, AddSourceModal, PluginsEvent,
-            PluginsModal, SettingsEvent, SettingsModal,
+            PluginsModal, SettingsEvent, SettingsModal, SourcePropertiesEvent,
+            SourcePropertiesModal,
         },
         modal_shell::{modal_card, ModalConfig, ModalSize},
         modules::{
@@ -41,6 +42,7 @@ use crate::{
                 TransitionsPanel,
             },
         },
+        quick_modal::{QuickActionEvent, QuickActionModal},
     },
     theme::RevoTheme,
     windows::{
@@ -94,6 +96,7 @@ pub enum ActiveModal {
     Templates,
     AddScene,
     AddSource,
+    SourceProperties(String),
     SourceEditor(String),
     AudioMixerAdvanced(String),
     GraphicPlanner,
@@ -108,6 +111,8 @@ pub struct WorkspaceState {
     pub active_modal: ActiveModal,
     pub last_command: Option<BackendCommand>,
     pub status: String,
+    /// Workspace-side undo/redo log fed by the routed component events.
+    pub history: crate::history::HistoryLog,
     /// One-shot auxiliary-window request routed from the Tools panel;
     /// consumed (`take`) by the Workspace to open/focus the window.
     pub requested_window: Option<AuxiliaryWindowKind>,
@@ -131,6 +136,9 @@ pub struct WorkspaceState {
     pub enabled_plugin_modules: Vec<String>,
     /// Source types the engine can create; seeds the add-source modal.
     pub available_source_types: Vec<revo_core::models::SourceTypeItem>,
+    /// Placed source transforms from the last snapshot; seeds the source
+    /// properties modal and mirrors the Svelte properties window.
+    pub source_transforms: Vec<revo_core::service::PlacedSource>,
     /// False until the first backend snapshot has been applied; drives the
     /// boot splash instead of the workspace shell.
     pub booted: bool,
@@ -145,6 +153,7 @@ impl Default for WorkspaceState {
             active_modal: ActiveModal::None,
             last_command: None,
             status: "Starting core...".into(),
+            history: crate::history::HistoryLog::default(),
             requested_window: None,
             requested_menu: None,
             settings: None,
@@ -154,6 +163,7 @@ impl Default for WorkspaceState {
             active_plugin_profile: None,
             enabled_plugin_modules: Vec::new(),
             available_source_types: Vec::new(),
+            source_transforms: Vec::new(),
             booted: false,
             splash_spin: 0.0,
         }
@@ -265,6 +275,13 @@ impl WorkspaceState {
                 return None;
             }
             ComponentEvent::QuickSourceAction { id, action } => {
+                // Browser sources skip the modal and go straight to the
+                // interaction window (Svelte parity: the Interact button).
+                if action == QuickSourceAction::Interact {
+                    self.requested_window = Some(AuxiliaryWindowKind::BrowserInteraction);
+                    self.status = "Opening browser interaction window".into();
+                    return None;
+                }
                 self.active_modal = ActiveModal::QuickAction {
                     source_id: id,
                     action,
@@ -334,6 +351,7 @@ impl WorkspaceState {
         self.active_plugin_profile = snapshot.active_plugin_profile.clone();
         self.enabled_plugin_modules = snapshot.enabled_plugin_modules.clone();
         self.available_source_types = snapshot.available_source_types.clone();
+        self.source_transforms = snapshot.source_transforms.clone();
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -383,6 +401,14 @@ impl WorkspaceState {
                     BackendCommand::SetTransitionKind(kind),
                     BackendCommand::SetTransitionDuration(duration_ms),
                 ]
+            }
+            TransitionEvent::Added { name } => {
+                self.status = format!("Transition '{name}' added to the draft list");
+                Vec::new()
+            }
+            TransitionEvent::Removed => {
+                self.status = "Transition removed from the draft list".into();
+                Vec::new()
             }
             TransitionEvent::Discard => {
                 self.status = "Transitions draft discarded".into();
@@ -442,6 +468,22 @@ pub struct AuxWindows {
     pub interact: Option<WindowHandle<InteractWindow>>,
 }
 
+/// Measured container bounds shared with the per-frame bounds probes
+/// (`gpui::canvas`); sized once per frame so the capture frames can keep a
+/// scene-shaped aspect ratio (gpui 0.2.2 has no CSS aspect-ratio).
+#[cfg(feature = "obs-backend")]
+type MeasuredContainer = std::rc::Rc<std::cell::Cell<Option<gpui::Size<gpui::Pixels>>>>;
+
+/// One measured container per preview surface: the single program band and
+/// the two studio columns.
+#[cfg(feature = "obs-backend")]
+#[derive(Clone)]
+struct PreviewContainerSizes {
+    program: MeasuredContainer,
+    studio_preview: MeasuredContainer,
+    studio_program: MeasuredContainer,
+}
+
 pub struct Workspace {
     pub header: Entity<HeaderBar>,
     pub scenes: Entity<ScenesPanel>,
@@ -457,6 +499,14 @@ pub struct Workspace {
     pub plugins_modal: Option<Entity<PluginsModal>>,
     pub add_scene_modal: Option<Entity<AddSceneModal>>,
     pub add_source_modal: Option<Entity<AddSourceModal>>,
+    pub quick_action_modal: Option<Entity<QuickActionModal>>,
+    pub source_properties_modal: Option<Entity<SourcePropertiesModal>>,
+    /// Name of a just-created source; the next snapshot resolves it to an
+    /// id and opens its properties modal (Svelte-style add → properties).
+    pending_properties_source: Option<String>,
+    /// History entry waiting for a snapshot to resolve the created source's
+    /// id (undo needs the backend id for `RemoveSource`).
+    pending_history_entry: Option<crate::history::HistoryEntry>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
@@ -467,6 +517,9 @@ pub struct Workspace {
     /// Studio-mode Preview column frame (the preview scene, not program).
     #[cfg(feature = "obs-backend")]
     studio_preview_frame: Option<std::sync::Arc<GpuiImage>>,
+    /// Measured preview container bounds for the aspect-correct frames.
+    #[cfg(feature = "obs-backend")]
+    preview_container_sizes: PreviewContainerSizes,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -800,6 +853,10 @@ impl Workspace {
             plugins_modal: None,
             add_scene_modal: None,
             add_source_modal: None,
+            quick_action_modal: None,
+            source_properties_modal: None,
+            pending_properties_source: None,
+            pending_history_entry: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
@@ -809,6 +866,12 @@ impl Workspace {
             preview_frame: None,
             #[cfg(feature = "obs-backend")]
             studio_preview_frame: None,
+            #[cfg(feature = "obs-backend")]
+            preview_container_sizes: PreviewContainerSizes {
+                program: std::rc::Rc::new(std::cell::Cell::new(None)),
+                studio_preview: std::rc::Rc::new(std::cell::Cell::new(None)),
+                studio_program: std::rc::Rc::new(std::cell::Cell::new(None)),
+            },
             _subscriptions: subscriptions,
         };
 
@@ -906,7 +969,158 @@ impl Workspace {
             cx.notify();
         });
         self.state.apply_snapshot(&snapshot);
+        self.resolve_pending_properties(&snapshot, cx);
         cx.notify();
+    }
+
+    /// Builds the undo/redo entry for one routed component event from the
+    /// live snapshot (Svelte parity: the per-action `recordHistory`
+    /// closures). Source creation is deferred — its backend id only exists
+    /// after the next snapshot, so `apply_snapshot` finalizes it.
+    fn history_entry_for(
+        &self,
+        event: &ComponentEvent,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<crate::history::HistoryEntry> {
+        use crate::history::HistoryEntry;
+        use revo_core::service::MoveDirection;
+        let entry = |label: String, undo: Vec<BackendCommand>, redo: Vec<BackendCommand>| {
+            Some(HistoryEntry { label, undo, redo })
+        };
+        match event {
+            ComponentEvent::RemoveScene(name) => entry(
+                format!("Remove scene '{name}'"),
+                // The scene re-adds at the end of the list; exact index
+                // restoration needs a backend reorder command on undo.
+                vec![BackendCommand::AddScene(name.clone())],
+                vec![BackendCommand::RemoveScene(name.clone())],
+            ),
+            ComponentEvent::RenameScene { from, to } => entry(
+                format!("Rename scene '{from}' → '{to}'"),
+                vec![BackendCommand::RenameScene {
+                    from: to.clone(),
+                    to: from.clone(),
+                }],
+                vec![BackendCommand::RenameScene {
+                    from: from.clone(),
+                    to: to.clone(),
+                }],
+            ),
+            ComponentEvent::ReorderScene { name, to_index } => {
+                let current_index = self
+                    .scenes
+                    .read(cx)
+                    .scenes
+                    .iter()
+                    .position(|scene| &scene.name == name)?;
+                entry(
+                    format!("Move scene '{name}'"),
+                    vec![BackendCommand::ReorderScene {
+                        name: name.clone(),
+                        to_index: current_index,
+                    }],
+                    vec![BackendCommand::ReorderScene {
+                        name: name.clone(),
+                        to_index: *to_index,
+                    }],
+                )
+            }
+            ComponentEvent::SetSceneLock { name, locked } => entry(
+                format!("Scene lock '{}'", if *locked { "on" } else { "off" }),
+                vec![BackendCommand::SetSceneLock {
+                    name: name.clone(),
+                    locked: !locked,
+                }],
+                vec![BackendCommand::SetSceneLock {
+                    name: name.clone(),
+                    locked: *locked,
+                }],
+            ),
+            ComponentEvent::RemoveSource(id) => {
+                let item = self
+                    .sources
+                    .read(cx)
+                    .sources
+                    .iter()
+                    .find(|source| &source.id == id)
+                    .cloned()?;
+                entry(
+                    format!("Remove source '{}'", item.name),
+                    vec![BackendCommand::AddSource {
+                        name: item.name.clone(),
+                        source_type: item.source_type.clone(),
+                    }],
+                    vec![BackendCommand::RemoveSource(id.clone())],
+                )
+            }
+            ComponentEvent::ToggleSourceVisibility(id) => entry(
+                format!("Toggle visibility of '{id}'"),
+                vec![BackendCommand::ToggleSourceVisibility(id.clone())],
+                vec![BackendCommand::ToggleSourceVisibility(id.clone())],
+            ),
+            ComponentEvent::ToggleSourceLock(id) => entry(
+                format!("Toggle lock of '{id}'"),
+                vec![BackendCommand::ToggleSourceLock(id.clone())],
+                vec![BackendCommand::ToggleSourceLock(id.clone())],
+            ),
+            ComponentEvent::MoveSource { id, direction } => {
+                let opposite = match direction {
+                    MoveDirection::Up => MoveDirection::Down,
+                    MoveDirection::Down => MoveDirection::Up,
+                    MoveDirection::Top => MoveDirection::Bottom,
+                    MoveDirection::Bottom => MoveDirection::Top,
+                };
+                entry(
+                    format!("Move source '{id}'"),
+                    vec![BackendCommand::MoveSource {
+                        id: id.clone(),
+                        direction: opposite,
+                    }],
+                    vec![BackendCommand::MoveSource {
+                        id: id.clone(),
+                        direction: *direction,
+                    }],
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolves a pending just-created source name to its backend id from
+    /// the snapshot and opens its properties modal (Svelte-style add →
+    /// properties flow).
+    fn resolve_pending_properties(
+        &mut self,
+        snapshot: &BackendSnapshot,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(pending) = self.pending_properties_source.take() else {
+            return;
+        };
+        let match_id = snapshot
+            .source_items
+            .iter()
+            .find(|source| source.name == pending)
+            .map(|source| source.id.clone());
+        // The same resolution finalizes the deferred undo entry.
+        if let Some(mut entry) = self.pending_history_entry.take() {
+            if entry.undo.is_empty() {
+                if let Some(id) = &match_id {
+                    entry.undo = vec![BackendCommand::RemoveSource(id.clone())];
+                    self.state.history.record(entry);
+                }
+            }
+        }
+        match match_id {
+            Some(id) => {
+                // The snapshot has already been applied to the panels, so
+                // the properties modal seeds with fresh data.
+                self.open_source_properties_modal(&id, false, cx);
+            }
+            None => {
+                self.state.status = format!("Source '{pending}' created (properties pending)");
+            }
+        }
     }
 
     fn handle_snapshot_error(&mut self, error: BackendError, cx: &mut Context<'_, Self>) {
@@ -1056,11 +1270,42 @@ impl Workspace {
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
         self.update_header_flags(&event, cx);
+        // Undo/redo never reach the backend stubs; they replay the
+        // workspace-side history log instead (Svelte parity).
+        match &event {
+            ComponentEvent::Undo => {
+                if let Some((label, commands)) = self.state.history.undo() {
+                    self.state.status = format!("Undo: {label}");
+                    self.dispatch(commands, cx);
+                } else {
+                    self.state.status = "Nothing to undo".into();
+                    cx.notify();
+                }
+                return;
+            }
+            ComponentEvent::Redo => {
+                if let Some((label, commands)) = self.state.history.redo() {
+                    self.state.status = format!("Redo: {label}");
+                    self.dispatch(commands, cx);
+                } else {
+                    self.state.status = "Nothing to redo".into();
+                    cx.notify();
+                }
+                return;
+            }
+            _ => {}
+        }
+        // The history entry is computed from the pre-dispatch snapshot, so
+        // the inverse commands see the state the change replaces.
+        let history_entry = self.history_entry_for(&event, cx);
         if let Some(command) = self.state.route(event) {
             if let Err(error) = self.backend.try_dispatch(command) {
                 self.state.status = format!("Backend error: {error}");
             }
             self.refresh_snapshot(cx);
+        }
+        if let Some(entry) = history_entry {
+            self.state.history.record(entry);
         }
         if let Some(kind) = self.state.requested_window.take() {
             self.open_auxiliary_window(kind, cx);
@@ -1082,6 +1327,26 @@ impl Workspace {
         }
         if self.state.active_modal == ActiveModal::AddSource && self.add_source_modal.is_none() {
             self.open_add_source_modal(cx);
+        }
+        if let ActiveModal::SourceProperties(id) = &self.state.active_modal {
+            let id = id.clone();
+            if self.source_properties_modal.is_none() {
+                self.open_source_properties_modal(&id, false, cx);
+            }
+        }
+        if let ActiveModal::SourceEditor(id) = &self.state.active_modal {
+            let id = id.clone();
+            if self.source_properties_modal.is_none() {
+                // Edit opens the editor-mode properties window (Svelte
+                // EditSourceModal parity).
+                self.open_source_properties_modal(&id, true, cx);
+            }
+        }
+        if let ActiveModal::QuickAction { source_id, action } = &self.state.active_modal {
+            let (source_id, action) = (source_id.clone(), *action);
+            if self.quick_action_modal.is_none() {
+                self.open_quick_action_modal(&source_id, action, cx);
+            }
         }
         cx.notify();
     }
@@ -1259,9 +1524,17 @@ impl Workspace {
     }
 
     /// Creates the add-scene modal entity and subscribes to its Create and
-    /// Cancel events; creation dispatches the AddScene backend command.
+    /// Cancel events; creation dispatches the AddScene backend command. The
+    /// existing scene names seed the `scene-{nr}` default placeholder.
     fn open_add_scene_modal(&mut self, cx: &mut Context<'_, Self>) {
-        let entity = cx.new(|cx| AddSceneModal::new(cx));
+        let existing_names = self
+            .scenes
+            .read(cx)
+            .scenes
+            .iter()
+            .map(|scene| scene.name.clone())
+            .collect();
+        let entity = cx.new(|cx| AddSceneModal::new(existing_names, cx));
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             AddSceneEvent::Created { name } => {
                 this.state.status = format!("Scene '{name}' created");
@@ -1271,6 +1544,11 @@ impl Workspace {
                 {
                     this.state.status = format!("Backend error: {error}");
                 }
+                this.state.history.record(crate::history::HistoryEntry {
+                    label: format!("Add scene '{name}'"),
+                    undo: vec![BackendCommand::RemoveScene(name.clone())],
+                    redo: vec![BackendCommand::AddScene(name.clone())],
+                });
                 this.close_add_scene_modal(cx);
                 this.refresh_snapshot(cx);
             }
@@ -1290,10 +1568,24 @@ impl Workspace {
     }
 
     /// Creates the add-source modal entity seeded from the backend's
-    /// available source types; creation dispatches the AddSource command.
+    /// available source types and the existing source names (for the
+    /// `source-{type}-{nr}` default placeholder); creation dispatches the
+    /// AddSource command and then opens the new source's properties modal.
     fn open_add_source_modal(&mut self, cx: &mut Context<'_, Self>) {
-        let entity =
-            cx.new(|cx| AddSourceModal::new(self.state.available_source_types.clone(), cx));
+        let existing_names = self
+            .sources
+            .read(cx)
+            .sources
+            .iter()
+            .map(|source| source.name.clone())
+            .collect();
+        let entity = cx.new(|cx| {
+            AddSourceModal::new(
+                self.state.available_source_types.clone(),
+                existing_names,
+                cx,
+            )
+        });
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             AddSourceEvent::Created { name, source_type } => {
                 this.state.status = format!("Source '{name}' created");
@@ -1303,6 +1595,18 @@ impl Workspace {
                 }) {
                     this.state.status = format!("Backend error: {error}");
                 }
+                // Svelte parity: after creating, the properties window for
+                // the new source opens. The next snapshot resolves the name
+                // to its backend id (also for the undo entry).
+                this.pending_properties_source = Some(name.clone());
+                this.pending_history_entry = Some(crate::history::HistoryEntry {
+                    label: format!("Add source '{name}'"),
+                    undo: Vec::new(),
+                    redo: vec![BackendCommand::AddSource {
+                        name: name.clone(),
+                        source_type: source_type.clone(),
+                    }],
+                });
                 this.close_add_source_modal(cx);
                 this.refresh_snapshot(cx);
             }
@@ -1310,6 +1614,204 @@ impl Workspace {
         });
         self._subscriptions.push(subscription);
         self.add_source_modal = Some(entity);
+    }
+
+    /// Creates the source properties modal entity seeded from the snapshot's
+    /// source item and placed transform, subscribing to Apply / OpenEditor /
+    /// Cancel events.
+    fn open_source_properties_modal(
+        &mut self,
+        source_id: &str,
+        editor: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let item = self
+            .sources
+            .read(cx)
+            .sources
+            .iter()
+            .find(|source| source.id == source_id)
+            .cloned();
+        let Some(item) = item else {
+            self.state.status = format!("Source '{source_id}' not found for properties");
+            cx.notify();
+            return;
+        };
+        let transform = self
+            .state
+            .source_transforms
+            .iter()
+            .find(|placed| placed.id == source_id)
+            .cloned();
+        let canvas = self
+            .state
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.scene_resolution.clone());
+        let entity = cx.new(|cx| {
+            if editor {
+                SourcePropertiesModal::new_editor(
+                    item.id.clone(),
+                    item.name.clone(),
+                    item.source_type.clone(),
+                    transform,
+                    canvas,
+                    cx,
+                )
+            } else {
+                SourcePropertiesModal::new(
+                    item.id.clone(),
+                    item.name.clone(),
+                    item.source_type.clone(),
+                    transform,
+                    canvas,
+                    cx,
+                )
+            }
+        });
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| {
+            let event = event.clone();
+            match event {
+                SourcePropertiesEvent::Applied {
+                    id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    rotation,
+                } => {
+                    // Undo restores the transform from the pre-apply snapshot.
+                    if let Some(previous) = this
+                        .state
+                        .source_transforms
+                        .iter()
+                        .find(|placed| placed.id == id)
+                        .cloned()
+                    {
+                        this.state.history.record(crate::history::HistoryEntry {
+                            label: format!("Transform '{}'", id),
+                            undo: vec![BackendCommand::SetSourceTransform {
+                                id: id.clone(),
+                                x: previous.x,
+                                y: previous.y,
+                                width: previous.width,
+                                height: previous.height,
+                                rotation: previous.rotation,
+                            }],
+                            redo: vec![BackendCommand::SetSourceTransform {
+                                id: id.clone(),
+                                x,
+                                y,
+                                width,
+                                height,
+                                rotation,
+                            }],
+                        });
+                    }
+                    this.state.status = "Source transform applied".into();
+                    this.dispatch(
+                        [BackendCommand::SetSourceTransform {
+                            id,
+                            x,
+                            y,
+                            width,
+                            height,
+                            rotation,
+                        }],
+                        cx,
+                    );
+                }
+                SourcePropertiesEvent::OpenEditor { id } => {
+                    this.close_source_properties_modal(cx);
+                    this.route_event(ComponentEvent::EditSource(id), cx);
+                }
+                SourcePropertiesEvent::Cancelled => this.close_source_properties_modal(cx),
+            }
+        });
+        self._subscriptions.push(subscription);
+        self.state.active_modal = ActiveModal::SourceProperties(source_id.to_owned());
+        self.source_properties_modal = Some(entity);
+        cx.notify();
+    }
+
+    /// Drops the source properties entity and closes the modal when active.
+    fn close_source_properties_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.source_properties_modal = None;
+        if matches!(
+            self.state.active_modal,
+            ActiveModal::SourceProperties(_) | ActiveModal::SourceEditor(_)
+        ) {
+            self.state.close_modal();
+            cx.notify();
+        }
+    }
+
+    /// Creates the quick-action modal entity for one source and action; the
+    /// Apply event maps to `UpdateSource` (Svelte `obs_update_source`).
+    fn open_quick_action_modal(
+        &mut self,
+        source_id: &str,
+        action: QuickSourceAction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(item) = self
+            .sources
+            .read(cx)
+            .sources
+            .iter()
+            .find(|source| source.id == source_id)
+            .cloned()
+        else {
+            self.state.status = format!("Source '{source_id}' not found for quick action");
+            cx.notify();
+            return;
+        };
+        let entity =
+            cx.new(|cx| QuickActionModal::new(item.id.clone(), item.name.clone(), action, cx));
+        let subscription = cx.subscribe(&entity, |this, _, event, cx| {
+            let event = event.clone();
+            match event {
+                QuickActionEvent::Applied { id, action, value } => {
+                    let Some(key) = crate::components::quick_modal::param_key(action) else {
+                        this.state.status = "Quick action has no settings key".into();
+                        cx.notify();
+                        return;
+                    };
+                    let mut params = std::collections::HashMap::new();
+                    params.insert(key.to_string(), value);
+                    this.state.status = format!("Quick action applied ({key})");
+                    this.dispatch(
+                        [BackendCommand::UpdateSource {
+                            update: revo_core::models::SourceUpdate {
+                                id,
+                                name: String::new(),
+                                source_type: String::new(),
+                                params,
+                            },
+                        }],
+                        cx,
+                    );
+                    this.close_quick_action_modal(cx);
+                }
+                QuickActionEvent::Interact { id: _ } => {
+                    this.close_quick_action_modal(cx);
+                    this.state.requested_window = Some(AuxiliaryWindowKind::BrowserInteraction);
+                }
+                QuickActionEvent::Cancelled => this.close_quick_action_modal(cx),
+            }
+        });
+        self._subscriptions.push(subscription);
+        self.quick_action_modal = Some(entity);
+        cx.notify();
+    }
+
+    /// Drops the quick-action modal entity and closes its modal state.
+    fn close_quick_action_modal(&mut self, cx: &mut Context<'_, Self>) {
+        self.quick_action_modal = None;
+        if matches!(self.state.active_modal, ActiveModal::QuickAction { .. }) {
+            self.state.close_modal();
+            cx.notify();
+        }
     }
 
     /// Drops the add-source entity and closes the modal when it is active.
@@ -1329,6 +1831,8 @@ impl Workspace {
             ActiveModal::Plugins => self.close_plugins_modal(cx),
             ActiveModal::AddScene => self.close_add_scene_modal(cx),
             ActiveModal::AddSource => self.close_add_source_modal(cx),
+            ActiveModal::SourceProperties(_) => self.close_source_properties_modal(cx),
+            ActiveModal::QuickAction { .. } => self.close_quick_action_modal(cx),
             ActiveModal::AudioMixer | ActiveModal::Transitions => {
                 // The panel entities persist; the modal overlay just closes.
                 self.state.close_modal();
@@ -1342,10 +1846,7 @@ impl Workspace {
                 self.state.close_modal();
                 cx.notify();
             }
-            ActiveModal::History
-            | ActiveModal::Templates
-            | ActiveModal::SourceEditor(_)
-            | ActiveModal::QuickAction { .. } => {
+            ActiveModal::History | ActiveModal::Templates | ActiveModal::SourceEditor(_) => {
                 self.state.close_modal();
                 cx.notify();
             }
@@ -1557,13 +2058,86 @@ impl Workspace {
             ))
     }
 
-    /// The demo/preview surface. With the `obs-backend` feature the newest
-    /// PNG preview frame from the real libobs scene output is rendered as a
-    /// GPUI image; until the first frame lands (or for the mock backend) the
-    /// demo placeholder is shown, including its "dims" status line.
-    /// The `.render` band from the Svelte layout: fills the space above the
-    /// panel section, centers content, and keeps the preview surface inside
-    /// a `min(960px, 100%)` live-preview column.
+    /// One 16:9-shaped capture frame on a black stage: the black frame hugs
+    /// the scene instead of stretching to the window, so the whole scene
+    /// stays visible inside the frame (Svelte `.preview-frame` parity).
+    /// gpui 0.2.2 has no CSS aspect-ratio, so the frame size is computed
+    /// from the container bounds measured by [`Self::container_probe`] on
+    /// the previous frame; until the first measurement lands the frame
+    /// falls back to filling the container.
+    #[cfg(feature = "obs-backend")]
+    fn capture_frame(
+        &self,
+        id: impl Into<SharedString>,
+        frame: Option<&std::sync::Arc<GpuiImage>>,
+        waiting_label: &str,
+        container: &MeasuredContainer,
+        ratio: f32,
+    ) -> gpui::Stateful<gpui::Div> {
+        let mut stage = div()
+            .id(id.into())
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgb(0x000000))
+            .border_1()
+            .border_color(self.theme.border)
+            .rounded_lg()
+            .overflow_hidden();
+        stage = match Self::aspect_frame_size(container, ratio) {
+            Some((width, height)) => stage.w(width).h(height),
+            None => stage.h_full().max_w_full(),
+        };
+        stage.child(match frame {
+            Some(frame) => gpui::img(std::sync::Arc::clone(frame))
+                .max_w_full()
+                .max_h_full()
+                .object_fit(gpui::ObjectFit::Contain)
+                .into_any_element(),
+            None => div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(self.theme.text_muted)
+                .text_size(px(11.))
+                .child(waiting_label.to_string())
+                .into_any_element(),
+        })
+    }
+
+    /// Largest `ratio`-shaped rectangle fitting inside the measured
+    /// container bounds.
+    #[cfg(feature = "obs-backend")]
+    fn aspect_frame_size(
+        container: &MeasuredContainer,
+        ratio: f32,
+    ) -> Option<(gpui::Pixels, gpui::Pixels)> {
+        let size = container.get()?;
+        let (width, height) = (f32::from(size.width), f32::from(size.height));
+        if width <= 0.0 || height <= 0.0 || ratio <= 0.0 {
+            return None;
+        }
+        Some(if width / height > ratio {
+            (px(height * ratio), px(height))
+        } else {
+            (px(width), px(width / ratio))
+        })
+    }
+
+    /// Invisible bounds probe recording its container's size once per frame
+    /// so the capture frames can keep a scene-shaped aspect ratio.
+    #[cfg(feature = "obs-backend")]
+    fn container_probe(cell: &MeasuredContainer) -> gpui::AnyElement {
+        let cell = cell.clone();
+        gpui::canvas(
+            move |bounds, _, _| cell.set(Some(bounds.size)),
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    }
+
     /// One labeled preview column for studio mode; renders its frame or a
     /// bounded placeholder so the layout never jumps between frames.
     #[cfg(feature = "obs-backend")]
@@ -1572,7 +2146,14 @@ impl Workspace {
         label: &'static str,
         frame: Option<&std::sync::Arc<GpuiImage>>,
         waiting: bool,
+        container: &MeasuredContainer,
+        ratio: f32,
     ) -> gpui::Div {
+        let waiting_label = if waiting {
+            "waiting for frame…"
+        } else {
+            "no capture"
+        };
         div()
             .flex()
             .flex_col()
@@ -1587,47 +2168,31 @@ impl Workspace {
             )
             .child(
                 div()
-                    .id(SharedString::from(format!("preview-column-{label}")))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
                     .flex_1()
                     .min_h(px(180.))
-                    .overflow_hidden()
-                    .rounded_md()
-                    .bg(self.theme.surface)
-                    .border_1()
-                    .border_color(self.theme.border)
-                    .child(match frame {
-                        Some(frame) => gpui::img(std::sync::Arc::clone(frame))
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .into_any_element(),
-                        None => div()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size_full()
-                            .text_color(self.theme.text_muted)
-                            .text_size(px(11.))
-                            .child(if waiting {
-                                "waiting for frame…"
-                            } else {
-                                "no capture"
-                            })
-                            .into_any_element(),
-                    }),
+                    .child(Self::container_probe(container))
+                    .child(self.capture_frame(
+                        format!("preview-column-{label}"),
+                        frame,
+                        waiting_label,
+                        container,
+                        ratio,
+                    )),
             )
     }
 
+    /// The demo/preview surface. With the `obs-backend` feature the newest
+    /// PNG preview frame from the real libobs scene output is rendered as a
+    /// GPUI image; until the first frame lands (or for the mock backend) the
+    /// demo placeholder is shown, including its "dims" status line.
+    /// The `.render` band from the Svelte layout: fills the space above the
+    /// panel section, centers content, and keeps the preview surface inside
+    /// a `min(960px, 100%)` live-preview column.
     fn preview_surface(&self, cx: &mut Context<'_, Self>) -> gpui::Stateful<gpui::Div> {
-        let base = div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .w_full()
-            .max_w(px(960.))
-            .overflow_hidden()
-            .child(self.demo.clone());
         let band = div()
             .id("preview-surface")
             .flex_1()
@@ -1650,57 +2215,83 @@ impl Workspace {
                         cx,
                     );
                 }),
-            )
-            .child(base);
+            );
         #[cfg(feature = "obs-backend")]
         {
+            // Scene aspect ratio for the capture frames: the configured
+            // canvas resolution when known, otherwise the 16:9 default.
+            let ratio = self
+                .state
+                .settings
+                .as_ref()
+                .and_then(|settings| settings.scene_resolution.as_deref())
+                .and_then(revo_core::planner::parse_resolution)
+                .map_or(
+                    revo_core::planner::DEFAULT_SCENE_RESOLUTION_RATIO,
+                    |(width, height)| width as f32 / height as f32,
+                );
             let studio = self.scenes.read(cx).studio_mode;
             let preview_scene = self.scenes.read(cx).preview_scene.clone();
             if studio {
                 // OBS-style studio split: the preview scene beside the live
-                // program composite, each with its own label.
+                // program composite, each with its own label. `flex_1` gives
+                // the split the full band height so both frames size like
+                // the single-program view.
                 let columns = div()
                     .flex()
                     .flex_row()
                     .gap_3()
                     .w_full()
+                    .flex_1()
                     .max_w(px(960.))
                     .child(self.preview_column(
                         "Preview",
                         self.studio_preview_frame.as_ref(),
                         preview_scene.is_some(),
+                        &self.preview_container_sizes.studio_preview,
+                        ratio,
                     ))
                     .child(self.preview_column(
                         "Studio (Program)",
                         self.preview_frame.as_ref(),
                         true,
+                        &self.preview_container_sizes.studio_program,
+                        ratio,
                     ));
                 return band.child(columns);
             }
-            match &self.preview_frame {
+            return match &self.preview_frame {
                 // A live frame replaces the placeholder entirely so the band
-                // layout stays stable between captures.
-                Some(frame) => band.child(
-                    div().id("preview-frame").size_full().child(
-                        gpui::img(std::sync::Arc::clone(frame))
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Contain),
-                    ),
-                ),
+                // layout stays stable between captures. The frame keeps a
+                // black stage and hugs the scene at its natural aspect ratio
+                // instead of stretching across the band.
+                Some(frame) => band
+                    .child(Self::container_probe(&self.preview_container_sizes.program))
+                    .child(self.capture_frame(
+                        "preview-frame",
+                        Some(frame),
+                        "",
+                        &self.preview_container_sizes.program,
+                        ratio,
+                    )),
                 // Documented placeholder: gpui 0.2.2 `img()` accepts
                 // `Arc<Image>` bytes directly, so this surfaces the libobs
                 // capture state instead of a blank surface while the stream
                 // of frames warms up.
-                None => band.child(
-                    div()
-                        .text_color(self.theme.text_muted)
-                        .child("OBS preview: waiting for first frame (150ms capture loop)"),
-                ),
-            }
+                None => band
+                    .child(Self::container_probe(&self.preview_container_sizes.program))
+                    .child(self.capture_frame(
+                        "preview-frame",
+                        None,
+                        "OBS preview: waiting for first frame (150ms capture loop)",
+                        &self.preview_container_sizes.program,
+                        ratio,
+                    )),
+            };
         }
         #[cfg(not(feature = "obs-backend"))]
         {
-            band
+            band.child(self.demo.clone())
         }
     }
 
@@ -1769,11 +2360,36 @@ impl Workspace {
             ActiveModal::None => None,
             ActiveModal::Settings => None,
             ActiveModal::Plugins => None,
-            ActiveModal::History => Some((
-                ModalConfig::standard("Action History", ModalSize::Medium),
-                vec!["Undo and redo history will be supplied by the backend service.".into()],
-                None,
-            )),
+            ActiveModal::History => {
+                // Live undo/redo history from the workspace log.
+                let mut lines = Vec::new();
+                if self.state.history.undo_stack.is_empty() {
+                    lines.push("Nothing to undo yet.".into());
+                } else {
+                    for (index, entry) in self.state.history.undo_stack.iter().enumerate().rev() {
+                        lines.push(SharedString::from(format!(
+                            "#{} undo: {}",
+                            index + 1,
+                            entry.label
+                        )));
+                    }
+                }
+                if !self.state.history.redo_stack.is_empty() {
+                    lines.push("— redo —".into());
+                    for entry in self.state.history.redo_stack.iter().rev() {
+                        lines.push(SharedString::from(format!("redo: {}", entry.label)));
+                    }
+                }
+                let footer = self.modal_cancel_footer(cx);
+                Some((
+                    ModalConfig {
+                        show_close: false,
+                        ..ModalConfig::standard("Action History", ModalSize::Medium)
+                    },
+                    lines,
+                    Some(footer),
+                ))
+            }
             ActiveModal::Templates => {
                 // Mirrors the Svelte "Templates availability" dialog.
                 let footer = div()
@@ -1804,20 +2420,40 @@ impl Workspace {
             }
             ActiveModal::AddScene => None,
             ActiveModal::AddSource => None,
+            // The properties window is an entity-hosted modal rendered in
+            // the overlay tree, so the card content stays empty here.
+            ActiveModal::SourceProperties(_) => None,
             ActiveModal::AudioMixer => None,
             ActiveModal::Transitions => None,
-            ActiveModal::SourceEditor(id) => Some((
-                ModalConfig::standard("Edit Source", ModalSize::Workspace),
-                vec![SharedString::from(format!("Source: {id}"))],
-                None,
-            )),
+            ActiveModal::SourceEditor(_) => None,
             ActiveModal::AudioMixerAdvanced(_) | ActiveModal::GraphicPlanner => None,
-            ActiveModal::QuickAction { source_id, action } => Some((
-                ModalConfig::quick(format!("Quick {action:?}")),
-                vec![SharedString::from(format!("Source: {source_id}"))],
-                None,
-            )),
+            ActiveModal::QuickAction { .. } => None,
         }
+    }
+
+    /// Working Cancel footer shared by the workspace-rendered modals; the
+    /// structural header Close stays hidden wherever a footer Cancel exists.
+    fn modal_cancel_footer(&self, cx: &mut Context<'_, Self>) -> gpui::AnyElement {
+        div()
+            .flex()
+            .flex_row()
+            .justify_end()
+            .p_3()
+            .child(
+                div()
+                    .id("workspace-modal-cancel")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .text_color(self.theme.text)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.close_active_modal(cx);
+                    }))
+                    .child("Cancel"),
+            )
+            .into_any_element()
     }
 }
 
@@ -1906,6 +2542,12 @@ impl Render for Workspace {
                         .left_0()
                         .bg(self.theme.overlay)
                         .cursor_pointer()
+                        // Occlusion keeps the modal exclusive: without it the
+                        // panels underneath stay hoverable, so closing the
+                        // overlay on mouse-down lets the mouse-up click land
+                        // on a panel row (for example the Tools Transitions
+                        // button appearing to open after Add Source).
+                        .occlude()
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _, _, cx| {
@@ -1963,6 +2605,7 @@ impl Render for Workspace {
                         .bottom_0()
                         .left_0()
                         .bg(self.theme.overlay)
+                        .occlude()
                         .child(entity),
                 );
             }
@@ -1977,6 +2620,7 @@ impl Render for Workspace {
                         .bottom_0()
                         .left_0()
                         .bg(self.theme.overlay)
+                        .occlude()
                         .child(entity),
                 );
             }
@@ -1991,18 +2635,14 @@ impl Render for Workspace {
                         .bottom_0()
                         .left_0()
                         .bg(self.theme.overlay)
+                        .occlude()
                         .child(entity),
                 );
             }
         }
         if self.state.active_modal == ActiveModal::AudioMixer {
-            let close = div()
-                .id("audio-mixer-modal-close")
-                .cursor_pointer()
-                .text_color(self.theme.text_muted)
-                .child("Close")
-                .on_click(cx.listener(|this, _, _, cx| this.close_active_modal(cx)))
-                .into_any_element();
+            // The footer Cancel is the dismissal path; the header Close is
+            // dropped as a duplicate.
             root = root.child(
                 div()
                     .absolute()
@@ -2011,23 +2651,24 @@ impl Render for Workspace {
                     .bottom_0()
                     .left_0()
                     .bg(self.theme.overlay)
+                    .occlude()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p_6()
                     .child(modal_card(
-                        &ModalConfig::standard("Audio Mixer", ModalSize::Large),
+                        &ModalConfig {
+                            show_close: false,
+                            ..ModalConfig::standard("Audio Mixer", ModalSize::Large)
+                        },
                         self.theme,
                         self.tools_mixer.clone(),
+                        Some(self.modal_cancel_footer(cx)),
                         None,
-                        Some(close),
                     )),
             );
         }
         if self.state.active_modal == ActiveModal::Transitions {
-            let close = div()
-                .id("transitions-modal-close")
-                .cursor_pointer()
-                .text_color(self.theme.text_muted)
-                .child("Close")
-                .on_click(cx.listener(|this, _, _, cx| this.close_active_modal(cx)))
-                .into_any_element();
             root = root.child(
                 div()
                     .absolute()
@@ -2036,12 +2677,20 @@ impl Render for Workspace {
                     .bottom_0()
                     .left_0()
                     .bg(self.theme.overlay)
+                    .occlude()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p_6()
                     .child(modal_card(
-                        &ModalConfig::standard("Transitions", ModalSize::Large),
+                        &ModalConfig {
+                            show_close: false,
+                            ..ModalConfig::standard("Transitions", ModalSize::Large)
+                        },
                         self.theme,
                         self.tools_transitions.clone(),
+                        Some(self.modal_cancel_footer(cx)),
                         None,
-                        Some(close),
                     )),
             );
         }
@@ -2054,6 +2703,7 @@ impl Render for Workspace {
                     .right_0()
                     .bottom_0()
                     .left_0()
+                    .occlude()
                     .child(self.mixer_menu.clone()),
             );
         }
@@ -2066,6 +2716,7 @@ impl Render for Workspace {
                     .right_0()
                     .bottom_0()
                     .left_0()
+                    .occlude()
                     .child(self.context_menu.clone()),
             );
         }
@@ -2079,10 +2730,41 @@ impl Render for Workspace {
                     .bottom_0()
                     .left_0()
                     .bg(self.theme.overlay)
+                    .occlude()
                     .child(self.mixer_advanced.clone()),
             );
         }
         match &self.state.active_modal {
+            ActiveModal::SourceProperties(_) => {
+                if let Some(entity) = self.source_properties_modal.clone() {
+                    root = root.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .left_0()
+                            .bg(self.theme.overlay)
+                            .occlude()
+                            .child(entity),
+                    );
+                }
+            }
+            ActiveModal::QuickAction { .. } => {
+                if let Some(entity) = self.quick_action_modal.clone() {
+                    root = root.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .left_0()
+                            .bg(self.theme.overlay)
+                            .occlude()
+                            .child(entity),
+                    );
+                }
+            }
             ActiveModal::GraphicPlanner => {
                 root = root.child(
                     div()
@@ -2092,6 +2774,7 @@ impl Render for Workspace {
                         .bottom_0()
                         .left_0()
                         .bg(self.theme.overlay)
+                        .occlude()
                         .child(self.planner.clone()),
                 );
             }
@@ -2142,6 +2825,14 @@ pub fn run_native_app() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(1080.), px(600.))),
+                    // Name the window like the Svelte build did; gpui 0.2.2
+                    // has no window-icon API, so the mark.svg brand lives in
+                    // the header and the desktop entry supplies the icon.
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("RevoStream".into()),
+                        ..TitlebarOptions::default()
+                    }),
+                    app_id: Some("RevoStream".into()),
                     focus: true,
                     ..WindowOptions::default()
                 },
