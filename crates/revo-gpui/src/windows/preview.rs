@@ -99,6 +99,8 @@ impl PreviewWindow {
                 cx.background_executor()
                     .timer(Duration::from_millis(PREVIEW_POLL_INTERVAL_MS))
                     .await;
+                let backend = backend.clone();
+                let source_id = source_id.clone();
                 let captured = cx
                     .background_executor()
                     .spawn(async move { capture_preview_png(&backend, source_id.as_deref()) })

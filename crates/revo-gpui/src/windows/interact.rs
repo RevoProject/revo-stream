@@ -501,6 +501,8 @@ impl InteractWindow {
             cx.background_executor()
                 .timer(Duration::from_millis(INTERACT_FRAME_POLL_MS))
                 .await;
+            let backend = backend.clone();
+            let source_id = source_id.clone();
             let frame = cx
                 .background_executor()
                 .spawn(async move { interact_frame_png(&backend, &source_id) })

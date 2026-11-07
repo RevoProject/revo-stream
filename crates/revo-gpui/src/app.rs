@@ -518,7 +518,7 @@ impl Workspace {
         let backend = if use_obs_backend {
             #[cfg(feature = "obs-backend")]
             {
-                AnyBackend::obs(None, cx.foreground_executor())
+                AnyBackend::obs(None, cx.foreground_executor().clone())
             }
             #[cfg(not(feature = "obs-backend"))]
             {
@@ -780,6 +780,7 @@ impl Workspace {
                     crate::services::obs::PREVIEW_CAPTURE_INTERVAL_MS,
                 ))
                 .await;
+            let backend = backend.clone();
             let frame = cx
                 .background_executor()
                 .spawn(async move { capture_preview_png(&backend, None) })

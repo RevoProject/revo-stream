@@ -174,6 +174,40 @@ impl ObsBackendRuntime {
                 revo_backend::settings::plugins_profiles::plugin_profile_active_name_internal().ok(),
         }
     }
+
+    /// Rebuilds the session module map so every discovered module maps to
+    /// its enabled flag for the given enabled list.
+    fn sync_module_map(&mut self, enabled_modules: &[String]) {
+        let available = revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
+            .unwrap_or_default();
+        for plugin in available {
+            let enabled = enabled_modules
+                .iter()
+                .any(|module| *module == plugin.module_name);
+            self.plugin_modules.insert(plugin.module_name, enabled);
+        }
+    }
+
+    /// Enabled module names for the snapshot: explicit session toggles when
+    /// any exist, otherwise every discovered module (the Svelte UI defaults
+    /// to all-enabled until a profile is applied).
+    fn enabled_modules_snapshot(&self) -> Vec<String> {
+        if self.plugin_modules.is_empty() {
+            return revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|plugin| plugin.module_name)
+                .collect();
+        }
+        let mut enabled: Vec<String> = self
+            .plugin_modules
+            .iter()
+            .filter(|(_, enabled)| **enabled)
+            .map(|(module, _)| module.clone())
+            .collect();
+        enabled.sort();
+        enabled
+    }
 }
 
 impl BackendRuntime for ObsBackendRuntime {
@@ -216,7 +250,7 @@ impl BackendRuntime for ObsBackendRuntime {
 
         let source_transforms = source_ops::get_sceneitem_transforms(runtime)
             .ok()
-            .and_then(|value| transform_value_to_placed_sources(&value))
+            .and_then(|value| transform_value_to_placed_sources(&value).ok())
             .unwrap_or_default();
 
         let audio_levels = revo_backend::devices::levels::get_levels()
@@ -270,40 +304,6 @@ impl BackendRuntime for ObsBackendRuntime {
             active_plugin_profile: self.active_plugin_profile.clone(),
             enabled_plugin_modules: self.enabled_modules_snapshot(),
         })
-    }
-
-    /// Rebuilds the session module map so every discovered module maps to
-    /// its enabled flag for the given enabled list.
-    fn sync_module_map(&mut self, enabled_modules: &[String]) {
-        let available = revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
-            .unwrap_or_default();
-        for plugin in available {
-            let enabled = enabled_modules
-                .iter()
-                .any(|module| *module == plugin.module_name);
-            self.plugin_modules.insert(plugin.module_name, enabled);
-        }
-    }
-
-    /// Enabled module names for the snapshot: explicit session toggles when
-    /// any exist, otherwise every discovered module (the Svelte UI defaults
-    /// to all-enabled until a profile is applied).
-    fn enabled_modules_snapshot(&self) -> Vec<String> {
-        if self.plugin_modules.is_empty() {
-            return revo_backend::settings::plugins_profiles::list_runtime_plugins_internal()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|plugin| plugin.module_name)
-                .collect();
-        }
-        let mut enabled: Vec<String> = self
-            .plugin_modules
-            .iter()
-            .filter(|(_, &enabled)| *enabled)
-            .map(|(module, _)| module.clone())
-            .collect();
-        enabled.sort();
-        enabled
     }
 
     fn shutdown(&mut self) -> Result<(), BackendError> {
@@ -380,7 +380,7 @@ impl ObsBackendRuntime {
                 scene_ops::rename_scene(&mut self.runtime, from, to)
             }
             BackendCommand::ReorderScene { name, to_index } => {
-                scene_ops::reorder_scene(&mut self.runtime, name, to_index)
+                scene_ops::reorder_scene(&mut self.runtime, name.clone(), to_index)
                     .map(|()| format!("scene reordered: {name} -> {to_index}"))
             }
             BackendCommand::SelectSource(id) => {
@@ -405,7 +405,7 @@ impl ObsBackendRuntime {
             }
             BackendCommand::MoveSource { id, direction } => {
                 let direction = move_direction_label(direction);
-                source_ops::move_source(&self.runtime, id, direction)
+                source_ops::move_source(&self.runtime, id.clone(), direction.to_string())
                     .map(|()| format!("source moved: {id} {direction}"))
             }
             BackendCommand::SetSourceVolume { id, percent } => {
@@ -462,7 +462,7 @@ impl ObsBackendRuntime {
                 width,
                 height,
                 rotation,
-            } => apply_transform_command(self, id, x, y, width, height, rotation),
+            } => apply_transform_command(self, &id, x, y, width, height, rotation),
             BackendCommand::SetPluginProfile {
                 profile_name,
                 modules,
@@ -474,7 +474,6 @@ impl ObsBackendRuntime {
                         .collect();
                 let normalized = revo_core::plugins::normalize_enabled_modules(modules, &available);
                 let profile = PluginProfile {
-                    profile_name: profile_name.clone(),
                     enabled_modules: normalized.clone(),
                 };
                 revo_backend::settings::plugins_profiles::plugin_profile_save_internal(
@@ -517,7 +516,7 @@ impl ObsBackendRuntime {
             .unwrap_or_default()
     }
 
-    fn resolve_stream_url(&self) -> String {
+    fn resolve_stream_url(&mut self) -> String {
         match revo_backend::settings::core::settings_get() {
             Ok(settings) => {
                 let url = settings.stream_url.trim();
@@ -594,8 +593,11 @@ fn get_i32(json: &serde_json::Value, key: &str) -> i32 {
     json.get(key)
         .and_then(|value| value.as_str())
         .and_then(|raw| raw.trim().parse::<i32>().ok())
-        .or_else(|| json.get(key).and_then(|value| value.as_i64()))
-        .map(|value| value as i32)
+        .or_else(|| {
+            json.get(key)
+                .and_then(|value| value.as_i64())
+                .map(|value| value as i32)
+        })
         .unwrap_or(0)
 }
 
@@ -697,6 +699,7 @@ pub fn capture_preview_png(
 /// be handed to GPUI as an in-memory image without touching the filesystem.
 #[cfg(feature = "obs-backend")]
 pub fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
+    use base64::Engine as _;
     const PREFIX: &str = "data:image/png;base64,";
     let payload = data_uri.strip_prefix(PREFIX)?;
     base64::engine::general_purpose::STANDARD

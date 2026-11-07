@@ -74,7 +74,7 @@ impl AnyBackend {
         // The platform spawns its main-thread job queue from the foreground
         // executor here (main thread), then moves into the worker closure —
         // only its `Send` job sender crosses threads.
-        let platform = GpuiObsPlatform::new(executor);
+        let platform = obs::GpuiObsPlatform::new(executor.clone());
         Self::Obs(
             BackendService::new(8, move || {
                 ObsBackendRuntime::new(root_dir.clone(), platform)
