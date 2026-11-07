@@ -89,6 +89,8 @@ pub enum ActiveModal {
     Settings,
     History,
     Plugins,
+    AudioMixer,
+    Transitions,
     Templates,
     AddScene,
     AddSource,
@@ -135,10 +137,6 @@ pub struct WorkspaceState {
     /// Rotation angle of the boot-splash spinner (degrees); animated by a
     /// foreground task while [`Self::booted`] is false.
     pub splash_spin: f32,
-    /// Embedded Audio Mixer module visibility in the Tools panel.
-    pub tools_mixer_visible: bool,
-    /// Embedded Transitions module visibility in the Tools panel.
-    pub tools_transitions_visible: bool,
 }
 
 impl Default for WorkspaceState {
@@ -158,8 +156,6 @@ impl Default for WorkspaceState {
             available_source_types: Vec::new(),
             booted: false,
             splash_spin: 0.0,
-            tools_mixer_visible: true,
-            tools_transitions_visible: true,
         }
     }
 }
@@ -189,6 +185,7 @@ fn snapshot_source_items(snapshot: &BackendSnapshot) -> Vec<SourceItem> {
             name: source.name.clone(),
             source_type: source.source_type.clone(),
             visible: source.visible,
+            audio_capable: source.audio_capable,
             locked: snapshot
                 .locked_sources
                 .iter()
@@ -210,6 +207,16 @@ impl WorkspaceState {
             }
             ComponentEvent::OpenPlugins => {
                 self.active_modal = ActiveModal::Plugins;
+                return None;
+            }
+            ComponentEvent::OpenMixer => {
+                self.active_modal = ActiveModal::AudioMixer;
+                self.status = "Audio Mixer opened".into();
+                return None;
+            }
+            ComponentEvent::OpenTransitions => {
+                self.active_modal = ActiveModal::Transitions;
+                self.status = "Transitions opened".into();
                 return None;
             }
             ComponentEvent::OpenTemplates => {
@@ -634,6 +641,7 @@ impl Workspace {
                     name: "Camera".into(),
                     source_type: "v4l2_input".into(),
                     visible: true,
+                    audio_capable: true,
                     locked: false,
                 },
                 SourceItem {
@@ -641,6 +649,7 @@ impl Workspace {
                     name: "Lower Third".into(),
                     source_type: "text_ft2_source_v2".into(),
                     visible: true,
+                    audio_capable: false,
                     locked: false,
                 },
                 SourceItem {
@@ -648,6 +657,7 @@ impl Workspace {
                     name: "Chat Overlay".into(),
                     source_type: "browser_source".into(),
                     visible: true,
+                    audio_capable: false,
                     locked: true,
                 },
             ],
@@ -945,14 +955,12 @@ impl Workspace {
                     modal.open(id.clone(), name, draft);
                     cx.notify();
                 });
-                self.state.active_modal = ActiveModal::AudioMixerAdvanced(id);
             }
             MixerEvent::AdvancedConfirmed { .. } => {
                 self.mixer_advanced.update(cx, |modal, cx| {
                     modal.close();
                     cx.notify();
                 });
-                self.state.close_modal();
                 self.state.status = "Advanced audio properties applied".into();
             }
             MixerEvent::AdvancedCancelled => {
@@ -960,7 +968,6 @@ impl Workspace {
                     modal.close();
                     cx.notify();
                 });
-                self.state.close_modal();
             }
             other => {
                 if let Some(command) = self.state.route_mixer(other) {
@@ -1251,6 +1258,11 @@ impl Workspace {
             ActiveModal::Plugins => self.close_plugins_modal(cx),
             ActiveModal::AddScene => self.close_add_scene_modal(cx),
             ActiveModal::AddSource => self.close_add_source_modal(cx),
+            ActiveModal::AudioMixer | ActiveModal::Transitions => {
+                // The panel entities persist; the modal overlay just closes.
+                self.state.close_modal();
+                cx.notify();
+            }
             ActiveModal::AudioMixerAdvanced(_)
             | ActiveModal::GraphicPlanner
             | ActiveModal::None => {
@@ -1296,8 +1308,8 @@ impl Workspace {
             "Audio Mixer",
             "Volume, mute and devices",
             |this, _, _, cx| {
-                this.state.tools_mixer_visible = !this.state.tools_mixer_visible;
-                cx.notify();
+                this.route_event(ComponentEvent::OpenMixer, cx);
+                cx.stop_propagation();
             },
         );
         let transitions_button = self.tool_button(
@@ -1307,8 +1319,8 @@ impl Workspace {
             "Transitions",
             "Scene change effects",
             |this, _, _, cx| {
-                this.state.tools_transitions_visible = !this.state.tools_transitions_visible;
-                cx.notify();
+                this.route_event(ComponentEvent::OpenTransitions, cx);
+                cx.stop_propagation();
             },
         );
         let plugins_button = self.tool_button(
@@ -1353,12 +1365,6 @@ impl Workspace {
                     .child(plugins_button)
                     .child(templates_button),
             )
-            .when(self.state.tools_mixer_visible, |section| {
-                section.child(self.tools_mixer.clone())
-            })
-            .when(self.state.tools_transitions_visible, |section| {
-                section.child(self.tools_transitions.clone())
-            })
             .child(
                 div()
                     .id("open-graphic-planner")
@@ -1606,7 +1612,10 @@ impl Workspace {
         }
     }
 
-    fn modal_content(&self) -> Option<(ModalConfig, Vec<SharedString>)> {
+    fn modal_content(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<(ModalConfig, Vec<SharedString>, Option<gpui::AnyElement>)> {
         match &self.state.active_modal {
             ActiveModal::None => None,
             ActiveModal::Settings => None,
@@ -1614,21 +1623,50 @@ impl Workspace {
             ActiveModal::History => Some((
                 ModalConfig::standard("Action History", ModalSize::Medium),
                 vec!["Undo and redo history will be supplied by the backend service.".into()],
+                None,
             )),
-            ActiveModal::Templates => Some((
-                ModalConfig::standard("Templates", ModalSize::Medium),
-                vec!["Ready-made scene layouts are on the way.".into()],
-            )),
+            ActiveModal::Templates => {
+                // Mirrors the Svelte "Templates availability" dialog.
+                let footer = div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .p_3()
+                    .child(
+                        div()
+                            .id("templates-ok")
+                            .cursor_pointer()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .bg(self.theme.accent)
+                            .text_color(self.theme.text_strong)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.close_active_modal(cx);
+                            }))
+                            .child("OK"),
+                    )
+                    .into_any_element();
+                Some((
+                    ModalConfig::standard("Templates", ModalSize::Small),
+                    vec!["Future will be available on newer versions.".into()],
+                    Some(footer),
+                ))
+            }
             ActiveModal::AddScene => None,
             ActiveModal::AddSource => None,
+            ActiveModal::AudioMixer => None,
+            ActiveModal::Transitions => None,
             ActiveModal::SourceEditor(id) => Some((
                 ModalConfig::standard("Edit Source", ModalSize::Workspace),
                 vec![SharedString::from(format!("Source: {id}"))],
+                None,
             )),
             ActiveModal::AudioMixerAdvanced(_) | ActiveModal::GraphicPlanner => None,
             ActiveModal::QuickAction { source_id, action } => Some((
                 ModalConfig::quick(format!("Quick {action:?}")),
                 vec![SharedString::from(format!("Source: {source_id}"))],
+                None,
             )),
         }
     }
@@ -1705,7 +1743,7 @@ impl Render for Workspace {
             .child(self.preview_surface(cx))
             .child(self.lower_panels(cx, mode));
 
-        if let Some((config, lines)) = self.modal_content() {
+        if let Some((config, lines, footer)) = self.modal_content(cx) {
             // Backdrop closes on click; the card is a sibling layer above it,
             // so clicks inside the card never reach the backdrop.
             root = root
@@ -1741,7 +1779,7 @@ impl Render for Workspace {
                             &config,
                             self.theme,
                             div().flex().flex_col().gap_2().children(lines),
-                            None,
+                            footer,
                             None,
                         )),
                 );
@@ -1808,6 +1846,56 @@ impl Render for Workspace {
                 );
             }
         }
+        if self.state.active_modal == ActiveModal::AudioMixer {
+            let close = div()
+                .id("audio-mixer-modal-close")
+                .cursor_pointer()
+                .text_color(self.theme.text_muted)
+                .child("Close")
+                .on_click(cx.listener(|this, _, _, cx| this.close_active_modal(cx)))
+                .into_any_element();
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .bg(self.theme.overlay)
+                    .child(modal_card(
+                        &ModalConfig::standard("Audio Mixer", ModalSize::Large),
+                        self.theme,
+                        self.tools_mixer.clone(),
+                        None,
+                        Some(close),
+                    )),
+            );
+        }
+        if self.state.active_modal == ActiveModal::Transitions {
+            let close = div()
+                .id("transitions-modal-close")
+                .cursor_pointer()
+                .text_color(self.theme.text_muted)
+                .child("Close")
+                .on_click(cx.listener(|this, _, _, cx| this.close_active_modal(cx)))
+                .into_any_element();
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .bg(self.theme.overlay)
+                    .child(modal_card(
+                        &ModalConfig::standard("Transitions", ModalSize::Large),
+                        self.theme,
+                        self.tools_transitions.clone(),
+                        None,
+                        Some(close),
+                    )),
+            );
+        }
 
         if self.mixer_menu.read(cx).open {
             root = root.child(
@@ -1833,19 +1921,19 @@ impl Render for Workspace {
             );
         }
 
+        if self.mixer_advanced.read(cx).open_id.as_deref().is_some() {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .bg(self.theme.overlay)
+                    .child(self.mixer_advanced.clone()),
+            );
+        }
         match &self.state.active_modal {
-            ActiveModal::AudioMixerAdvanced(_) => {
-                root = root.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .bottom_0()
-                        .left_0()
-                        .bg(self.theme.overlay)
-                        .child(self.mixer_advanced.clone()),
-                );
-            }
             ActiveModal::GraphicPlanner => {
                 root = root.child(
                     div()
@@ -2377,6 +2465,7 @@ mod tests {
                     name: "Camera".into(),
                     source_type: "v4l2_input".into(),
                     visible: true,
+                    audio_capable: true,
                     locked: false,
                 },
                 SourceItem {
@@ -2384,6 +2473,7 @@ mod tests {
                     name: "Lower Third".into(),
                     source_type: "text_ft2_source_v2".into(),
                     visible: false,
+                    audio_capable: false,
                     locked: false,
                 },
             ]

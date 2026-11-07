@@ -61,6 +61,10 @@ pub enum ComponentEvent {
         id: String,
         action: QuickSourceAction,
     },
+    /// Open the audio mixer as a modal (Svelte parity: showAudioMixerModal).
+    OpenMixer,
+    /// Open the transitions editor as a modal (showTransitionsModal).
+    OpenTransitions,
     /// Right-click context-menu request from a panel row or the preview
     /// surface; UI-only, never dispatches a backend command.
     OpenContextMenu {
