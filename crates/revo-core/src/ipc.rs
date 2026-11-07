@@ -84,6 +84,9 @@ pub enum EngineToUi {
     },
     /// Text for the status line (command results and startup errors).
     Status(String),
+    /// Protocol-level failure (undecodable state, capture failure); the UI
+    /// surfaces it as a backend error.
+    Error(String),
 }
 
 /// Serializes one message into a length-prefixed frame.

@@ -6,6 +6,7 @@
 //! command surface.
 
 pub mod devices;
+pub mod engine;
 pub mod logging;
 pub mod models;
 pub mod obs_service;
@@ -22,8 +23,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use serde_json::Value as JsonValue;
 use revo_lib::obs;
+use serde_json::Value as JsonValue;
 
 pub struct ObsRuntime {
     pub initialized: bool,
@@ -118,7 +119,11 @@ pub struct SceneState {
 }
 
 impl SceneState {
-    pub fn new(name: String, scene: *mut obs::obs_scene, scene_source: *mut obs::obs_source) -> Self {
+    pub fn new(
+        name: String,
+        scene: *mut obs::obs_scene,
+        scene_source: *mut obs::obs_source,
+    ) -> Self {
         SceneState {
             name,
             scene,
@@ -156,7 +161,9 @@ fn preview_stats() -> &'static Mutex<PreviewStats> {
 }
 
 pub fn with_preview_stats<T>(f: impl FnOnce(&mut PreviewStats) -> T) -> T {
-    let mut guard = preview_stats().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = preview_stats()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut guard)
 }
 
@@ -223,7 +230,11 @@ pub fn live_scene_resolution() -> Option<String> {
     sources::helpers::live_scene_resolution()
 }
 
-pub fn apply_scene_item_transform(item: *mut obs::obs_scene_item, source: *mut obs::obs_source, params: &HashMap<String, String>) {
+pub fn apply_scene_item_transform(
+    item: *mut obs::obs_scene_item,
+    source: *mut obs::obs_source,
+    params: &HashMap<String, String>,
+) {
     sources::helpers::apply_scene_item_transform(item, source, params)
 }
 
@@ -240,7 +251,10 @@ pub fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
     sources::source_ops::collect_sources(runtime)
 }
 
-pub fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Result<String, String> {
+pub fn create_source_in_scene(
+    runtime: &mut ObsRuntime,
+    create: &SourceCreate,
+) -> Result<String, String> {
     sources::source_ops::create_source_in_scene(runtime, create)
 }
 
