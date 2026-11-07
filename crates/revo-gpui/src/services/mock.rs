@@ -284,6 +284,22 @@ impl BackendRuntime for MockBackendRuntime {
                     self.snapshot.selected_source = None;
                 }
             }
+            BackendCommand::UpdateSource { update } => {
+                if !update.name.trim().is_empty() {
+                    self.snapshot.sources = self
+                        .snapshot
+                        .sources
+                        .iter()
+                        .map(|source| {
+                            if *source == update.id {
+                                update.name.clone()
+                            } else {
+                                source.clone()
+                            }
+                        })
+                        .collect();
+                }
+            }
             BackendCommand::SetTransitionKind(kind) => {
                 self.snapshot.transition_kind = Some(kind);
             }
