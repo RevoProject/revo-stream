@@ -47,6 +47,27 @@ pub fn debug_log_history(
     service.call(|client: &mut EngineClient| client.debug_log_history())
 }
 
+/// Fetches one source's full settings over IPC (params + typed property
+/// specs) for the source editor and the undo history of settings edits.
+/// Runs on the backend worker thread.
+pub fn source_settings(
+    service: &BackendService<EngineClient>,
+    id: &str,
+) -> Result<revo_core::models::SourceSettingsData, BackendError> {
+    service.call(|client: &mut EngineClient| client.source_settings(id))
+}
+
+/// Captures one source-or-scene PNG frame over IPC and decodes it into
+/// raw PNG bytes; scene thumbnails use this slow path (worker thread).
+pub fn capture_source_png(
+    service: &BackendService<EngineClient>,
+    source_name: &str,
+) -> Result<Vec<u8>, BackendError> {
+    let data_uri = capture_preview_png(service, Some(source_name))?;
+    crate::services::decode_png_data_uri(&data_uri)
+        .ok_or_else(|| BackendError::Runtime("failed to decode thumbnail PNG".into()))
+}
+
 /// Clears the engine process's libobs debug-log registry over IPC.
 pub fn clear_debug_logs(service: &BackendService<EngineClient>) -> Result<(), BackendError> {
     service.call(|client: &mut EngineClient| client.debug_log_clear())

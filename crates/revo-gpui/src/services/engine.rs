@@ -69,6 +69,7 @@ struct Inbox {
     snapshot: Option<BackendSnapshot>,
     reply_data_uri: Option<String>,
     reply_log_entries: Option<Vec<DebugLogEntry>>,
+    reply_source_settings: Option<SourceSettingsData>,
     reply_error: Option<String>,
     /// A correlated reply arrived — `true` even when it carried no frame
     /// (source offline), so the drain does not wait for data that will
@@ -276,6 +277,15 @@ impl Connection {
             EngineToUi::DebugLogCleared { request_id } => {
                 if target.matches_id(request_id) {
                     inbox.reply_seen = true;
+                }
+            }
+            EngineToUi::SourceSettingsData {
+                request_id,
+                settings,
+            } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_source_settings = settings;
                 }
             }
             EngineToUi::Status(_) => {}
@@ -530,6 +540,27 @@ impl EngineClient {
             return Err(BackendError::Runtime(error));
         }
         Ok(inbox.reply_log_entries.unwrap_or_default())
+    }
+
+    /// Fetches one source's full settings (params + typed property specs)
+    /// over IPC; `None` when the engine cannot resolve the source.
+    pub fn source_settings(
+        &mut self,
+        id: &str,
+    ) -> Result<SourceSettingsData, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection
+            .send_request(&UiToEngine::SourceSettings {
+                request_id,
+                id: id.to_owned(),
+            })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        inbox
+            .reply_source_settings
+            .ok_or_else(|| BackendError::Runtime("source settings unavailable".into()))
     }
 
     /// Clears the engine process's libobs debug-log registry.

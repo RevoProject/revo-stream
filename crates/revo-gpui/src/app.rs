@@ -1777,21 +1777,44 @@ impl Workspace {
                         cx.notify();
                         return;
                     };
-                    let mut params = std::collections::HashMap::new();
-                    params.insert(key.to_string(), value);
-                    this.state.status = format!("Quick action applied ({key})");
-                    this.dispatch(
-                        [BackendCommand::UpdateSource {
-                            update: revo_core::models::SourceUpdate {
-                                id,
-                                name: String::new(),
-                                source_type: String::new(),
-                                params,
-                            },
-                        }],
-                        cx,
-                    );
-                    this.close_quick_action_modal(cx);
+                    // Fetch the current settings first so the undo entry can
+                    // restore the previous value (Svelte
+                    // recordSourceSettingsHistory parity).
+                    let service = match &this.backend {
+                        crate::services::AnyBackend::Obs(service) => Some(service.clone()),
+                        crate::services::AnyBackend::Mock(_) => None,
+                    };
+                    let (id, value) = (id.clone(), value.clone());
+                    let key_owned = key.to_string();
+                    match service {
+                        Some(service) => {
+                            cx.spawn(async move |workspace, cx| {
+                                let id_for_fetch = id.clone();
+                                let previous = cx
+                                    .background_executor()
+                                    .spawn(async move {
+                                        crate::services::obs::source_settings(
+                                            &service,
+                                            &id_for_fetch,
+                                        )
+                                        .ok()
+                                        .and_then(|data| data.params.get(&key_owned).cloned())
+                                    })
+                                    .await;
+                                let _ = workspace.update(cx, |this, cx| {
+                                    this.apply_quick_action_edit(
+                                        id, key, value, previous, cx,
+                                    );
+                                });
+                            })
+                            .detach();
+                        }
+                        None => {
+                            // Mock backend: no settings store to diff against,
+                            // so the edit applies without a history entry.
+                            this.apply_quick_action_edit(id, key, value, None, cx);
+                        }
+                    }
                 }
                 QuickActionEvent::Interact { id: _ } => {
                     this.close_quick_action_modal(cx);
@@ -1803,6 +1826,60 @@ impl Workspace {
         self._subscriptions.push(subscription);
         self.quick_action_modal = Some(entity);
         cx.notify();
+    }
+
+    /// Applies one quick-action settings edit and records the undo entry
+    /// when the previous value is known.
+    fn apply_quick_action_edit(
+        &mut self,
+        id: String,
+        key: String,
+        value: String,
+        previous: Option<String>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let mut params = std::collections::HashMap::new();
+        params.insert(key.clone(), value.clone());
+        if let Some(previous) = previous {
+            let mut undo_params = std::collections::HashMap::new();
+            undo_params.insert(key.clone(), previous);
+            self.state.history.record(crate::history::HistoryEntry {
+                label: format!("Edit {key} of '{id}'"),
+                undo: vec![BackendCommand::UpdateSource {
+                    update: revo_core::models::SourceUpdate {
+                        id: id.clone(),
+                        name: String::new(),
+                        source_type: String::new(),
+                        params: undo_params,
+                    },
+                }],
+                redo: vec![BackendCommand::UpdateSource {
+                    update: revo_core::models::SourceUpdate {
+                        id: id.clone(),
+                        name: String::new(),
+                        source_type: String::new(),
+                        params,
+                    },
+                }],
+            });
+        }
+        let redo_params = std::collections::HashMap::new();
+        let _ = redo_params;
+        self.state.status = format!("Quick action applied ({key})");
+        let mut dispatch_params = std::collections::HashMap::new();
+        dispatch_params.insert(key, value);
+        self.dispatch(
+            [BackendCommand::UpdateSource {
+                update: revo_core::models::SourceUpdate {
+                    id,
+                    name: String::new(),
+                    source_type: String::new(),
+                    params: dispatch_params,
+                },
+            }],
+            cx,
+        );
+        self.close_quick_action_modal(cx);
     }
 
     /// Drops the quick-action modal entity and closes its modal state.
