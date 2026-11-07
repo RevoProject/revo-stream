@@ -1,7 +1,7 @@
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
 
 use crate::{
-    components::modal_shell::{modal_shell, ModalConfig, ModalSize},
+    components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
     theme::RevoTheme,
 };
 
@@ -200,100 +200,122 @@ impl Render for AudioMixerAdvancedModal {
             return div();
         }
         let draft = self.draft.clone().expect("draft present");
-        let mut rows = div().flex().flex_col().gap_2().p_4();
-        for monitoring in Monitoring::all() {
-            let active = draft.monitoring == monitoring;
-            rows = rows.child(
-                div()
-                    .id(SharedString::from(format!(
-                        "advanced-monitoring-{monitoring:?}"
-                    )))
-                    .cursor_pointer()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .bg(if active {
-                        self.theme.accent
-                    } else {
-                        self.theme.surface_active
-                    })
-                    .text_color(if active {
-                        self.theme.text_strong
-                    } else {
-                        self.theme.text
-                    })
-                    .child(monitoring.label())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_monitoring(monitoring);
-                        cx.notify();
-                    })),
-            );
-        }
-        rows = rows.child(
+        let theme = self.theme;
+
+        // Svelte layout: labeled rows — `audio-mixer-row-label` on the left,
+        // the control on the right.
+        let row = |label: &'static str, control: gpui::AnyElement, theme: RevoTheme| {
             div()
                 .flex()
                 .flex_row()
-                .gap_2()
+                .items_center()
+                .gap_3()
                 .child(
                     div()
-                        .id("advanced-balance-left")
-                        .cursor_pointer()
-                        .px_2()
-                        .py_1()
-                        .rounded_md()
-                        .bg(self.theme.surface_active)
-                        .child("-10")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let pan = this.draft.as_ref().map_or(0, |draft| draft.balance_pan());
-                            this.set_balance_pan(pan - 10);
-                            cx.notify();
-                        })),
+                        .w(px(96.))
+                        .flex_none()
+                        .text_color(theme.text_secondary)
+                        .text_size(px(11.))
+                        .child(label),
                 )
-                .child(
-                    div()
-                        .id("advanced-balance-right")
-                        .cursor_pointer()
-                        .px_2()
-                        .py_1()
-                        .rounded_md()
-                        .bg(self.theme.surface_active)
-                        .child("+10")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let pan = this.draft.as_ref().map_or(0, |draft| draft.balance_pan());
-                            this.set_balance_pan(pan + 10);
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .text_color(self.theme.text_secondary)
-                        .child(format!("L/R pan: {}", draft.balance_pan())),
-                ),
-        );
+                .child(control)
+        };
+
+        // Monitoring: a cycling select-style control (gpui has no <select>).
+        let monitoring = draft.monitoring;
+        let monitoring_label = monitoring.label();
+        let monitoring_control = div()
+            .id("advanced-monitoring")
+            .cursor_pointer()
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .bg(theme.surface_active)
+            .text_color(theme.text)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(SharedString::from(monitoring_label.to_string()))
+            .child(crate::components::icon::icon(
+                theme.text_muted,
+                "chevron-down",
+                12.,
+            ))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let all = Monitoring::all();
+                let next = all
+                    .iter()
+                    .position(|candidate| *candidate == monitoring)
+                    .map_or(0, |index| (index + 1) % all.len());
+                this.set_monitoring(all[next]);
+                cx.notify();
+            }));
+
+        let balance_control = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .id("advanced-balance-left")
+                    .cursor_pointer()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(theme.surface_active)
+                    .child("L −10")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let pan = this.draft.as_ref().map_or(0, |draft| draft.balance_pan());
+                        this.set_balance_pan(pan - 10);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .text_color(theme.text)
+                    .child(SharedString::from(format!("pan {}", draft.balance_pan()))),
+            )
+            .child(
+                div()
+                    .id("advanced-balance-right")
+                    .cursor_pointer()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(theme.surface_active)
+                    .child("R +10")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let pan = this.draft.as_ref().map_or(0, |draft| draft.balance_pan());
+                        this.set_balance_pan(pan + 10);
+                        cx.notify();
+                    })),
+            );
+
+        // Tracks: one compact horizontal chip row instead of six stacked
+        // full-width buttons.
+        let mut track_chips = div().flex().flex_row().flex_wrap().gap_1();
         for track in TRACK_IDS {
             let active = draft.tracks.iter().any(|candidate| candidate == track);
-            rows = rows.child(
+            track_chips = track_chips.child(
                 div()
                     .id(SharedString::from(format!("advanced-track-{track}")))
                     .cursor_pointer()
-                    .px_3()
-                    .py_2()
+                    .px_2()
+                    .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active {
-                        self.theme.accent
-                    } else {
-                        self.theme.border
-                    })
+                    .border_color(if active { theme.accent } else { theme.border })
                     .bg(if active {
-                        self.theme.accent
+                        theme.accent
                     } else {
-                        self.theme.surface_active
+                        theme.surface_active
                     })
                     .text_color(if active {
-                        self.theme.text_strong
+                        theme.text_strong
                     } else {
-                        self.theme.text
+                        theme.text
                     })
                     .child(format!("Track {track}"))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -302,52 +324,81 @@ impl Render for AudioMixerAdvancedModal {
                     })),
             );
         }
-        rows = rows.child(
-            div()
-                .flex()
-                .flex_row()
-                .justify_end()
-                .gap_2()
-                .child(
-                    div()
-                        .id("advanced-cancel")
-                        .cursor_pointer()
-                        .px_3()
-                        .py_2()
-                        .rounded_md()
-                        .bg(self.theme.surface_active)
-                        .child("Cancel")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(event) = this.cancel() {
-                                cx.emit(event);
-                            }
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .id("advanced-confirm")
-                        .cursor_pointer()
-                        .px_3()
-                        .py_2()
-                        .rounded_md()
-                        .bg(self.theme.accent)
-                        .child(if self.is_dirty() { "Confirm" } else { "Close" })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(event) = this.confirm() {
-                                cx.emit(event);
-                            }
-                            cx.notify();
-                        })),
-                ),
-        );
 
-        modal_shell(
-            &ModalConfig::standard("Advanced Audio Properties", ModalSize::Medium),
-            self.theme,
-            [SharedString::from(self.source_name.clone())],
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_color(theme.text_secondary)
+                    .text_size(px(11.))
+                    .child(SharedString::from(self.source_name.clone())),
+            )
+            .child(row(
+                "Monitoring",
+                monitoring_control.into_any_element(),
+                theme,
+            ))
+            .child(row(
+                "L/R Balance",
+                balance_control.into_any_element(),
+                theme,
+            ))
+            .child(row("Tracks", track_chips.into_any_element(), theme));
+
+        let footer = div()
+            .flex()
+            .flex_row()
+            .justify_end()
+            .gap_2()
+            .p_3()
+            .child(
+                div()
+                    .id("advanced-cancel")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(theme.surface_active)
+                    .text_color(theme.text)
+                    .child("Cancel")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(event) = this.cancel() {
+                            cx.emit(event);
+                        }
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .id("advanced-confirm")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(theme.accent)
+                    .text_color(theme.text_strong)
+                    .child(if self.is_dirty() { "Confirm" } else { "Close" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(event) = this.confirm() {
+                            cx.emit(event);
+                        }
+                        cx.notify();
+                    })),
+            )
+            .into_any_element();
+
+        modal_shell_with_body(
+            &ModalConfig {
+                show_close: false,
+                ..ModalConfig::standard("Advanced Audio Properties", ModalSize::Medium)
+            },
+            theme,
+            body,
+            Some(footer),
+            None,
         )
-        .child(rows)
     }
 }
 
