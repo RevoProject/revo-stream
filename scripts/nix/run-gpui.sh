@@ -32,6 +32,13 @@ LIB_PATHS="$(
 )"
 test -n "$LIB_PATHS"
 
+# OBS runtime: stage the shared revo-root layout and export REVO_ROOT so
+# StartObs resolves the libobs data/plugin paths; the store's lib dir also
+# carries libobs-opengl.so, which obs_startup dlopens as the graphics module.
+OBS_STORE="$(bash "$SCRIPT_DIR/stage-obs-root.sh")"
+export REVO_ROOT="$PROJECT_DIR/.local/revo-root"
+LIB_PATHS="$LIB_PATHS${OBS_STORE:+:$OBS_STORE/lib}"
+
 if [ -z "${DISPLAY:-}" ]; then
 	echo "error: \$DISPLAY is not set; launch from a desktop session" >&2
 	exit 1
