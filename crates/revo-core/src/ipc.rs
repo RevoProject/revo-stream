@@ -94,6 +94,11 @@ pub enum UiToEngine {
     /// Clear the engine's libobs debug-log registry; answered with
     /// [`EngineToUi::DebugLogCleared`].
     DebugLogClear { request_id: u64 },
+    /// Fetch one source's full settings (name, type, params, typed property
+    /// specs from the libobs property API); answered with
+    /// [`EngineToUi::SourceSettingsData`]. Powers the source editor and the
+    /// undo history for settings edits.
+    SourceSettings { request_id: u64, id: String },
     /// Stop the engine: the libobs runtime shuts down and the process exits.
     Shutdown,
 }
@@ -127,6 +132,12 @@ pub enum EngineToUi {
     },
     /// Correlated reply to [`UiToEngine::DebugLogClear`].
     DebugLogCleared { request_id: u64 },
+    /// Correlated reply to [`UiToEngine::SourceSettings`]; `None` when the
+    /// source is unknown or OBS is not initialized.
+    SourceSettingsData {
+        request_id: u64,
+        settings: Option<crate::models::SourceSettingsData>,
+    },
     /// Text for the status line (command results and startup errors).
     Status(String),
     /// Protocol-level or request failure; `request_id` correlates it with

@@ -151,19 +151,38 @@ pub struct ReusableSourceInfo {
     pub source_type: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SourcePropertyOption {
     pub value: String,
     pub label: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SourcePropertySpec {
     pub key: String,
     pub label: String,
     pub kind: String,
     pub hint: String,
     pub options: Vec<SourcePropertyOption>,
+}
+
+/// Full settings payload for one source, mirroring the engine's
+/// `get_source_settings` JSON: identity, the flat params map (colors already
+/// normalized to hex, transform keys included) and the typed property specs
+/// from the libobs property API. Drives the native source editor and the
+/// undo history for settings edits.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct SourceSettingsData {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub source_type: String,
+    #[serde(default)]
+    pub params: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub source_properties: Vec<SourcePropertySpec>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

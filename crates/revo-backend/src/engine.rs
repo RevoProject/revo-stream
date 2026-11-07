@@ -247,6 +247,19 @@ fn apply_request(
             let _ = send(stream, &EngineToUi::DebugLogCleared { request_id });
             true
         }
+        UiToEngine::SourceSettings { request_id, id } => {
+            let settings = crate::sources::source_ops::get_source_settings(&backend.runtime, id)
+                .ok()
+                .and_then(|value| serde_json::from_value(value).ok());
+            let _ = send(
+                stream,
+                &EngineToUi::SourceSettingsData {
+                    request_id,
+                    settings,
+                },
+            );
+            true
+        }
     }
 }
 
