@@ -1,5 +1,6 @@
 //! Typed, bounded backend service boundary.
 
+use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
     error::Error,
@@ -11,7 +12,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MoveDirection {
     Up,
     Down,
@@ -19,7 +20,7 @@ pub enum MoveDirection {
     Bottom,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BackendCommand {
     Undo,
     Redo,
@@ -86,7 +87,7 @@ pub enum BackendCommand {
     SetActivePluginProfile(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlacedSource {
     pub id: String,
     pub x: i32,
@@ -98,7 +99,7 @@ pub struct PlacedSource {
 
 /// Per-source state lifted out of the real backend for snapshot consumers
 /// that need names and media flags beyond the bare source id list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSnapshotItem {
     pub id: String,
     pub name: String,
@@ -107,7 +108,7 @@ pub struct SourceSnapshotItem {
     pub audio_capable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BackendSnapshot {
     pub obs_running: bool,
     pub recording: bool,
@@ -194,7 +195,7 @@ pub fn upsert_source_list(items: &mut Vec<String>, id: &str, present: bool) {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackendError {
     InvalidCapacity,
     QueueFull,
