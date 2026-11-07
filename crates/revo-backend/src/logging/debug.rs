@@ -174,8 +174,10 @@ mod tests {
 
     #[test]
     fn get_clear_registry_snapshot_is_capped_and_clears() {
-        // One combined test: the registry is process-global, so a single
-        // serialized test avoids cross-test interference on push/clear.
+        // One combined test: the registry is process-global, and other tests
+        // (plugin-profile bookkeeping, libobs threads) may push concurrently,
+        // so assertions filter to this test's action prefix and tolerate a
+        // shaved-off head instead of assuming exclusive access.
         clear_debug_log_entries();
         for index in 0..1200u64 {
             push_debug_log_entry(
@@ -183,12 +185,34 @@ mod tests {
                 Some(serde_json::json!({ "index": index })),
             );
         }
-        let entries = get_debug_log_entries();
-        assert_eq!(entries.len(), 1000);
-        assert_eq!(entries[0].action, "registry-cap-test-200");
-        assert_eq!(entries[999].action, "registry-cap-test-1199");
+        let indices: Vec<u64> = get_debug_log_entries()
+            .into_iter()
+            .filter_map(|entry| {
+                entry
+                    .action
+                    .strip_prefix("registry-cap-test-")
+                    .and_then(|suffix| suffix.parse::<u64>().ok())
+            })
+            .collect();
+        // The 1000-entry cap keeps the newest entries. Concurrent pushers may
+        // shrink our slice inside the window, but our own indices must stay
+        // contiguous and end at the newest push.
+        assert!(
+            indices.len() > 500,
+            "cap window lost too many own entries: {}",
+            indices.len()
+        );
+        assert_eq!(indices.last(), Some(&1199));
+        for (previous, next) in indices.iter().zip(indices.iter().skip(1)) {
+            assert_eq!(next, &(previous + 1), "own indices must stay contiguous");
+        }
 
         clear_debug_log_entries();
-        assert!(get_debug_log_entries().is_empty());
+        // Foreign pushes may land between the clear and this read; what must
+        // hold is that none of OUR entries survived the clear.
+        let residue = get_debug_log_entries();
+        assert!(residue
+            .iter()
+            .all(|entry| !entry.action.starts_with("registry-cap-test-")));
     }
 }

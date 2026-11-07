@@ -77,7 +77,7 @@ impl AnyBackend {
         let platform = obs::GpuiObsPlatform::new(executor.clone());
         Self::Obs(
             BackendService::new(8, move || {
-                ObsBackendRuntime::new(root_dir.clone(), platform)
+                ObsBackendRuntime::new(root_dir.clone(), Box::new(platform))
             })
             .expect("failed to start obs backend service"),
         )

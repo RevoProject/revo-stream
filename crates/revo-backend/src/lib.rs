@@ -8,6 +8,7 @@
 pub mod devices;
 pub mod logging;
 pub mod models;
+pub mod obs_service;
 pub mod permissions;
 pub mod runtime;
 pub mod scenes;
