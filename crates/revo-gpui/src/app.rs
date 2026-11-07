@@ -552,7 +552,7 @@ impl Workspace {
         let backend = if use_obs_backend {
             #[cfg(feature = "obs-backend")]
             {
-                AnyBackend::obs(None, cx.foreground_executor().clone())
+                AnyBackend::obs()
             }
             #[cfg(not(feature = "obs-backend"))]
             {
@@ -851,7 +851,7 @@ impl Workspace {
         cx.spawn(async move |workspace, cx| loop {
             cx.background_executor()
                 .timer(Duration::from_millis(
-                    crate::services::obs::PREVIEW_CAPTURE_INTERVAL_MS,
+                    crate::services::obs::UI_PREVIEW_INTERVAL_MS,
                 ))
                 .await;
             let backend = backend.clone();

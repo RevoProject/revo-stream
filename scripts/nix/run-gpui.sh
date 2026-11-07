@@ -51,10 +51,13 @@ export LD_LIBRARY_PATH="$LIB_PATHS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # hook prepends the native runtime stack to the inherited LD_LIBRARY_PATH).
 # Running the feature build through the outer cargo would rebuild with the
 # default feature set and launch the mock binary instead, so the whole
-# cargo run stays inside the shell.
+# cargo run stays inside the shell. The engine binary is built first: the
+# UI process no longer hosts libobs at all — it talks to revo-engine over
+# a Unix socket, and `cargo run` does not build dependency bins.
 if [ "${REVO_GPUI_OBS:-0}" = "1" ]; then
 	exec nix-shell "$PROJECT_DIR/shell.nix" --run \
-		"cargo run --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml -- --obs"
+		"cargo build --manifest-path crates/revo-backend/Cargo.toml --bin revo-engine && \
+		 cargo run --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml -- --obs"
 fi
 
 cd "$PROJECT_DIR"

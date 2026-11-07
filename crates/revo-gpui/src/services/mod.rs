@@ -1,16 +1,20 @@
 pub mod mock;
 
 #[cfg(feature = "obs-backend")]
+pub mod engine;
+#[cfg(feature = "obs-backend")]
 pub mod obs;
 
 use revo_core::service::BackendService;
 
+#[cfg(feature = "obs-backend")]
+pub use engine::EngineClient;
 pub use mock::MockBackendRuntime;
 #[cfg(feature = "obs-backend")]
 pub use obs::{
     capture_preview_png, decode_png_data_uri, interact_close_session, interact_dispatch_key,
     interact_dispatch_mouse, interact_frame_png, interact_reapply, open_interaction_session,
-    ObsBackendRuntime,
+    UI_PREVIEW_INTERVAL_MS,
 };
 pub use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
 
@@ -19,8 +23,8 @@ pub use revo_core::service::{BackendCommand, BackendError, BackendRuntime, Backe
 #[derive(Clone, Debug, PartialEq)]
 pub struct InteractMousePayload {
     pub source_id: String,
-    /// CDP mouse-event kind: `mousePressed`, `mouseReleased`, `mouseMoved`,
-    /// or `mouseWheel`.
+    /// CDP mouse-event kind: `mousePressed`, `mouseReleased`,
+    /// `mouseMoved`, or `mouseWheel`.
     pub kind: &'static str,
     pub x: f64,
     pub y: f64,
@@ -32,12 +36,11 @@ pub struct InteractMousePayload {
     pub delta_y: f64,
 }
 
-/// One forwarded key interaction for a browser source, mirroring the Svelte
-/// `obs_interact_key` invoke payload fields exactly.
+/// One forwarded key interaction for a browser source, mirroring the
+/// Svelte `obs_interact_key` invoke payload fields exactly.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InteractKeyPayload {
     pub source_id: String,
-    /// CDP key-event kind: `keyDown`, `char`, or `keyUp`.
     pub kind: &'static str,
     pub key: String,
     pub code: String,
@@ -47,12 +50,14 @@ pub struct InteractKeyPayload {
 
 /// Single backend handle for the GPUI application so `app.rs` can hold one
 /// type regardless of which runtime is linked in. The `Obs` variant only
-/// exists with the `obs-backend` feature.
+/// exists with the `obs-backend` feature and hosts no libobs code in this
+/// process — the runtime runs in the separate `revo-engine` process and is
+/// reached through [`EngineClient`].
 #[derive(Clone)]
 #[cfg(feature = "obs-backend")]
 pub enum AnyBackend {
     Mock(BackendService<MockBackendRuntime>),
-    Obs(BackendService<ObsBackendRuntime>),
+    Obs(BackendService<EngineClient>),
 }
 
 #[derive(Clone)]
@@ -70,16 +75,16 @@ impl AnyBackend {
     }
 
     #[cfg(feature = "obs-backend")]
-    pub fn obs(root_dir: Option<String>, executor: gpui::ForegroundExecutor) -> Self {
-        // The platform spawns its main-thread job queue from the foreground
-        // executor here (main thread), then moves into the worker closure —
-        // only its `Send` job sender crosses threads.
-        let platform = obs::GpuiObsPlatform::new(executor.clone());
+    pub fn obs() -> Self {
+        // The engine spawn + Unix-socket connect runs on the backend worker
+        // thread (the constructor closure), keeping the GPUI main thread
+        // free. A failed spawn panics the worker, which surfaces to every
+        // later backend call with its message intact.
         Self::Obs(
             BackendService::new(8, move || {
-                ObsBackendRuntime::new(root_dir.clone(), Box::new(platform))
+                EngineClient::new().expect("failed to start revo-engine process")
             })
-            .expect("failed to start obs backend service"),
+            .expect("failed to start engine backend service"),
         )
     }
 
@@ -137,7 +142,7 @@ impl AnyBackend {
     pub fn call_obs<T, F>(&self, operation: F) -> Result<T, BackendError>
     where
         T: Send + 'static,
-        F: FnOnce(&mut ObsBackendRuntime) -> Result<T, BackendError> + Send + 'static,
+        F: FnOnce(&mut EngineClient) -> Result<T, BackendError> + Send + 'static,
     {
         match self {
             Self::Mock(_) => Err(BackendError::Runtime(

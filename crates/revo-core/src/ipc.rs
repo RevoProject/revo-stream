@@ -18,7 +18,7 @@ use std::io;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::service::{BackendCommand, BackendSnapshot};
+use crate::service::BackendCommand;
 
 /// Maximum accepted frame payload (32 MiB) — a preview PNG at 4K with
 /// base64-style JSON expansion stays far below this; anything larger is a
@@ -45,16 +45,10 @@ pub enum UiToEngine {
         source_id: Option<String>,
     },
     /// Open the browser-interaction CDP session for one source.
-    InteractOpen {
-        request_id: u64,
-        source_id: String,
-    },
+    InteractOpen { request_id: u64, source_id: String },
     /// Capture the newest browser-source frame; answered with
     /// [`EngineToUi::InteractReply`].
-    InteractFrame {
-        request_id: u64,
-        source_id: String,
-    },
+    InteractFrame { request_id: u64, source_id: String },
     /// Forward one typed mouse event to the source's CDP session.
     InteractMouse {
         request_id: u64,
@@ -79,10 +73,7 @@ pub enum UiToEngine {
         text: String,
     },
     /// Re-run the session's custom CSS/JS injection.
-    InteractReapply {
-        request_id: u64,
-        source_id: String,
-    },
+    InteractReapply { request_id: u64, source_id: String },
     /// Close the source's CDP session and its headless browser.
     InteractClose { source_id: String },
     /// Stop the engine: the libobs runtime shuts down and the process exits.

@@ -9,14 +9,13 @@ anyhow = "1"
 gpui = "=0.2.2"
 revo-core = { path = "../revo-core" }
 revo-backend = { path = "../revo-backend", optional = true }
-revo-lib = { git = "https://github.com/RevoProject/revo-lib", optional = true }
 base64 = { version = "0.22", optional = true }
 # Typed auxiliary-window state (debug-console log details) is framework
 # neutral and stays available in mock builds.
 serde_json = "1"
 
 [features]
-obs-backend = ["dep:revo-backend", "dep:revo-lib", "dep:base64"]
+obs-backend = ["dep:revo-backend", "dep:base64"]
 
 # xattr 0.2.3, pulled by GPUI's HTTP client, does not compile with libc 0.2.191.
 [target.'cfg(target_os = "linux")'.dependencies]
