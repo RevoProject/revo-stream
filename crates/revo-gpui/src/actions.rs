@@ -2,9 +2,13 @@ pub use revo_core::service::MoveDirection;
 
 /// Which auxiliary (separate native window) surface a Tools-panel request
 /// wants. Opened once per kind; repeated requests focus the existing window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuxiliaryWindowKind {
-    Preview,
+    /// Preview window; `source_id` selects a scene or source to capture
+    /// (`None` = the current scene composite).
+    Preview {
+        source_id: Option<String>,
+    },
     DebugConsole,
     BrowserInteraction,
 }
@@ -63,6 +67,11 @@ pub enum ComponentEvent {
     },
     /// Open the audio mixer as a modal (Svelte parity: showAudioMixerModal).
     OpenMixer,
+    /// Open the preview window for a scene or source (Svelte
+    /// openScenePreviewInWindow / openPreviewInWindow).
+    OpenPreviewInWindow {
+        target_id: Option<String>,
+    },
     /// Open the transitions editor as a modal (showTransitionsModal).
     OpenTransitions,
     /// Right-click context-menu request from a panel row or the preview
@@ -113,6 +122,7 @@ pub enum ContextMenuAction {
     ToggleVisibility,
     ForcePreviewResolution,
     ToggleStudioMode,
+    PreviewInWindow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

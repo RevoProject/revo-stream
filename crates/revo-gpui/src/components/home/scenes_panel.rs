@@ -30,6 +30,12 @@ impl ScenesPanel {
         if !self.scenes.iter().any(|scene| scene.name == name) {
             return None;
         }
+        // OBS studio behavior: in studio mode a click arms the PREVIEW
+        // scene; the program keeps playing until a transition is taken.
+        if self.studio_mode {
+            self.preview_scene = Some(name.to_owned());
+            return None;
+        }
         for scene in &mut self.scenes {
             scene.active = scene.name == name;
         }
@@ -193,6 +199,25 @@ impl Render for ScenesPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn studio_mode_select_arms_the_preview_scene() {
+        let mut panel = ScenesPanel {
+            scenes: vec![SceneItem {
+                name: "A".into(),
+                active: true,
+                locked: false,
+            }],
+            preview_scene: None,
+            studio_mode: true,
+            rename_draft: None,
+            theme: RevoTheme::classic(),
+        };
+        assert_eq!(panel.select("A"), None);
+        assert_eq!(panel.preview_scene.as_deref(), Some("A"));
+        // The program stays on the previously active scene.
+        assert!(panel.scenes.iter().all(|scene| scene.active));
+    }
 
     #[test]
     fn scene_selection_updates_active_scene() {

@@ -228,8 +228,18 @@ impl WorkspaceState {
                 return None;
             }
             ComponentEvent::OpenPreviewWindow => {
-                self.requested_window = Some(AuxiliaryWindowKind::Preview);
+                self.requested_window = Some(AuxiliaryWindowKind::Preview { source_id: None });
                 self.status = "Preview window requested".into();
+                return None;
+            }
+            ComponentEvent::OpenPreviewInWindow { target_id } => {
+                self.requested_window = Some(AuxiliaryWindowKind::Preview {
+                    source_id: target_id.clone(),
+                });
+                self.status = match &target_id {
+                    Some(id) => format!("Preview window requested for {id}"),
+                    None => "Preview window requested".into(),
+                };
                 return None;
             }
             ComponentEvent::OpenDebugConsoleWindow => {
@@ -454,6 +464,9 @@ pub struct Workspace {
     theme: RevoTheme,
     #[cfg(feature = "obs-backend")]
     preview_frame: Option<std::sync::Arc<GpuiImage>>,
+    /// Studio-mode Preview column frame (the preview scene, not program).
+    #[cfg(feature = "obs-backend")]
+    studio_preview_frame: Option<std::sync::Arc<GpuiImage>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -497,12 +510,26 @@ impl Workspace {
     /// constructed from the shared backend clone.
     fn open_auxiliary_window(&mut self, kind: AuxiliaryWindowKind, cx: &mut Context<'_, Self>) {
         match kind {
-            AuxiliaryWindowKind::Preview => {
+            AuxiliaryWindowKind::Preview { source_id } => {
                 let handle = self.aux_windows.preview.take();
                 match handle {
                     Some(handle) if Self::focus_auxiliary(&handle, cx) => {
+                        // Retarget an already open preview window when the
+                        // request carries a scene/source id. The window's
+                        // own capture loop redraws each frame, so no notify
+                        // is needed here.
+                        if let Some(id) = &source_id {
+                            handle
+                                .update(cx, |window, _, _| {
+                                    window.source_id = Some(id.clone());
+                                })
+                                .ok();
+                        }
                         self.aux_windows.preview = Some(handle);
-                        self.state.status = "Preview window focused".into();
+                        self.state.status = match &source_id {
+                            Some(id) => format!("Preview window retargeted to {id}"),
+                            None => "Preview window focused".into(),
+                        };
                     }
                     _ => {
                         let backend = self.backend.clone();
@@ -514,7 +541,9 @@ impl Workspace {
                         );
                         self.aux_windows.preview = cx
                             .open_window(options, |_, cx| {
-                                cx.new(|cx| PreviewWindow::new(backend.clone(), None, cx))
+                                cx.new(|cx| {
+                                    PreviewWindow::new(backend.clone(), source_id.clone(), cx)
+                                })
                             })
                             .ok();
                         self.state.status = "Preview window opened".into();
@@ -629,7 +658,7 @@ impl Workspace {
                     locked: false,
                 },
             ],
-            preview_scene: Some("Main Camera".into()),
+            preview_scene: None,
             studio_mode: false,
             rename_draft: None,
             theme,
@@ -778,6 +807,8 @@ impl Workspace {
             theme,
             #[cfg(feature = "obs-backend")]
             preview_frame: None,
+            #[cfg(feature = "obs-backend")]
+            studio_preview_frame: None,
             _subscriptions: subscriptions,
         };
 
@@ -896,18 +927,48 @@ impl Workspace {
                     crate::services::obs::UI_PREVIEW_INTERVAL_MS,
                 ))
                 .await;
-            let backend = backend.clone();
-            let frame = cx
+            // Studio mode adds a second capture: the preview scene alongside
+            // the program composite.
+            let (backend, preview_scene) = match workspace.update(cx, |workspace, cx| {
+                let (studio, scene) = {
+                    let panel = workspace.scenes.read(cx);
+                    (panel.studio_mode, panel.preview_scene.clone())
+                };
+                (workspace.backend.clone(), if studio { scene } else { None })
+            }) {
+                Ok(value) => value,
+                Err(_) => return,
+            };
+            let backend_for_program = backend.clone();
+            let program = cx
                 .background_executor()
-                .spawn(async move { capture_preview_png(&backend, None) })
+                .spawn(async move { capture_preview_png(&backend_for_program, None) })
                 .await;
-            let frame = frame
+            let program = program
                 .ok()
                 .and_then(|data_uri| crate::services::decode_png_data_uri(&data_uri))
                 .map(|bytes| std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes)));
+            let studio_preview = match &preview_scene {
+                Some(scene) => {
+                    let scene = scene.clone();
+                    let backend = backend.clone();
+                    let frame = cx
+                        .background_executor()
+                        .spawn(async move { capture_preview_png(&backend, Some(&scene)) })
+                        .await;
+                    frame
+                        .ok()
+                        .and_then(|data_uri| crate::services::decode_png_data_uri(&data_uri))
+                        .map(|bytes| {
+                            std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes))
+                        })
+                }
+                None => None,
+            };
             let alive = workspace
                 .update(cx, |workspace, cx| {
-                    workspace.preview_frame = frame;
+                    workspace.preview_frame = program;
+                    workspace.studio_preview_frame = studio_preview;
                     cx.notify();
                 })
                 .is_ok();
@@ -1068,6 +1129,11 @@ impl Workspace {
                 };
                 vec![ComponentEvent::ReorderScene { name, to_index }]
             }
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::PreviewInWindow) => {
+                vec![ComponentEvent::OpenPreviewInWindow {
+                    target_id: Some(name),
+                }]
+            }
             (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::Remove) => {
                 vec![ComponentEvent::RemoveScene(name)]
             }
@@ -1088,6 +1154,11 @@ impl Workspace {
             }
             (ContextMenuTarget::Source { id, .. }, ContextMenuAction::Move(direction)) => {
                 vec![ComponentEvent::MoveSource { id, direction }]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::PreviewInWindow) => {
+                vec![ComponentEvent::OpenPreviewInWindow {
+                    target_id: Some(id),
+                }]
             }
             (ContextMenuTarget::Source { id, .. }, ContextMenuAction::Remove) => {
                 vec![ComponentEvent::RemoveSource(id)]
@@ -1493,6 +1564,59 @@ impl Workspace {
     /// The `.render` band from the Svelte layout: fills the space above the
     /// panel section, centers content, and keeps the preview surface inside
     /// a `min(960px, 100%)` live-preview column.
+    /// One labeled preview column for studio mode; renders its frame or a
+    /// bounded placeholder so the layout never jumps between frames.
+    #[cfg(feature = "obs-backend")]
+    fn preview_column(
+        &self,
+        label: &'static str,
+        frame: Option<&std::sync::Arc<GpuiImage>>,
+        waiting: bool,
+    ) -> gpui::Div {
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .gap_1()
+            .child(
+                div()
+                    .text_color(self.theme.text_secondary)
+                    .text_size(px(11.))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("preview-column-{label}")))
+                    .flex_1()
+                    .min_h(px(180.))
+                    .overflow_hidden()
+                    .rounded_md()
+                    .bg(self.theme.surface)
+                    .border_1()
+                    .border_color(self.theme.border)
+                    .child(match frame {
+                        Some(frame) => gpui::img(std::sync::Arc::clone(frame))
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Contain)
+                            .into_any_element(),
+                        None => div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size_full()
+                            .text_color(self.theme.text_muted)
+                            .text_size(px(11.))
+                            .child(if waiting {
+                                "waiting for frame…"
+                            } else {
+                                "no capture"
+                            })
+                            .into_any_element(),
+                    }),
+            )
+    }
+
     fn preview_surface(&self, cx: &mut Context<'_, Self>) -> gpui::Stateful<gpui::Div> {
         let base = div()
             .flex()
@@ -1530,7 +1654,32 @@ impl Workspace {
             .child(base);
         #[cfg(feature = "obs-backend")]
         {
+            let studio = self.scenes.read(cx).studio_mode;
+            let preview_scene = self.scenes.read(cx).preview_scene.clone();
+            if studio {
+                // OBS-style studio split: the preview scene beside the live
+                // program composite, each with its own label.
+                let columns = div()
+                    .flex()
+                    .flex_row()
+                    .gap_3()
+                    .w_full()
+                    .max_w(px(960.))
+                    .child(self.preview_column(
+                        "Preview",
+                        self.studio_preview_frame.as_ref(),
+                        preview_scene.is_some(),
+                    ))
+                    .child(self.preview_column(
+                        "Studio (Program)",
+                        self.preview_frame.as_ref(),
+                        true,
+                    ));
+                return band.child(columns);
+            }
             match &self.preview_frame {
+                // A live frame replaces the placeholder entirely so the band
+                // layout stays stable between captures.
                 Some(frame) => band.child(
                     div().id("preview-frame").size_full().child(
                         gpui::img(std::sync::Arc::clone(frame))
@@ -2083,7 +2232,7 @@ mod tests {
         state.route(ComponentEvent::OpenPreviewWindow);
         assert_eq!(
             state.requested_window.take(),
-            Some(AuxiliaryWindowKind::Preview)
+            Some(AuxiliaryWindowKind::Preview { source_id: None })
         );
         assert_eq!(state.requested_window.take(), None);
         assert_eq!(state.last_command, None);
