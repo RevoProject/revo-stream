@@ -6,11 +6,11 @@ use base64::Engine as _;
 
 use gpui::{
     div, prelude::*, px, rgb, size, svg, App, Application, AssetSource, Bounds, Context, Entity,
-    IntoElement, MouseButton, Pixels, Render, SharedString, Subscription, TitlebarOptions, Window,
-    WindowBounds, WindowHandle, WindowOptions,
+    IntoElement, MouseButton, MouseDownEvent, Pixels, Render, SharedString, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use revo_core::models::AppSettings;
-use revo_core::service::{BackendCommand, BackendError, BackendSnapshot};
+use revo_core::service::{BackendCommand, BackendError, BackendSnapshot, MoveDirection};
 
 #[cfg(feature = "obs-backend")]
 use gpui::{Image as GpuiImage, ImageFormat};
@@ -20,8 +20,12 @@ use crate::services::AnyBackend;
 use crate::services::{capture_preview_png, ObsBackendRuntime};
 
 use crate::{
-    actions::{AuxiliaryWindowKind, ComponentEvent, QuickSourceAction},
+    actions::{
+        AuxiliaryWindowKind, ComponentEvent, ContextMenuAction, ContextMenuTarget,
+        QuickSourceAction,
+    },
     components::{
+        context_menu::{ContextMenuEvent, WorkspaceContextMenu},
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
@@ -105,6 +109,10 @@ pub struct WorkspaceState {
     /// One-shot auxiliary-window request routed from the Tools panel;
     /// consumed (`take`) by the Workspace to open/focus the window.
     pub requested_window: Option<AuxiliaryWindowKind>,
+    /// One-shot right-click context-menu request routed from panel rows or
+    /// the preview surface; consumed (`take`) by the Workspace to open the
+    /// shared menu at the cursor position.
+    pub requested_menu: Option<(ContextMenuTarget, (f32, f32))>,
     /// Persisted settings as most recently reported by the backend snapshot;
     /// seeds the settings draft when the modal opens.
     pub settings: Option<AppSettings>,
@@ -127,6 +135,7 @@ impl Default for WorkspaceState {
             last_command: None,
             status: "Starting core...".into(),
             requested_window: None,
+            requested_menu: None,
             settings: None,
             booted: false,
             splash_spin: 0.0,
@@ -244,6 +253,10 @@ impl WorkspaceState {
             ComponentEvent::ReorderScene { name, to_index } => {
                 BackendCommand::ReorderScene { name, to_index }
             }
+            ComponentEvent::SetSceneLock { name, locked } => {
+                BackendCommand::SetSceneLock { name, locked }
+            }
+            ComponentEvent::RemoveScene(name) => BackendCommand::RemoveScene(name),
             ComponentEvent::SelectSource(id) => BackendCommand::SelectSource(id),
             ComponentEvent::ToggleSourceVisibility(id) => {
                 BackendCommand::ToggleSourceVisibility(id)
@@ -251,6 +264,11 @@ impl WorkspaceState {
             ComponentEvent::ToggleSourceLock(id) => BackendCommand::ToggleSourceLock(id),
             ComponentEvent::MoveSource { id, direction } => {
                 BackendCommand::MoveSource { id, direction }
+            }
+            ComponentEvent::RemoveSource(id) => BackendCommand::RemoveSource(id),
+            ComponentEvent::OpenContextMenu { target, position } => {
+                self.requested_menu = Some((target, position));
+                return None;
             }
         };
 
@@ -392,6 +410,7 @@ pub struct Workspace {
     pub mixer_menu: Entity<AudioMixerContextMenu>,
     pub mixer_advanced: Entity<AudioMixerAdvancedModal>,
     pub planner: Entity<GraphicPlannerPanel>,
+    pub context_menu: Entity<WorkspaceContextMenu>,
     pub settings_modal: Option<Entity<SettingsModal>>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
@@ -641,6 +660,10 @@ impl Workspace {
             theme,
             ..AudioMixerContextMenu::default()
         });
+        let context_menu = cx.new(|_| WorkspaceContextMenu {
+            theme,
+            ..WorkspaceContextMenu::default()
+        });
         let mixer_advanced = cx.new(|_| AudioMixerAdvancedModal::new(theme));
         let planner = cx.new(|_| GraphicPlannerPanel {
             sources: vec![
@@ -690,6 +713,9 @@ impl Workspace {
             cx.subscribe(&planner, |this, _, event, cx| {
                 this.handle_planner_event(event.clone(), cx);
             }),
+            cx.subscribe(&context_menu, |this, _, event, cx| {
+                this.handle_context_menu_event(event.clone(), cx);
+            }),
         ];
 
         let mut workspace = Self {
@@ -702,6 +728,7 @@ impl Workspace {
             mixer_menu,
             mixer_advanced,
             planner,
+            context_menu,
             settings_modal: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
@@ -932,10 +959,96 @@ impl Workspace {
         if let Some(kind) = self.state.requested_window.take() {
             self.open_auxiliary_window(kind, cx);
         }
+        if let Some((target, position)) = self.state.requested_menu.take() {
+            self.context_menu.update(cx, |menu, cx| {
+                menu.open_menu(target, position);
+                cx.notify();
+            });
+        }
         if self.state.active_modal == ActiveModal::Settings && self.settings_modal.is_none() {
             self.open_settings_modal(cx);
         }
         cx.notify();
+    }
+
+    /// Routes one right-click context-menu choice into the same typed
+    /// component-event workflow the panels use. Scene reordering resolves the
+    /// visual up/down directions against the panel's current backend order.
+    fn handle_context_menu_event(&mut self, event: ContextMenuEvent, cx: &mut Context<'_, Self>) {
+        if let ContextMenuEvent::Chosen { target, action } = event {
+            let events = self.context_menu_events(target, action, cx);
+            for event in events {
+                self.route_event(event, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn context_menu_events(
+        &self,
+        target: ContextMenuTarget,
+        action: ContextMenuAction,
+        cx: &mut Context<'_, Self>,
+    ) -> Vec<ComponentEvent> {
+        match (target, action) {
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::Select) => {
+                vec![ComponentEvent::SelectScene(name)]
+            }
+            (ContextMenuTarget::Scene { name, locked }, ContextMenuAction::ToggleLock) => {
+                vec![ComponentEvent::SetSceneLock {
+                    name,
+                    locked: !locked,
+                }]
+            }
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::Move(direction)) => {
+                let scenes = self.scenes.read(cx).scenes.clone();
+                let Some(index) = scenes.iter().position(|scene| scene.name == name) else {
+                    return Vec::new();
+                };
+                let last = scenes.len().saturating_sub(1);
+                let to_index = match direction {
+                    MoveDirection::Up => index.saturating_sub(1),
+                    MoveDirection::Down => (index + 1).min(last),
+                    MoveDirection::Top => 0,
+                    MoveDirection::Bottom => last,
+                };
+                vec![ComponentEvent::ReorderScene { name, to_index }]
+            }
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::Remove) => {
+                vec![ComponentEvent::RemoveScene(name)]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::Edit) => {
+                vec![ComponentEvent::EditSource(id)]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::QuickAction) => {
+                let Some(action) = self.sources.read(cx).quick_action_for(&id) else {
+                    return Vec::new();
+                };
+                vec![ComponentEvent::QuickSourceAction { id, action }]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::ToggleVisibility) => {
+                vec![ComponentEvent::ToggleSourceVisibility(id)]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::ToggleLock) => {
+                vec![ComponentEvent::ToggleSourceLock(id)]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::Move(direction)) => {
+                vec![ComponentEvent::MoveSource { id, direction }]
+            }
+            (ContextMenuTarget::Source { id, .. }, ContextMenuAction::Remove) => {
+                vec![ComponentEvent::RemoveSource(id)]
+            }
+            (ContextMenuTarget::Preview, ContextMenuAction::ForcePreviewResolution) => {
+                vec![ComponentEvent::ForcePreviewResolution]
+            }
+            (ContextMenuTarget::Preview, ContextMenuAction::ToggleStudioMode) => {
+                let enabled = !self.header.read(cx).state.studio_mode;
+                vec![ComponentEvent::SetStudioMode(enabled)]
+            }
+            // Entry/action pairs always come from `entries()` per target, so
+            // the remaining combinations are unreachable.
+            _ => Vec::new(),
+        }
     }
 
     /// Creates the settings modal entity seeded from the last known persisted
@@ -1222,7 +1335,7 @@ impl Workspace {
     /// The `.render` band from the Svelte layout: fills the space above the
     /// panel section, centers content, and keeps the preview surface inside
     /// a `min(960px, 100%)` live-preview column.
-    fn preview_surface(&self) -> gpui::Div {
+    fn preview_surface(&self, cx: &mut Context<'_, Self>) -> gpui::Stateful<gpui::Div> {
         let base = div()
             .flex()
             .flex_col()
@@ -1234,6 +1347,7 @@ impl Workspace {
             .overflow_hidden()
             .child(self.demo.clone());
         let band = div()
+            .id("preview-surface")
             .flex_1()
             .min_h(px(200.))
             .flex()
@@ -1242,6 +1356,19 @@ impl Workspace {
             .justify_center()
             .px_6()
             .pb_4()
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    let position = (f32::from(event.position.x), f32::from(event.position.y));
+                    this.route_event(
+                        ComponentEvent::OpenContextMenu {
+                            target: ContextMenuTarget::Preview,
+                            position,
+                        },
+                        cx,
+                    );
+                }),
+            )
             .child(base);
         #[cfg(feature = "obs-backend")]
         {
@@ -1438,7 +1565,7 @@ impl Render for Workspace {
             .text_color(self.theme.text)
             .font_family("Space Grotesk")
             .child(self.header.clone())
-            .child(self.preview_surface())
+            .child(self.preview_surface(cx))
             .child(self.lower_panels(cx, mode));
 
         if let Some((config, lines)) = self.modal_content() {
@@ -1510,6 +1637,18 @@ impl Render for Workspace {
                     .bottom_0()
                     .left_0()
                     .child(self.mixer_menu.clone()),
+            );
+        }
+
+        if self.context_menu.read(cx).open {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .child(self.context_menu.clone()),
             );
         }
 
@@ -1692,6 +1831,86 @@ mod tests {
             Some(AuxiliaryWindowKind::BrowserInteraction)
         );
         assert_eq!(state.active_modal, ActiveModal::None);
+    }
+
+    #[test]
+    fn right_click_requests_open_the_context_menu_without_backend_commands() {
+        let mut state = WorkspaceState::default();
+        let target = ContextMenuTarget::Scene {
+            name: "Main Camera".into(),
+            locked: false,
+        };
+        state.route(ComponentEvent::OpenContextMenu {
+            target: target.clone(),
+            position: (40.0, 60.0),
+        });
+        assert_eq!(state.requested_menu.take(), Some((target, (40.0, 60.0))));
+        assert_eq!(state.requested_menu.take(), None);
+        assert_eq!(state.last_command, None);
+    }
+
+    #[test]
+    fn context_menu_scene_actions_route_into_typed_backend_commands() {
+        let mut state = WorkspaceState::default();
+        assert_eq!(
+            state.route(ComponentEvent::SetSceneLock {
+                name: "Main Camera".into(),
+                locked: true,
+            }),
+            Some(BackendCommand::SetSceneLock {
+                name: "Main Camera".into(),
+                locked: true,
+            })
+        );
+        assert_eq!(
+            state.route(ComponentEvent::RemoveScene("Be Right Back".into())),
+            Some(BackendCommand::RemoveScene("Be Right Back".into()))
+        );
+        assert_eq!(
+            state.route(ComponentEvent::RemoveSource("camera".into())),
+            Some(BackendCommand::RemoveSource("camera".into()))
+        );
+        assert_eq!(
+            state.last_command,
+            Some(BackendCommand::RemoveSource("camera".into()))
+        );
+    }
+
+    #[test]
+    fn mock_service_executes_scene_lock_removal_and_source_removal() {
+        let service = BackendService::new(4, MockBackendRuntime::default).unwrap();
+        service
+            .execute(BackendCommand::SetSceneLock {
+                name: "Main Camera".into(),
+                locked: true,
+            })
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert!(snapshot.locked_scenes.contains(&"Main Camera".into()));
+
+        service
+            .execute(BackendCommand::RemoveSource("camera".into()))
+            .unwrap();
+        service
+            .execute(BackendCommand::RemoveScene("Starting Soon".into()))
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert!(!snapshot.sources.contains(&"camera".into()));
+        assert!(!snapshot.visible_sources.contains(&"camera".into()));
+        assert_eq!(
+            snapshot
+                .scenes
+                .iter()
+                .position(|scene| scene == "Starting Soon"),
+            None
+        );
+        // Removing the selected scene falls back to the first remaining one.
+        service
+            .execute(BackendCommand::RemoveScene("Main Camera".into()))
+            .unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert_eq!(snapshot.selected_scene.as_deref(), Some("Be Right Back"));
+        service.shutdown().unwrap();
     }
 
     #[test]

@@ -9,7 +9,9 @@ pub enum AuxiliaryWindowKind {
     BrowserInteraction,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Typed event vocabulary shared by every migrated GPUI panel. `Eq` is not
+/// derived because context-menu requests carry cursor positions (`f32`).
+#[derive(Clone, Debug, PartialEq)]
 pub enum ComponentEvent {
     OpenSettings,
     OpenHistory,
@@ -40,6 +42,11 @@ pub enum ComponentEvent {
         name: String,
         to_index: usize,
     },
+    SetSceneLock {
+        name: String,
+        locked: bool,
+    },
+    RemoveScene(String),
     AddSource,
     SelectSource(String),
     ToggleSourceVisibility(String),
@@ -48,10 +55,18 @@ pub enum ComponentEvent {
         id: String,
         direction: MoveDirection,
     },
+    RemoveSource(String),
     EditSource(String),
     QuickSourceAction {
         id: String,
         action: QuickSourceAction,
+    },
+    /// Right-click context-menu request from a panel row or the preview
+    /// surface; UI-only, never dispatches a backend command.
+    OpenContextMenu {
+        target: ContextMenuTarget,
+        /// Window-space cursor position (px) the menu opens at.
+        position: (f32, f32),
     },
 }
 
@@ -62,6 +77,38 @@ pub enum QuickSourceAction {
     ChangeColor,
     SelectFile,
     SelectDevice,
+}
+
+/// What a right-click context menu was opened on. The target carries the
+/// state snapshot the menu entries were built from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextMenuTarget {
+    Scene {
+        name: String,
+        locked: bool,
+    },
+    Source {
+        id: String,
+        name: String,
+        visible: bool,
+        locked: bool,
+    },
+    Preview,
+}
+
+/// One typed context-menu choice, mirroring the legacy OBS right-click
+/// workflow per surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextMenuAction {
+    Select,
+    ToggleLock,
+    Move(MoveDirection),
+    Remove,
+    Edit,
+    QuickAction,
+    ToggleVisibility,
+    ForcePreviewResolution,
+    ToggleStudioMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

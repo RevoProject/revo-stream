@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, MouseButton, Render, SharedString, Window};
 
 use crate::theme::RevoTheme;
 
@@ -253,6 +253,7 @@ impl Render for AudioMixerPanel {
                 VolumeMode::Db => format_db(channel.volume_db),
             };
             let mut row = div()
+                .id(SharedString::from(format!("mixer-row-{id}")))
                 .flex()
                 .flex_col()
                 .gap_2()
@@ -261,6 +262,18 @@ impl Render for AudioMixerPanel {
                 .border_1()
                 .border_color(self.theme.border)
                 .rounded_md()
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener({
+                        let id = id.clone();
+                        move |this, _, _, cx| {
+                            if let Some(event) = this.open_context_menu(&id) {
+                                cx.emit(event);
+                            }
+                            cx.notify();
+                        }
+                    }),
+                )
                 .child(
                     div()
                         .flex()

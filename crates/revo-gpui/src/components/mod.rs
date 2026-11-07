@@ -1,3 +1,4 @@
+pub mod context_menu;
 pub mod home;
 pub mod icon;
 pub mod modal;

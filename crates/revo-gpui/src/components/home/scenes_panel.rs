@@ -1,6 +1,13 @@
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{
+    div, prelude::*, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
+    Window,
+};
 
-use crate::{actions::ComponentEvent, components::panel, theme::RevoTheme};
+use crate::{
+    actions::{ComponentEvent, ContextMenuTarget},
+    components::panel,
+    theme::RevoTheme,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneItem {
@@ -59,6 +66,19 @@ impl ScenesPanel {
             .name = to.clone();
         Some(ComponentEvent::RenameScene { from, to })
     }
+
+    /// Right-click request for one scene row; positions the shared workspace
+    /// context menu at the cursor.
+    pub fn open_menu(&self, name: &str, position: (f32, f32)) -> Option<ComponentEvent> {
+        let scene = self.scenes.iter().find(|scene| scene.name == name)?;
+        Some(ComponentEvent::OpenContextMenu {
+            target: ContextMenuTarget::Scene {
+                name: scene.name.clone(),
+                locked: scene.locked,
+            },
+            position,
+        })
+    }
 }
 
 impl Render for ScenesPanel {
@@ -93,6 +113,20 @@ impl Render for ScenesPanel {
                             }
                         }
                     }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener({
+                            let name = scene.name.clone();
+                            move |this, event: &MouseDownEvent, _, cx| {
+                                let position =
+                                    (f32::from(event.position.x), f32::from(event.position.y));
+                                if let Some(event) = this.open_menu(&name, position) {
+                                    cx.emit(event);
+                                }
+                                cx.notify();
+                            }
+                        }),
+                    )
                     .child(SharedString::from(format!(
                         "{}{}{}",
                         scene.name,
@@ -174,5 +208,31 @@ mod tests {
             theme: RevoTheme::classic(),
         };
         assert_eq!(panel.commit_rename(), None);
+    }
+
+    #[test]
+    fn right_click_requests_a_typed_scene_context_menu() {
+        let panel = ScenesPanel {
+            scenes: vec![SceneItem {
+                name: "A".into(),
+                active: true,
+                locked: true,
+            }],
+            preview_scene: None,
+            studio_mode: false,
+            rename_draft: None,
+            theme: RevoTheme::classic(),
+        };
+        assert_eq!(
+            panel.open_menu("A", (40.0, 60.0)),
+            Some(ComponentEvent::OpenContextMenu {
+                target: ContextMenuTarget::Scene {
+                    name: "A".into(),
+                    locked: true,
+                },
+                position: (40.0, 60.0),
+            })
+        );
+        assert_eq!(panel.open_menu("missing", (0.0, 0.0)), None);
     }
 }

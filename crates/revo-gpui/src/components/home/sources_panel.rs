@@ -1,7 +1,10 @@
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{
+    div, prelude::*, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
+    Window,
+};
 
 use crate::{
-    actions::{ComponentEvent, MoveDirection, QuickSourceAction},
+    actions::{ComponentEvent, ContextMenuTarget, MoveDirection, QuickSourceAction},
     components::panel,
     theme::RevoTheme,
 };
@@ -66,12 +69,17 @@ impl SourcesPanel {
     }
 
     pub fn contextual_action(&self) -> Option<ComponentEvent> {
-        let source = self
-            .sources
-            .iter()
-            .find(|source| Some(&source.id) == self.selected_id.as_ref())?;
+        let id = self.selected_id.as_ref()?.clone();
+        let action = self.quick_action_for(&id)?;
+        Some(ComponentEvent::QuickSourceAction { id, action })
+    }
+
+    /// Quick action implied by one source's type; shared by the header
+    /// "Quick action" button and the right-click context menu.
+    pub fn quick_action_for(&self, id: &str) -> Option<QuickSourceAction> {
+        let source = self.sources.iter().find(|source| source.id == id)?;
         let kind = source.source_type.to_ascii_lowercase();
-        let action = if kind == "browser_source" {
+        Some(if kind == "browser_source" {
             QuickSourceAction::Interact
         } else if kind.contains("text") {
             QuickSourceAction::EditText
@@ -81,10 +89,21 @@ impl SourcesPanel {
             QuickSourceAction::SelectFile
         } else {
             QuickSourceAction::SelectDevice
-        };
-        Some(ComponentEvent::QuickSourceAction {
-            id: source.id.clone(),
-            action,
+        })
+    }
+
+    /// Right-click request for one source row; positions the shared
+    /// workspace context menu at the cursor.
+    pub fn open_menu(&self, id: &str, position: (f32, f32)) -> Option<ComponentEvent> {
+        let source = self.sources.iter().find(|source| source.id == id)?;
+        Some(ComponentEvent::OpenContextMenu {
+            target: ContextMenuTarget::Source {
+                id: source.id.clone(),
+                name: source.name.clone(),
+                visible: source.visible,
+                locked: source.locked,
+            },
+            position,
         })
     }
 }
@@ -100,6 +119,7 @@ impl Render for SourcesPanel {
             let edit_id = id.clone();
             let up_id = id.clone();
             let down_id = id.clone();
+            let menu_id = id.clone();
             list = list.child(
                 div()
                     .id(SharedString::from(format!("source-row-{id}")))
@@ -127,6 +147,17 @@ impl Render for SourcesPanel {
                             cx.notify();
                         }
                     }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            let position =
+                                (f32::from(event.position.x), f32::from(event.position.y));
+                            if let Some(event) = this.open_menu(&menu_id, position) {
+                                cx.emit(event);
+                            }
+                            cx.notify();
+                        }),
+                    )
                     .child(div().flex_1().child(source.name.clone()))
                     .child(
                         div()
@@ -286,6 +317,39 @@ mod tests {
                 action: QuickSourceAction::EditText
             })
         );
+    }
+
+    #[test]
+    fn right_click_requests_a_typed_source_context_menu() {
+        let panel = SourcesPanel {
+            sources: vec![SourceItem {
+                id: "camera".into(),
+                name: "Camera".into(),
+                source_type: "v4l2_input".into(),
+                visible: false,
+                locked: true,
+            }],
+            selected_id: None,
+            theme: RevoTheme::future(),
+        };
+        assert_eq!(
+            panel.open_menu("camera", (12.0, 24.0)),
+            Some(ComponentEvent::OpenContextMenu {
+                target: ContextMenuTarget::Source {
+                    id: "camera".into(),
+                    name: "Camera".into(),
+                    visible: false,
+                    locked: true,
+                },
+                position: (12.0, 24.0),
+            })
+        );
+        assert_eq!(
+            panel.quick_action_for("camera"),
+            Some(QuickSourceAction::SelectDevice)
+        );
+        assert_eq!(panel.open_menu("missing", (0.0, 0.0)), None);
+        assert_eq!(panel.quick_action_for("missing"), None);
     }
 
     #[test]
