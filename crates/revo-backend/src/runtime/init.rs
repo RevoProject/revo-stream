@@ -519,6 +519,15 @@ pub fn start_with_platform(
 			"libegl",
 			"libglesv2",
 			"libvk_swiftshader",
+			// obs-websocket reads its settings through the frontend config
+			// API (obs_frontend_get_app_config). The engine runs headless and
+			// never registers frontend callbacks, so that call returns NULL
+			// and the module segfaults inside config_has_user_value during
+			// obs_init_module — taking the whole engine down on boot
+			// (coredump: pthread_mutex_lock <- config_has_user_value <-
+			// obs-websocket module_load). The websocket server cannot work
+			// without the frontend API, so the module is skipped entirely.
+			"obs-websocket",
 		];
 
 		for module in candidates {

@@ -39,7 +39,9 @@ impl ObsPlatform for NativeObsPlatform {
     fn startup(&self, locale: &std::ffi::CStr, config: &std::ffi::CStr) -> Result<(), String> {
         // SAFETY: The caller serializes the libobs lifecycle, and both C
         // strings remain valid for the duration of obs_startup.
-        if unsafe { revo_lib::obs::obs_startup(locale.as_ptr(), config.as_ptr(), std::ptr::null_mut()) } {
+        if unsafe {
+            revo_lib::obs::obs_startup(locale.as_ptr(), config.as_ptr(), std::ptr::null_mut())
+        } {
             Ok(())
         } else {
             Err("obs_startup failed".to_string())
@@ -103,9 +105,8 @@ impl ObsBackendRuntime {
             preview_resolution_requests: 0,
             plugin_modules: HashMap::new(),
             plugin_profiles: Vec::new(),
-            active_plugin_profile: crate::settings::plugins_profiles::plugin_profile_active_name_internal(
-            )
-            .ok(),
+            active_plugin_profile:
+                crate::settings::plugins_profiles::plugin_profile_active_name_internal().ok(),
         }
     }
 
@@ -150,10 +151,7 @@ impl ObsBackendRuntime {
     /// individually (the preview auxiliary window). Runs on the owner's
     /// worker (libobs capture with the runtime lock held) — never on a GUI
     /// main thread.
-    pub fn capture_preview_png(
-        &mut self,
-        source_id: Option<&str>,
-    ) -> Result<String, BackendError> {
+    pub fn capture_preview_png(&mut self, source_id: Option<&str>) -> Result<String, BackendError> {
         let capture = crate::runtime::preview::capture_screenshot(
             &mut self.runtime,
             None,
@@ -381,7 +379,8 @@ impl BackendRuntime for ObsBackendRuntime {
     }
 
     fn shutdown(&mut self) -> Result<(), BackendError> {
-        let result = crate::runtime::init::shutdown_with_platform(&mut self.runtime, &*self.platform);
+        let result =
+            crate::runtime::init::shutdown_with_platform(&mut self.runtime, &*self.platform);
         if let Err(message) = &result {
             self.last_error = Some(message.clone());
         } else {
@@ -504,6 +503,10 @@ impl ObsBackendRuntime {
                 let direction = move_direction_label(direction);
                 source_ops::move_source(&self.runtime, id.clone(), direction.to_string())
                     .map(|()| format!("source moved: {id} {direction}"))
+            }
+            BackendCommand::UpdateSource { update } => {
+                source_ops::update_source(&self.runtime, update)
+                    .map(|message| format!("source updated: {message}"))
             }
             BackendCommand::RemoveSource(id) => {
                 source_ops::remove_source(&mut self.runtime, id.clone()).map(|message| {

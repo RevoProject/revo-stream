@@ -218,6 +218,35 @@ fn apply_request(
             backend.interact_close(&source_id);
             true
         }
+        UiToEngine::DebugLogHistory { request_id } => {
+            let entries = crate::logging::debug::get_debug_log_entries()
+                .into_iter()
+                .map(|event| revo_core::ipc::DebugLogEntry {
+                    timestamp_ms: event.timestamp_ms,
+                    action: event.action,
+                    detail_json: event
+                        .detail
+                        .as_ref()
+                        .map(serde_json::to_string)
+                        .transpose()
+                        .ok()
+                        .flatten(),
+                })
+                .collect();
+            let _ = send(
+                stream,
+                &EngineToUi::DebugLogHistoryData {
+                    request_id,
+                    entries,
+                },
+            );
+            true
+        }
+        UiToEngine::DebugLogClear { request_id } => {
+            crate::logging::debug::clear_debug_log_entries();
+            let _ = send(stream, &EngineToUi::DebugLogCleared { request_id });
+            true
+        }
     }
 }
 
@@ -320,6 +349,40 @@ mod tests {
             read_message(&mut client).expect("shutdown snapshot"),
             EngineToUi::Snapshot(_)
         ));
+        worker.join().expect("serve loop exits cleanly");
+    }
+
+    #[test]
+    fn serve_loop_answers_debug_log_requests() {
+        let (mut client, mut server) = Stream::pair().expect("socket pair");
+        let mut backend = connected_backend();
+        let worker = std::thread::spawn(move || serve_connection(&mut server, &mut backend));
+
+        // Boot snapshot first, then a debug-log history round trip.
+        let _ = read_message(&mut client).expect("boot snapshot");
+        send_message(&mut client, &UiToEngine::DebugLogHistory { request_id: 5 })
+            .expect("history request");
+        match read_message(&mut client).expect("history reply") {
+            EngineToUi::DebugLogHistoryData {
+                request_id,
+                entries: _,
+            } => {
+                // The registry is process-global and other tests may have
+                // written rows, so only the correlation contract is asserted
+                // here; the correlated id is what the console relies on.
+                assert_eq!(request_id, 5);
+            }
+            other => panic!("expected debug log history, got {other:?}"),
+        }
+
+        send_message(&mut client, &UiToEngine::DebugLogClear { request_id: 6 })
+            .expect("clear request");
+        assert!(matches!(
+            read_message(&mut client).expect("clear reply"),
+            EngineToUi::DebugLogCleared { request_id: 6 }
+        ));
+
+        send_message(&mut client, &UiToEngine::Shutdown).expect("shutdown send");
         worker.join().expect("serve loop exits cleanly");
     }
 
