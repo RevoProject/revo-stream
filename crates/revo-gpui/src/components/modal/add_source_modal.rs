@@ -12,6 +12,7 @@ use revo_core::models::SourceTypeItem;
 
 use crate::{
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
+    components::naming::default_source_name,
     components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
@@ -29,6 +30,8 @@ pub enum AddSourceEvent {
 pub struct AddSourceModal {
     pub theme: RevoTheme,
     pub source_types: Vec<SourceTypeItem>,
+    /// Existing source names; seeds the `source-{type}-{nr}` default.
+    pub existing_names: Vec<String>,
     pub selected_type: Option<String>,
     pub name: String,
     field_focus: FocusHandle,
@@ -45,16 +48,29 @@ impl Focusable for AddSourceModal {
 }
 
 impl AddSourceModal {
-    pub fn new(source_types: Vec<SourceTypeItem>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        source_types: Vec<SourceTypeItem>,
+        existing_names: Vec<String>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             theme: RevoTheme::future(),
             source_types,
+            existing_names,
             selected_type: None,
             name: String::new(),
             field_focus: cx.focus_handle(),
             field_focused: false,
             error: None,
         }
+    }
+
+    /// Default name for the selected type: `source-{type}-{nr}` with the
+    /// first free `{nr}`; `None` while no type is selected.
+    pub fn default_name(&self) -> Option<String> {
+        self.selected_type
+            .as_deref()
+            .map(|source_type| default_source_name(&self.existing_names, source_type))
     }
 
     /// Selects one source type tile; unknown ids are rejected so the modal
@@ -73,16 +89,18 @@ impl AddSourceModal {
             cx.notify();
             return;
         };
-        let name = self.name.trim();
-        if name.is_empty() {
-            self.error = Some("Source name required".into());
+        // An empty name falls back to the `source-{type}-{nr}` placeholder
+        // shown in the field, so creating never blocks on naming.
+        let name = match self.name.trim().is_empty() {
+            true => self.default_name(),
+            false => Some(self.name.trim().to_owned()),
+        };
+        let Some(name) = name else {
+            self.error = Some("Choose a source type first".into());
             cx.notify();
             return;
-        }
-        cx.emit(AddSourceEvent::Created {
-            name: name.to_owned(),
-            source_type,
-        });
+        };
+        cx.emit(AddSourceEvent::Created { name, source_type });
     }
 
     fn name_field(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -124,7 +142,9 @@ impl AddSourceModal {
                         }),
                     )
                     .child(if self.name.is_empty() {
-                        SharedString::from("Source name…")
+                        SharedString::from(
+                            self.default_name().unwrap_or_else(|| "Source name…".into()),
+                        )
                     } else {
                         SharedString::from(self.name.clone())
                     }),

@@ -4,6 +4,7 @@ pub mod icon;
 pub mod modal;
 pub mod modal_shell;
 pub mod modules;
+pub(crate) mod naming;
 pub mod quick_modal;
 pub mod text_field;
 

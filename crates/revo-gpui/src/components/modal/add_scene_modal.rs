@@ -9,6 +9,7 @@ use gpui::{
 
 use crate::{
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
+    components::naming::default_scene_name,
     components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
@@ -24,6 +25,8 @@ pub enum AddSceneEvent {
 
 pub struct AddSceneModal {
     pub theme: RevoTheme,
+    /// Existing scene names; seeds the `scene-{nr}` default.
+    pub existing_names: Vec<String>,
     pub name: String,
     field_focus: FocusHandle,
     field_focused: bool,
@@ -39,9 +42,10 @@ impl Focusable for AddSceneModal {
 }
 
 impl AddSceneModal {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(existing_names: Vec<String>, cx: &mut Context<Self>) -> Self {
         Self {
             theme: RevoTheme::future(),
+            existing_names,
             name: String::new(),
             field_focus: cx.focus_handle(),
             field_focused: false,
@@ -49,16 +53,19 @@ impl AddSceneModal {
         }
     }
 
+    /// Default scene name: `scene-{nr}` with the first free `{nr}`.
+    pub fn default_name(&self) -> String {
+        default_scene_name(&self.existing_names)
+    }
+
     fn confirm(&mut self, cx: &mut Context<Self>) {
-        let name = self.name.trim();
-        if name.is_empty() {
-            self.error = Some("Scene name required".into());
-            cx.notify();
-            return;
-        }
-        cx.emit(AddSceneEvent::Created {
-            name: name.to_owned(),
-        });
+        // An empty name falls back to the `scene-{nr}` placeholder shown in
+        // the field, so creating never blocks on naming.
+        let name = match self.name.trim().is_empty() {
+            true => self.default_name(),
+            false => self.name.trim().to_owned(),
+        };
+        cx.emit(AddSceneEvent::Created { name });
     }
 
     fn name_field(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -100,7 +107,7 @@ impl AddSceneModal {
                         }),
                     )
                     .child(if self.name.is_empty() {
-                        SharedString::from("Scene name…")
+                        SharedString::from(self.default_name())
                     } else {
                         SharedString::from(self.name.clone())
                     }),
