@@ -409,6 +409,11 @@ impl SettingsModal {
             .w(px(190.))
             .p_1()
             .gap_y(px(1.0))
+            // Long option lists (profiles, encoders, services) stay
+            // reachable with a visible scrollbar instead of overflowing.
+            .max_h(px(260.))
+            .overflow_y_scroll()
+            .scrollbar_width(px(8.))
             .bg(self.theme.surface_elevated)
             .border_1()
             .border_color(self.theme.border_strong)
@@ -585,33 +590,6 @@ impl SettingsModal {
                                         SharedString::from(self.draft.import_export_path.clone())
                                     }),
                             ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .gap_2()
-                            .child(self.action_row(
-                                "RevoStream — Export scenes",
-                                "general-export-revo",
-                                cx,
-                            ))
-                            .child(self.action_row(
-                                "RevoStream — Import scenes",
-                                "general-import-revo",
-                                cx,
-                            ))
-                            .child(self.action_row(
-                                "OBS Studio — Export as OBS scenes",
-                                "general-export-obs",
-                                cx,
-                            ))
-                            .child(self.action_row(
-                                "OBS Studio — Import scenes",
-                                "general-import-obs",
-                                cx,
-                            )),
                     )
                     .child(
                         div()
