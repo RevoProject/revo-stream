@@ -1,9 +1,8 @@
 //! Functional quick-action modal for the native shell, replacing the Svelte
 //! `QuickTextEditModal` / `QuickColorModal` / `QuickDeviceModal` trio:
-//! per-type editing (text, hex color with recents, image path) that applies
-//! through `BackendCommand::UpdateSource`, plus the browser-interaction
-//! hand-off. Device selection stays a documented placeholder until the
-//! device catalog gains a typed backend command.
+//! per-type editing (text, hex color with recents, image path, device pick
+//! from the typed backend catalog) that applies through
+//! `BackendCommand::UpdateSource`, plus the browser-interaction hand-off.
 
 use gpui::{
     div, prelude::*, px, Context, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
@@ -11,7 +10,7 @@ use gpui::{
 };
 
 use crate::{
-    actions::QuickSourceAction,
+    actions::{ColorField, ComponentEvent, QuickSourceAction},
     components::modal_shell::{modal_shell_with_body, ModalConfig},
     components::text_field::apply_line_keystroke,
     theme::RevoTheme,
@@ -41,12 +40,18 @@ pub struct QuickActionModal {
     pub action: QuickSourceAction,
     pub value: String,
     pub recent_colors: Vec<String>,
+    /// `(device id, display label)` pairs for the "Select device" picker.
+    pub device_options: Vec<(String, String)>,
     pub error: Option<String>,
     field_focus: FocusHandle,
     field_focused: bool,
 }
 
 impl EventEmitter<QuickActionEvent> for QuickActionModal {}
+
+// Color-picker requests flow through the shared ComponentEvent vocabulary;
+// the Workspace opens the popup and routes the pick back to `apply_color`.
+impl EventEmitter<ComponentEvent> for QuickActionModal {}
 
 impl Focusable for QuickActionModal {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
@@ -93,6 +98,18 @@ pub fn push_recent_color(recent: &mut Vec<String>, color: String) {
     recent.truncate(QUICK_COLOR_HISTORY_LIMIT);
 }
 
+/// Device selection draft (Svelte `quickDeviceValue` parity): the stored
+/// device wins, otherwise the first catalog entry, otherwise empty.
+pub fn device_draft_value(current: &str, options: &[(String, String)]) -> String {
+    if !current.is_empty() {
+        return current.to_owned();
+    }
+    options
+        .first()
+        .map(|(value, _)| value.clone())
+        .unwrap_or_default()
+}
+
 impl QuickActionModal {
     pub fn new(
         source_id: String,
@@ -107,10 +124,52 @@ impl QuickActionModal {
             action,
             value: String::new(),
             recent_colors: Vec::new(),
+            device_options: Vec::new(),
             error: None,
             field_focus: cx.focus_handle(),
             field_focused: false,
         }
+    }
+
+    /// Prefills the draft with the source's current value (Svelte parity:
+    /// Edit text opens with the existing text, Change color with the
+    /// current color; the color also seeds the recents).
+    pub fn prefill(&mut self, current: String, cx: &mut Context<Self>) {
+        if current.is_empty() {
+            return;
+        }
+        match self.action {
+            QuickSourceAction::ChangeColor => {
+                if let Some(hex) = normalize_hex_color(&current) {
+                    self.value = hex.clone();
+                    push_recent_color(&mut self.recent_colors, hex);
+                }
+            }
+            QuickSourceAction::EditText | QuickSourceAction::SelectFile => {
+                self.value = current;
+            }
+            _ => {}
+        }
+        self.error = None;
+        cx.notify();
+    }
+
+    /// Prefills the device picker with the backend catalog plus the source's
+    /// current selection (Svelte parity: a stored device the catalog lacks
+    /// is inserted as the first option so the current state is visible).
+    pub fn prefill_devices(
+        &mut self,
+        current: String,
+        mut options: Vec<(String, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        if !current.is_empty() && !options.iter().any(|(value, _)| value == &current) {
+            options.insert(0, (current.clone(), format!("{current} (current)")));
+        }
+        self.value = device_draft_value(&current, &options);
+        self.device_options = options;
+        self.error = None;
+        cx.notify();
     }
 
     fn title(&self) -> &'static str {
@@ -168,7 +227,17 @@ impl QuickActionModal {
                 });
             }
             QuickSourceAction::SelectDevice => {
-                self.error = Some("Device selection needs the backend device catalog".into());
+                if self.device_options.is_empty() {
+                    self.error = Some("No devices are available for this source type".into());
+                } else if self.value.trim().is_empty() {
+                    self.error = Some("Pick a device first".into());
+                } else {
+                    cx.emit(QuickActionEvent::Applied {
+                        id: self.source_id.clone(),
+                        action: self.action,
+                        value: self.value.trim().to_owned(),
+                    });
+                }
             }
         }
         cx.notify();
@@ -176,6 +245,21 @@ impl QuickActionModal {
 
     fn push_recent(&mut self, color: String) {
         push_recent_color(&mut self.recent_colors, color);
+    }
+
+    /// Picker target: applies a confirmed popup color to the draft and the
+    /// recent history; invalid values are ignored (the popup only emits
+    /// normalized `#RRGGBB`).
+    pub fn apply_color(&mut self, color: &str, cx: &mut Context<Self>) {
+        if self.action != QuickSourceAction::ChangeColor {
+            return;
+        }
+        if let Some(hex) = normalize_hex_color(color) {
+            self.value = hex.clone();
+            self.push_recent(hex);
+            self.error = None;
+            cx.notify();
+        }
     }
 
     fn value_field(&mut self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
@@ -272,20 +356,113 @@ impl Render for QuickActionModal {
                 );
             }
             QuickSourceAction::SelectDevice => {
-                body = body.child(
-                    div()
-                        .text_color(theme.text_secondary)
-                        .text_size(px(11.))
-                        .child(
-                            "Device selection needs the backend device catalog; capture "
-                                .to_string()
-                                + "sources keep their current device for now.",
-                        ),
-                );
+                if self.device_options.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_color(theme.text_secondary)
+                            .text_size(px(11.))
+                            .child(
+                                "No device catalog was reported for this source type; capture "
+                                    .to_string()
+                                    + "sources keep their current device.",
+                            ),
+                    );
+                } else {
+                    // Scrollable option list (max height with a visible
+                    // scrollbar) — long catalogs stay reachable.
+                    let mut list = div()
+                        .id("quick-device-list")
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .w_full()
+                        .max_h(px(220.))
+                        .overflow_y_scroll()
+                        .scrollbar_width(px(8.));
+                    let options = self.device_options.clone();
+                    let current = self.value.clone();
+                    for (index, (value, label)) in options.into_iter().enumerate() {
+                        let selected = value == current;
+                        list = list.child(
+                            div()
+                                .id(SharedString::from(format!("quick-device-{index}")))
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(if selected {
+                                    theme.accent
+                                } else {
+                                    theme.border_strong
+                                })
+                                .bg(if selected {
+                                    theme.surface_selected
+                                } else {
+                                    theme.surface_elevated
+                                })
+                                .text_color(if selected {
+                                    theme.text_strong
+                                } else {
+                                    theme.text
+                                })
+                                .text_size(px(11.5))
+                                .child(SharedString::from(label))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.value = value.clone();
+                                    this.error = None;
+                                    cx.notify();
+                                })),
+                        );
+                    }
+                    body = body.child(list);
+                }
             }
             _ => {
                 let field = self.value_field(cx);
-                body = body.child(field);
+                if self.action == QuickSourceAction::ChangeColor {
+                    // The picker button anchors the shared color popup; the
+                    // hex field stays directly editable either way.
+                    let source_id = self.source_id.clone();
+                    let current = if self.value.is_empty() {
+                        self.recent_colors.first().cloned().unwrap_or_default()
+                    } else {
+                        self.value.clone()
+                    };
+                    body = body.child(
+                        div().flex().flex_row().gap_1().child(field).child(
+                            div()
+                                .id("quick-color-picker")
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(theme.border_strong)
+                                .bg(theme.surface_active)
+                                .text_color(theme.text)
+                                .text_size(px(11.))
+                                .child("Pick…")
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                        cx.emit(ComponentEvent::OpenColorPicker {
+                                            field: ColorField::QuickAction {
+                                                source_id: source_id.clone(),
+                                            },
+                                            current: current.clone(),
+                                            position: (
+                                                f32::from(event.position.x),
+                                                f32::from(event.position.y),
+                                            ),
+                                        });
+                                    }),
+                                ),
+                        ),
+                    );
+                } else {
+                    body = body.child(field);
+                }
             }
         }
         if self.action == QuickSourceAction::ChangeColor && !self.recent_colors.is_empty() {
@@ -416,6 +593,17 @@ mod tests {
         assert_eq!(param_key(QuickSourceAction::ChangeColor), Some("color"));
         assert_eq!(param_key(QuickSourceAction::SelectFile), Some("file"));
         assert_eq!(param_key(QuickSourceAction::Interact), None);
+    }
+
+    #[test]
+    fn device_draft_prefers_the_current_device_then_the_first_option() {
+        let options = vec![
+            ("/dev/video0".to_string(), "Cam 0".to_string()),
+            ("/dev/video1".to_string(), "Cam 1".to_string()),
+        ];
+        assert_eq!(device_draft_value("/dev/video1", &options), "/dev/video1");
+        assert_eq!(device_draft_value("", &options), "/dev/video0");
+        assert_eq!(device_draft_value("", &[]), "");
     }
 
     #[test]

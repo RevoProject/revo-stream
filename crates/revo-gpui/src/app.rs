@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use gpui::{
     div, prelude::*, px, rgb, size, svg, App, Application, AssetSource, Bounds, Context, Entity,
-    IntoElement, MouseButton, MouseDownEvent, Pixels, Render, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
+    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Render, SharedString,
+    Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use revo_core::models::AppSettings;
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot, MoveDirection};
@@ -18,11 +18,14 @@ use crate::services::AnyBackend;
 
 use crate::{
     actions::{
-        AuxiliaryWindowKind, ComponentEvent, ContextMenuAction, ContextMenuTarget,
+        AuxiliaryWindowKind, ComponentEvent, ContextMenuAction, ContextMenuTarget, DropdownField,
         QuickSourceAction,
     },
     components::{
+        color_picker::{ColorPickerEvent, ColorPickerPopup},
         context_menu::{ContextMenuEvent, WorkspaceContextMenu},
+        dropdown_picker::{DropdownPickerEvent, DropdownPickerPopup},
+        font_picker::{FontPickerEvent, FontPickerPopup},
         home::{
             DemoMode, HeaderBar, HeaderBarState, SceneItem, ScenesPanel, SourceItem, SourcesPanel,
         },
@@ -323,6 +326,14 @@ impl WorkspaceState {
                 self.requested_menu = Some((target, position));
                 return None;
             }
+            // Picker requests never reach this arm: the Workspace intercepts
+            // them in `route_event` before `route` (they carry no modal or
+            // backend state). Kept here only for exhaustiveness.
+            ComponentEvent::OpenColorPicker { .. }
+            | ComponentEvent::OpenFontPicker { .. }
+            | ComponentEvent::OpenDropdown { .. } => {
+                return None;
+            }
         };
 
         self.status = format!("Backend command: {command:?}");
@@ -396,10 +407,15 @@ impl WorkspaceState {
 
     pub fn route_transition(&mut self, event: TransitionEvent) -> Vec<BackendCommand> {
         let commands = match event {
-            TransitionEvent::Apply { kind, duration_ms } => {
+            TransitionEvent::Apply {
+                kind,
+                duration_ms,
+                params,
+            } => {
                 vec![
                     BackendCommand::SetTransitionKind(kind),
                     BackendCommand::SetTransitionDuration(duration_ms),
+                    BackendCommand::SetTransitionParams(params),
                 ]
             }
             TransitionEvent::Added { name } => {
@@ -495,6 +511,9 @@ pub struct Workspace {
     pub mixer_advanced: Entity<AudioMixerAdvancedModal>,
     pub planner: Entity<GraphicPlannerPanel>,
     pub context_menu: Entity<WorkspaceContextMenu>,
+    pub color_picker: Entity<ColorPickerPopup>,
+    pub font_picker: Entity<FontPickerPopup>,
+    pub dropdown_picker: Entity<DropdownPickerPopup>,
     pub settings_modal: Option<Entity<SettingsModal>>,
     pub plugins_modal: Option<Entity<PluginsModal>>,
     pub add_scene_modal: Option<Entity<AddSceneModal>>,
@@ -507,6 +526,17 @@ pub struct Workspace {
     /// History entry waiting for a snapshot to resolve the created source's
     /// id (undo needs the backend id for `RemoveSource`).
     pending_history_entry: Option<crate::history::HistoryEntry>,
+    /// Basic options captured in the add-source modal; the next snapshot
+    /// resolves the created source's id and applies them via UpdateSource.
+    pending_source_params: Option<(String, std::collections::BTreeMap<String, String>)>,
+    /// The interface style already applied from `ui_profile` (Svelte Look
+    /// section); `None` until the first snapshot carries the profile.
+    applied_theme_style: Option<String>,
+    /// Draggable panel-band height (px); the preview band takes the rest.
+    /// Grabbing the divider above Scenes/Sources/Tools resizes it.
+    panel_band_height: f32,
+    /// Y position where the divider drag started; `None` while not dragging.
+    divider_drag_start: Option<f32>,
     pub advanced_drafts: HashMap<String, AdvancedDraft>,
     pub aux_windows: AuxWindows,
     pub state: WorkspaceState,
@@ -714,6 +744,8 @@ impl Workspace {
             preview_scene: None,
             studio_mode: false,
             rename_draft: None,
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
             theme,
         });
         let sources = cx.new(|_| SourcesPanel {
@@ -784,6 +816,15 @@ impl Workspace {
             theme,
             ..WorkspaceContextMenu::default()
         });
+        let color_picker = cx.new(|_| ColorPickerPopup {
+            theme,
+            ..ColorPickerPopup::default()
+        });
+        let font_picker = cx.new(|cx| FontPickerPopup::new(theme, cx));
+        let dropdown_picker = cx.new(|_| DropdownPickerPopup {
+            theme,
+            ..DropdownPickerPopup::default()
+        });
         let mixer_advanced = cx.new(|_| AudioMixerAdvancedModal::new(theme));
         let planner = cx.new(|_| GraphicPlannerPanel {
             sources: vec![
@@ -821,8 +862,21 @@ impl Workspace {
             cx.subscribe(&tools_mixer, |this, _, event, cx| {
                 this.handle_mixer_event(event.clone(), cx);
             }),
-            cx.subscribe(&tools_transitions, |this, _, event, cx| {
-                this.handle_transition_event(event.clone(), cx);
+            cx.subscribe(
+                &tools_transitions,
+                |this, _, event: &TransitionEvent, cx| {
+                    this.handle_transition_event(event.clone(), cx);
+                },
+            ),
+            cx.subscribe(&tools_transitions, |this, _, event: &ComponentEvent, cx| {
+                if matches!(
+                    event,
+                    ComponentEvent::OpenColorPicker { .. }
+                        | ComponentEvent::OpenFontPicker { .. }
+                        | ComponentEvent::OpenDropdown { .. }
+                ) {
+                    this.route_event(event.clone(), cx);
+                }
             }),
             cx.subscribe(&mixer_menu, |this, _, event, cx| {
                 this.handle_mixer_event(event.clone(), cx);
@@ -835,6 +889,15 @@ impl Workspace {
             }),
             cx.subscribe(&context_menu, |this, _, event, cx| {
                 this.handle_context_menu_event(event.clone(), cx);
+            }),
+            cx.subscribe(&color_picker, |this, _, event, cx| {
+                this.handle_color_picker_event(event.clone(), cx);
+            }),
+            cx.subscribe(&font_picker, |this, _, event, cx| {
+                this.handle_font_picker_event(event.clone(), cx);
+            }),
+            cx.subscribe(&dropdown_picker, |this, _, event, cx| {
+                this.handle_dropdown_picker_event(event.clone(), cx);
             }),
         ];
 
@@ -849,6 +912,9 @@ impl Workspace {
             mixer_advanced,
             planner,
             context_menu,
+            color_picker,
+            font_picker,
+            dropdown_picker,
             settings_modal: None,
             plugins_modal: None,
             add_scene_modal: None,
@@ -857,6 +923,10 @@ impl Workspace {
             source_properties_modal: None,
             pending_properties_source: None,
             pending_history_entry: None,
+            pending_source_params: None,
+            applied_theme_style: None,
+            panel_band_height: 240.0,
+            divider_drag_start: None,
             advanced_drafts,
             aux_windows: AuxWindows::default(),
             state: WorkspaceState::default(),
@@ -957,9 +1027,13 @@ impl Workspace {
             self.state.booted = true;
         }
         self.tools_mixer.update(cx, |mixer, cx| {
-            for (id, level) in &snapshot.audio_levels {
-                mixer.set_level(id, *level as f32);
-            }
+            mixer.sync_from_snapshot(
+                &snapshot.source_items,
+                &snapshot.source_volumes,
+                &snapshot.muted_sources,
+                &snapshot.volume_locked_sources,
+                &snapshot.audio_levels,
+            );
             cx.notify();
         });
         self.header.update(cx, |header, cx| {
@@ -970,6 +1044,87 @@ impl Workspace {
         });
         self.state.apply_snapshot(&snapshot);
         self.resolve_pending_properties(&snapshot, cx);
+        self.apply_theme_style(&snapshot, cx);
+        cx.notify();
+    }
+
+    /// Clicking a history row replays every step up to it in one batch.
+    fn restore_history(&mut self, undo: bool, depth: usize, cx: &mut Context<'_, Self>) {
+        let result = if undo {
+            self.state
+                .history
+                .restore_to_undo(self.state.history.undo_stack.len() - depth)
+        } else {
+            self.state
+                .history
+                .restore_to_redo(self.state.history.redo_stack.len() - depth)
+        };
+        match result {
+            Some((label, commands)) => {
+                self.state.status = label;
+                self.dispatch(commands, cx);
+            }
+            None => {
+                self.state.status = "History entry no longer available".into();
+                cx.notify();
+            }
+        }
+    }
+
+    /// The General-section OBS status line (Svelte parity).
+    fn obs_status_text(&self) -> String {
+        if self.state.booted {
+            "Running OBS (revo-lib)".into()
+        } else {
+            "Waiting for Connect".into()
+        }
+    }
+
+    /// Applies the saved interface style (Svelte Look section) to the shell
+    /// and the live panels; theme objects on views are plain fields, so the
+    /// switch is a re-seed.
+    fn apply_theme_style(&mut self, snapshot: &BackendSnapshot, cx: &mut Context<'_, Self>) {
+        let Some(profile) = snapshot
+            .settings
+            .as_ref()
+            .and_then(|s| s.ui_profile.as_ref())
+        else {
+            return;
+        };
+        let Some(style) = profile.get("interface_style").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let wants_classic = style.eq_ignore_ascii_case("classic");
+        if self.applied_theme_style.as_deref() == Some(style) {
+            return;
+        }
+        self.applied_theme_style = Some(style.to_owned());
+        let theme = if wants_classic {
+            RevoTheme::classic()
+        } else {
+            RevoTheme::future()
+        };
+        self.theme = theme.clone();
+        self.header.update(cx, |header, cx| {
+            header.theme = theme.clone();
+            cx.notify();
+        });
+        self.scenes.update(cx, |panel, cx| {
+            panel.theme = theme.clone();
+            cx.notify();
+        });
+        self.sources.update(cx, |panel, cx| {
+            panel.theme = theme.clone();
+            cx.notify();
+        });
+        self.tools_mixer.update(cx, |panel, cx| {
+            panel.theme = theme.clone();
+            cx.notify();
+        });
+        self.tools_transitions.update(cx, |panel, cx| {
+            panel.theme = theme.clone();
+            cx.notify();
+        });
         cx.notify();
     }
 
@@ -1102,13 +1257,32 @@ impl Workspace {
             .iter()
             .find(|source| source.name == pending)
             .map(|source| source.id.clone());
-        // The same resolution finalizes the deferred undo entry.
+        // The same resolution finalizes the deferred undo entry and applies
+        // the add-source modal's basic options.
         if let Some(mut entry) = self.pending_history_entry.take() {
             if entry.undo.is_empty() {
                 if let Some(id) = &match_id {
                     entry.undo = vec![BackendCommand::RemoveSource(id.clone())];
                     self.state.history.record(entry);
                 }
+            }
+        }
+        if let Some((_pending_name, options)) = self.pending_source_params.take() {
+            if let Some(id) = &match_id {
+                self.dispatch(
+                    [BackendCommand::UpdateSource {
+                        update: revo_core::models::SourceUpdate {
+                            id: id.clone(),
+                            name: String::new(),
+                            source_type: String::new(),
+                            params: options
+                                .iter()
+                                .map(|(key, value)| (key.clone(), value.clone()))
+                                .collect(),
+                        },
+                    }],
+                    cx,
+                );
             }
         }
         match match_id {
@@ -1134,8 +1308,10 @@ impl Workspace {
     /// executor) and refreshes the newest PNG frame on the foreground.
     /// Terminates by failing `weak.update` once the Workspace entity drops.
     fn spawn_preview_loop(&mut self, cx: &mut Context<'_, Self>) {
-        let backend = self.backend.clone();
+        let _backend = self.backend.clone();
+        let mut tick: u64 = 0;
         cx.spawn(async move |workspace, cx| loop {
+            tick = tick.wrapping_add(1);
             cx.background_executor()
                 .timer(Duration::from_millis(
                     crate::services::obs::UI_PREVIEW_INTERVAL_MS,
@@ -1188,6 +1364,36 @@ impl Workspace {
                 .is_ok();
             if !alive {
                 return;
+            }
+            // Scene thumbnails: one slow round-robin capture per cycle so the
+            // panel previews never contend with the live preview loop.
+            if tick % SCENE_THUMBNAIL_EVERY_TICKS == 0 {
+                let (backend, scene) = match workspace.update(cx, |workspace, cx| {
+                    let target = workspace
+                        .scenes
+                        .update(cx, |panel, _| panel.next_thumbnail_target());
+                    (workspace.backend.clone(), target)
+                }) {
+                    Ok((backend, Some(scene))) => (backend, scene),
+                    _ => continue,
+                };
+                let scene_name = scene.clone();
+                let png = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::services::obs::capture_source_png(&backend, &scene_name).ok()
+                    })
+                    .await;
+                let Some(png) = png else {
+                    continue;
+                };
+                let image = std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, png));
+                let _ = workspace.update(cx, |workspace, cx| {
+                    workspace.scenes.update(cx, |panel, cx| {
+                        panel.set_thumbnail(&scene, image);
+                        cx.notify();
+                    });
+                });
             }
         })
         .detach();
@@ -1270,6 +1476,53 @@ impl Workspace {
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
         self.update_header_flags(&event, cx);
+        // Popup pickers open before the state router: they carry no modal or
+        // backend state, and their replies target the host component
+        // directly.
+        match &event {
+            ComponentEvent::OpenColorPicker {
+                field,
+                current,
+                position,
+            } => {
+                self.color_picker.update(cx, |picker, cx| {
+                    picker.open(field.clone(), current.clone(), *position);
+                    cx.notify();
+                });
+                cx.notify();
+                return;
+            }
+            ComponentEvent::OpenFontPicker {
+                field,
+                current,
+                position,
+            } => {
+                let fonts_loaded = self.font_picker.read(cx).fonts_loaded;
+                self.font_picker.update(cx, |picker, cx| {
+                    picker.open(field.clone(), current.clone(), *position);
+                    cx.notify();
+                });
+                if !fonts_loaded {
+                    self.spawn_font_fetch(cx);
+                }
+                cx.notify();
+                return;
+            }
+            ComponentEvent::OpenDropdown {
+                field,
+                options,
+                current,
+                position,
+            } => {
+                self.dropdown_picker.update(cx, |picker, cx| {
+                    picker.open(field.clone(), options.clone(), current.clone(), *position);
+                    cx.notify();
+                });
+                cx.notify();
+                return;
+            }
+            _ => {}
+        }
         // Undo/redo never reach the backend stubs; they replay the
         // workspace-side history log instead (Svelte parity).
         match &event {
@@ -1319,6 +1572,17 @@ impl Workspace {
         if self.state.active_modal == ActiveModal::Settings && self.settings_modal.is_none() {
             self.open_settings_modal(cx);
         }
+        if self.state.active_modal == ActiveModal::Settings {
+            if let Some(entity) = &self.settings_modal {
+                let status = self.obs_status_text();
+                entity.update(cx, |modal, cx| {
+                    if modal.obs_status != status {
+                        modal.obs_status = status;
+                        cx.notify();
+                    }
+                });
+            }
+        }
         if self.state.active_modal == ActiveModal::Plugins && self.plugins_modal.is_none() {
             self.open_plugins_modal(cx);
         }
@@ -1362,6 +1626,161 @@ impl Workspace {
             }
         }
         cx.notify();
+    }
+
+    /// Carries a confirmed picker color back to the host component by its
+    /// [`ColorField`] key; every host exposes a small typed setter.
+    fn handle_color_picker_event(&mut self, event: ColorPickerEvent, cx: &mut Context<'_, Self>) {
+        let ColorPickerEvent::Picked { field, color } = event else {
+            return;
+        };
+        match field {
+            crate::actions::ColorField::QuickAction { source_id } => {
+                if let Some(entity) = &self.quick_action_modal {
+                    let matches = entity.read(cx).source_id == source_id;
+                    if matches {
+                        entity.update(cx, |modal, cx| modal.apply_color(&color, cx));
+                    }
+                }
+            }
+            crate::actions::ColorField::SourceParam { source_id, key } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| modal.set_param_value(&key, &color, cx));
+                    }
+                }
+            }
+            crate::actions::ColorField::FilterParam {
+                source_id,
+                filter_name,
+                key,
+            } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| {
+                            modal.set_filter_param(&filter_name, &key, &color, cx)
+                        });
+                    }
+                }
+            }
+            crate::actions::ColorField::TransitionParam { transition_id, key } => {
+                self.tools_transitions.update(cx, |panel, cx| {
+                    panel.update_transition_param(&transition_id, &key, color.clone());
+                    cx.notify();
+                });
+            }
+            crate::actions::ColorField::AddSource { key } => {
+                if let Some(entity) = &self.add_source_modal {
+                    entity.update(cx, |modal, cx| modal.set_option_value(&key, &color, cx));
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Carries a picked font family back to the host component by its
+    /// [`FontField`] key.
+    fn handle_font_picker_event(&mut self, event: FontPickerEvent, cx: &mut Context<'_, Self>) {
+        let FontPickerEvent::Picked { field, font } = event else {
+            return;
+        };
+        match field {
+            crate::actions::FontField::SourceFont { source_id } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| {
+                            modal.set_param_value("font_face", &font, cx)
+                        });
+                    }
+                }
+            }
+            crate::actions::FontField::AddSource => {
+                if let Some(entity) = &self.add_source_modal {
+                    entity.update(cx, |modal, cx| {
+                        modal.set_option_value("font_face", &font, cx)
+                    });
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Carries a picked dropdown value back to the host component by its
+    /// [`DropdownField`] key.
+    fn handle_dropdown_picker_event(
+        &mut self,
+        event: DropdownPickerEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let DropdownPickerEvent::Picked { field, value } = event else {
+            return;
+        };
+        match field {
+            DropdownField::SourceParam { source_id, key } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| modal.set_param_value(&key, &value, cx));
+                    }
+                }
+            }
+            DropdownField::FilterParam {
+                source_id,
+                filter_name,
+                key,
+            } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| {
+                            modal.set_filter_param(&filter_name, &key, &value, cx)
+                        });
+                    }
+                }
+            }
+            DropdownField::AddSourceOption { key } => {
+                if let Some(entity) = &self.add_source_modal {
+                    entity.update(cx, |modal, cx| modal.set_option_value(&key, &value, cx));
+                }
+            }
+            DropdownField::AddFilterKind { source_id } => {
+                if let Some(entity) = &self.source_properties_modal {
+                    if entity.read(cx).source_id == source_id {
+                        entity.update(cx, |modal, cx| modal.set_new_filter_kind(&value, cx));
+                    }
+                }
+            }
+            DropdownField::TransitionKind { transition_id } => {
+                self.tools_transitions.update(cx, |panel, cx| {
+                    panel.set_transition_kind_value(&transition_id, &value, cx);
+                });
+            }
+            DropdownField::TransitionParam { transition_id, key } => {
+                self.tools_transitions.update(cx, |panel, cx| {
+                    panel.update_transition_param(&transition_id, &key, value.clone());
+                    cx.notify();
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    /// One background engine round trip enumerating system fonts; mock
+    /// builds resolve the static list immediately. Repeat opens reuse the
+    /// cached list, so this runs once per session.
+    fn spawn_font_fetch(&mut self, cx: &mut Context<'_, Self>) {
+        let backend = self.backend.clone();
+        cx.spawn(async move |workspace, cx| {
+            let fonts = cx
+                .background_executor()
+                .spawn(async move { crate::services::fetch_system_fonts(&backend) })
+                .await;
+            let _ = workspace.update(cx, |this, cx| {
+                this.font_picker.update(cx, |picker, cx| {
+                    picker.load_fonts(fonts);
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
     }
 
     fn context_menu_events(
@@ -1450,7 +1869,8 @@ impl Workspace {
             .settings
             .clone()
             .unwrap_or_else(revo_core::settings::default_settings);
-        let entity = cx.new(|cx| SettingsModal::new(settings, cx));
+        let obs_status = self.obs_status_text();
+        let entity = cx.new(|cx| SettingsModal::with_status(settings, obs_status, cx));
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             SettingsEvent::Saved(settings) => {
                 this.state.settings = Some(settings.clone());
@@ -1463,6 +1883,38 @@ impl Workspace {
                 this.refresh_snapshot(cx);
             }
             SettingsEvent::Cancelled => this.close_settings_modal(cx),
+            SettingsEvent::ExportRevoSceneCollection { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ExportRevoSceneCollection { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                }
+            }
+            SettingsEvent::ImportRevoSceneCollection { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ImportRevoSceneCollection { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                }
+            }
+            SettingsEvent::ExportObsSceneCollection { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ExportObsSceneCollection { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                }
+            }
+            SettingsEvent::ImportObsSceneCollection { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ImportObsSceneCollection { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                }
+            }
         });
         self._subscriptions.push(subscription);
         self.settings_modal = Some(entity);
@@ -1587,7 +2039,11 @@ impl Workspace {
             )
         });
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
-            AddSourceEvent::Created { name, source_type } => {
+            AddSourceEvent::Created {
+                name,
+                source_type,
+                options,
+            } => {
                 this.state.status = format!("Source '{name}' created");
                 if let Err(error) = this.backend.try_dispatch(BackendCommand::AddSource {
                     name: name.clone(),
@@ -1595,10 +2051,12 @@ impl Workspace {
                 }) {
                     this.state.status = format!("Backend error: {error}");
                 }
-                // Svelte parity: after creating, the properties window for
-                // the new source opens. The next snapshot resolves the name
-                // to its backend id (also for the undo entry).
-                this.pending_properties_source = Some(name.clone());
+                // Basic per-type options apply right after creation (Svelte
+                // parity); the properties window does NOT open anymore — the
+                // next snapshot resolves the created source's id.
+                if !options.is_empty() {
+                    this.pending_source_params = Some((name.clone(), options.clone()));
+                }
                 this.pending_history_entry = Some(crate::history::HistoryEntry {
                     label: format!("Add source '{name}'"),
                     undo: Vec::new(),
@@ -1613,6 +2071,19 @@ impl Workspace {
             AddSourceEvent::Cancelled => this.close_add_source_modal(cx),
         });
         self._subscriptions.push(subscription);
+        // The modal also emits shared ComponentEvents (color/font picker
+        // opens); route them through the workspace router.
+        let picker_subscription = cx.subscribe(&entity, |this, _, event, cx| {
+            if matches!(
+                event,
+                ComponentEvent::OpenColorPicker { .. }
+                    | ComponentEvent::OpenFontPicker { .. }
+                    | ComponentEvent::OpenDropdown { .. }
+            ) {
+                this.route_event(event.clone(), cx);
+            }
+        });
+        self._subscriptions.push(picker_subscription);
         self.add_source_modal = Some(entity);
     }
 
@@ -1620,6 +2091,62 @@ impl Workspace {
     /// source item and placed transform, subscribing to Apply / OpenEditor /
     /// Cancel events.
     fn open_source_properties_modal(
+        &mut self,
+        source_id: &str,
+        editor: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.open_source_properties_modal_inner(source_id, editor, cx);
+        if editor {
+            // Fetch the filter list too for the Filters tab.
+            let filter_backend = self.backend.clone();
+            let filter_source = source_id.to_owned();
+            cx.spawn(async move |workspace, cx| {
+                let filters = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::services::fetch_source_filters(&filter_backend, &filter_source)
+                    })
+                    .await;
+                let _ = workspace.update(cx, |this, cx| {
+                    if let Some(entity) = this.source_properties_modal.clone() {
+                        entity.update(cx, |modal, cx| modal.load_filters(filters, cx));
+                    }
+                });
+            })
+            .detach();
+            // Fetch the engine's full settings (typed property specs) and
+            // seed the editor; mock builds keep the transform-only view.
+            let backend = self.backend.clone();
+            let source_id = source_id.to_owned();
+            cx.spawn(async move |workspace, cx| {
+                let settings = cx
+                    .background_executor()
+                    .spawn(
+                        async move { crate::services::fetch_source_settings(&backend, &source_id) },
+                    )
+                    .await;
+                let _ = workspace.update(cx, |this, cx| {
+                    let Some(entity) = this.source_properties_modal.clone() else {
+                        return;
+                    };
+                    match settings {
+                        Some(data) => entity.update(cx, |modal, cx| {
+                            modal.load_settings(data, cx);
+                        }),
+                        None => entity.update(cx, |modal, cx| {
+                            modal.notice =
+                                Some("Live source settings unavailable (mock backend)".into());
+                            cx.notify();
+                        }),
+                    }
+                });
+            })
+            .detach();
+        }
+    }
+
+    fn open_source_properties_modal_inner(
         &mut self,
         source_id: &str,
         editor: bool,
@@ -1669,7 +2196,7 @@ impl Workspace {
                 )
             }
         });
-        let subscription = cx.subscribe(&entity, |this, _, event, cx| {
+        let subscription = cx.subscribe(&entity, |this, _, event: &SourcePropertiesEvent, cx| {
             let event = event.clone();
             match event {
                 SourcePropertiesEvent::Applied {
@@ -1721,14 +2248,162 @@ impl Workspace {
                         cx,
                     );
                 }
+                SourcePropertiesEvent::AppliedFull {
+                    id,
+                    name,
+                    params,
+                    previous_params,
+                    transform,
+                    previous_transform,
+                } => {
+                    if let Some(previous) = previous_transform {
+                        this.state.history.record(crate::history::HistoryEntry {
+                            label: format!("Transform '{id}'"),
+                            undo: vec![BackendCommand::SetSourceTransform {
+                                id: id.clone(),
+                                x: previous[0],
+                                y: previous[1],
+                                width: previous[2],
+                                height: previous[3],
+                                rotation: previous[4],
+                            }],
+                            redo: vec![BackendCommand::SetSourceTransform {
+                                id: id.clone(),
+                                x: transform[0],
+                                y: transform[1],
+                                width: transform[2],
+                                height: transform[3],
+                                rotation: transform[4],
+                            }],
+                        });
+                    }
+                    if !previous_params.is_empty() {
+                        let to_map = |entries: &[(String, String)]| {
+                            entries
+                                .iter()
+                                .cloned()
+                                .collect::<std::collections::HashMap<_, _>>()
+                        };
+                        this.state.history.record(crate::history::HistoryEntry {
+                            label: format!("Edit properties of '{id}'"),
+                            undo: vec![BackendCommand::UpdateSource {
+                                update: revo_core::models::SourceUpdate {
+                                    id: id.clone(),
+                                    name: String::new(),
+                                    source_type: String::new(),
+                                    params: to_map(&previous_params),
+                                },
+                            }],
+                            redo: vec![BackendCommand::UpdateSource {
+                                update: revo_core::models::SourceUpdate {
+                                    id: id.clone(),
+                                    name: String::new(),
+                                    source_type: String::new(),
+                                    params: to_map(&params),
+                                },
+                            }],
+                        });
+                    }
+                    this.state.status = format!("Source '{name}' updated");
+                    this.dispatch(
+                        [
+                            BackendCommand::UpdateSource {
+                                update: revo_core::models::SourceUpdate {
+                                    id: id.clone(),
+                                    name,
+                                    source_type: String::new(),
+                                    params: params.iter().cloned().collect(),
+                                },
+                            },
+                            BackendCommand::SetSourceTransform {
+                                id,
+                                x: transform[0],
+                                y: transform[1],
+                                width: transform[2],
+                                height: transform[3],
+                                rotation: transform[4],
+                            },
+                        ],
+                        cx,
+                    );
+                }
+                SourcePropertiesEvent::AppliedFilters {
+                    id,
+                    filters,
+                    previous,
+                } => {
+                    if !previous.is_empty() {
+                        this.state.history.record(crate::history::HistoryEntry {
+                            label: format!("Edit filters of '{id}'"),
+                            undo: vec![BackendCommand::SetSourceFilters {
+                                id: id.clone(),
+                                filters: previous.clone(),
+                            }],
+                            redo: vec![BackendCommand::SetSourceFilters {
+                                id: id.clone(),
+                                filters: filters.clone(),
+                            }],
+                        });
+                    }
+                    this.state.status = format!("Filters updated ({})", filters.len());
+                    this.dispatch([BackendCommand::SetSourceFilters { id, filters }], cx);
+                }
                 SourcePropertiesEvent::OpenEditor { id } => {
-                    this.close_source_properties_modal(cx);
+                    // Route first: the editor replaces the properties entity,
+                    // so nothing is dropped while its own event is emitting.
                     this.route_event(ComponentEvent::EditSource(id), cx);
+                }
+                SourcePropertiesEvent::FetchFilterSettings { filter_name, kind } => {
+                    // One background round trip for the expanded filter's
+                    // typed settings; mock builds resolve to None and the
+                    // accordion reports them unavailable.
+                    let fetch_source = this
+                        .source_properties_modal
+                        .as_ref()
+                        .map(|entity| entity.read(cx).source_id.clone())
+                        .unwrap_or_default();
+                    let (name, kind) = (filter_name.clone(), kind);
+                    let fetch_name = name.clone();
+                    let backend = this.backend.clone();
+                    cx.spawn(async move |workspace, cx| {
+                        let settings = cx
+                            .background_executor()
+                            .spawn(async move {
+                                crate::services::fetch_filter_settings(
+                                    &backend,
+                                    &fetch_source,
+                                    &fetch_name,
+                                    &kind,
+                                )
+                            })
+                            .await;
+                        let _ = workspace.update(cx, |this, cx| {
+                            if let Some(entity) = this.source_properties_modal.clone() {
+                                entity.update(cx, |modal, cx| {
+                                    modal.load_filter_settings(name, settings, cx)
+                                });
+                            }
+                        });
+                    })
+                    .detach();
                 }
                 SourcePropertiesEvent::Cancelled => this.close_source_properties_modal(cx),
             }
         });
         self._subscriptions.push(subscription);
+        // The modal also emits shared ComponentEvents (color/font picker
+        // opens); route them through the workspace router.
+        let picker_subscription = cx.subscribe(&entity, |this, _, event, cx| {
+            if matches!(
+                event,
+                ComponentEvent::OpenColorPicker { .. }
+                    | ComponentEvent::OpenFontPicker { .. }
+                    | ComponentEvent::OpenDropdown { .. }
+            ) {
+                this.route_event(event.clone(), cx);
+            }
+        });
+        self._subscriptions.push(picker_subscription);
         self.state.active_modal = ActiveModal::SourceProperties(source_id.to_owned());
         self.source_properties_modal = Some(entity);
         cx.notify();
@@ -1768,32 +2443,111 @@ impl Workspace {
         };
         let entity =
             cx.new(|cx| QuickActionModal::new(item.id.clone(), item.name.clone(), action, cx));
-        let subscription = cx.subscribe(&entity, |this, _, event, cx| {
+        if action == QuickSourceAction::SelectDevice {
+            // Device drafts start from the backend catalog plus the source's
+            // current selection (Svelte openQuickDeviceModal parity).
+            let backend = self.backend.clone();
+            let fetch_id = item.id.clone();
+            let fetch_type = item.source_type.clone();
+            cx.spawn(async move |workspace, cx| {
+                let (current, options) = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let keys = crate::services::device_param_keys(&fetch_type);
+                        let current = crate::services::fetch_source_settings(&backend, &fetch_id)
+                            .and_then(|data| {
+                                keys.iter().find_map(|key| data.params.get(*key).cloned())
+                            })
+                            .unwrap_or_default();
+                        let options =
+                            crate::services::fetch_source_devices(&backend, &fetch_type, &fetch_id);
+                        (current, options)
+                    })
+                    .await;
+                let _ = workspace.update(cx, |this, cx| {
+                    if let Some(entity) = this.quick_action_modal.clone() {
+                        entity.update(cx, |modal, cx| {
+                            modal.prefill_devices(current, options, cx);
+                        });
+                    }
+                });
+            })
+            .detach();
+        } else if let Some(key) = crate::components::quick_modal::param_key(action) {
+            // Preload the current value so edits start from what the source
+            // already shows (mock builds open with an empty draft).
+            let backend = self.backend.clone();
+            let fetch_id = item.id.clone();
+            let fetch_key = key.to_string();
+            cx.spawn(async move |workspace, cx| {
+                let current = cx
+                    .background_executor()
+                    .spawn(async move {
+                        crate::services::fetch_source_settings(&backend, &fetch_id)
+                            .and_then(|data| data.params.get(&fetch_key).cloned())
+                    })
+                    .await;
+                let _ = workspace.update(cx, |this, cx| {
+                    if let Some(entity) = this.quick_action_modal.clone() {
+                        entity.update(cx, |modal, cx| {
+                            modal.prefill(current.unwrap_or_default(), cx)
+                        });
+                    }
+                });
+            })
+            .detach();
+        }
+        let subscription = cx.subscribe(&entity, |this, _, event: &QuickActionEvent, cx| {
             let event = event.clone();
             match event {
                 QuickActionEvent::Applied { id, action, value } => {
-                    let Some(key) = crate::components::quick_modal::param_key(action) else {
+                    let keys: Vec<String> = if action == QuickSourceAction::SelectDevice {
+                        let source_type = this
+                            .sources
+                            .read(cx)
+                            .sources
+                            .iter()
+                            .find(|source| source.id == id)
+                            .map(|source| source.source_type.clone())
+                            .unwrap_or_default();
+                        crate::services::device_param_keys(&source_type)
+                            .iter()
+                            .map(|key| key.to_string())
+                            .collect()
+                    } else if let Some(key) = crate::components::quick_modal::param_key(action) {
+                        vec![key.to_string()]
+                    } else {
                         this.state.status = "Quick action has no settings key".into();
                         cx.notify();
                         return;
                     };
                     // Fetch the current settings first so the undo entry can
-                    // restore the previous value (Svelte
+                    // restore the previous values (Svelte
                     // recordSourceSettingsHistory parity). Mock builds fetch
                     // nothing and apply without a history entry.
-                    let (id, value, key) = (id.clone(), value.clone(), key.to_string());
+                    let (id, value) = (id.clone(), value.clone());
                     let backend = this.backend.clone();
                     cx.spawn(async move |workspace, cx| {
-                        let (fetch_id, fetch_key) = (id.clone(), key.clone());
+                        let (fetch_id, fetch_keys) = (id.clone(), keys.clone());
                         let previous = cx
                             .background_executor()
                             .spawn(async move {
                                 crate::services::fetch_source_settings(&backend, &fetch_id)
-                                    .and_then(|data| data.params.get(&fetch_key).cloned())
+                                    .map(|data| {
+                                        fetch_keys
+                                            .iter()
+                                            .filter_map(|key| {
+                                                data.params
+                                                    .get(key.as_str())
+                                                    .map(|value| (key.clone(), value.clone()))
+                                            })
+                                            .collect::<Vec<(String, String)>>()
+                                    })
+                                    .unwrap_or_default()
                             })
                             .await;
                         let _ = workspace.update(cx, |this, cx| {
-                            this.apply_quick_action_edit(id, key, value, previous, cx);
+                            this.apply_quick_action_params(id, keys, value, previous, cx);
                         });
                     })
                     .detach();
@@ -1806,27 +2560,45 @@ impl Workspace {
             }
         });
         self._subscriptions.push(subscription);
+        // The modal also emits shared ComponentEvents (color-picker opens);
+        // route them through the workspace router.
+        let picker_subscription = cx.subscribe(&entity, |this, _, event, cx| {
+            if matches!(
+                event,
+                ComponentEvent::OpenColorPicker { .. }
+                    | ComponentEvent::OpenFontPicker { .. }
+                    | ComponentEvent::OpenDropdown { .. }
+            ) {
+                this.route_event(event.clone(), cx);
+            }
+        });
+        self._subscriptions.push(picker_subscription);
         self.quick_action_modal = Some(entity);
         cx.notify();
     }
 
-    /// Applies one quick-action settings edit and records the undo entry
-    /// when the previous value is known.
-    fn apply_quick_action_edit(
+    /// Applies one quick-action settings edit across all target keys (device
+    /// picks mirror `device`/`device_id` for audio sources) and records the
+    /// undo entry when the previous values are known.
+    fn apply_quick_action_params(
         &mut self,
         id: String,
-        key: String,
+        keys: Vec<String>,
         value: String,
-        previous: Option<String>,
+        previous: Vec<(String, String)>,
         cx: &mut Context<'_, Self>,
     ) {
         let mut params = std::collections::HashMap::new();
-        params.insert(key.clone(), value.clone());
-        if let Some(previous) = previous {
+        for key in &keys {
+            params.insert(key.clone(), value.clone());
+        }
+        if !previous.is_empty() {
             let mut undo_params = std::collections::HashMap::new();
-            undo_params.insert(key.clone(), previous);
+            for (key, value) in previous {
+                undo_params.insert(key, value);
+            }
             self.state.history.record(crate::history::HistoryEntry {
-                label: format!("Edit {key} of '{id}'"),
+                label: format!("Edit {} of '{id}'", keys.join("/")),
                 undo: vec![BackendCommand::UpdateSource {
                     update: revo_core::models::SourceUpdate {
                         id: id.clone(),
@@ -1840,21 +2612,19 @@ impl Workspace {
                         id: id.clone(),
                         name: String::new(),
                         source_type: String::new(),
-                        params,
+                        params: params.clone(),
                     },
                 }],
             });
         }
-        self.state.status = format!("Quick action applied ({key})");
-        let mut dispatch_params = std::collections::HashMap::new();
-        dispatch_params.insert(key, value);
+        self.state.status = format!("Quick action applied ({})", keys.join("/"));
         self.dispatch(
             [BackendCommand::UpdateSource {
                 update: revo_core::models::SourceUpdate {
                     id,
                     name: String::new(),
                     source_type: String::new(),
-                    params: dispatch_params,
+                    params,
                 },
             }],
             cx,
@@ -2356,6 +3126,25 @@ impl Workspace {
     /// band (Wide), 1px border, 12px radius, 20px padding, 24px margin, and
     /// equal-width columns with a 16px gap. Medium/Compact keep the
     /// documented ordering and scroll instead of a fixed height.
+    /// The drag handle above the Scenes/Sources/Tools band: dragging it
+    /// resizes the band and the preview takes the remaining space.
+    fn panel_divider(&self, cx: &mut Context<'_, Self>) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id("panel-divider")
+            .cursor_row_resize()
+            .h(px(6.))
+            .mx_6()
+            .rounded_sm()
+            .hover(|style| style.bg(self.theme.border_selected))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.divider_drag_start = Some(f32::from(event.position.y));
+                    cx.notify();
+                }),
+            )
+    }
+
     fn lower_panels(&self, cx: &mut Context<'_, Self>, mode: LayoutMode) -> gpui::Div {
         let [first, second, third] = mode.panel_order();
         let cells = match mode {
@@ -2388,9 +3177,13 @@ impl Workspace {
                 .child(div().min_h(px(180.)).child(self.panel(cx, third))),
         };
         let band = match mode {
-            LayoutMode::Wide => div().h(px(240.)),
-            LayoutMode::Medium => div().max_h(px(250.)).h(px(420.)),
-            LayoutMode::Compact => div().h(px(560.)),
+            // The user-adjustable height (divider drag) replaces the fixed
+            // per-mode heights; preview keeps the remaining space.
+            LayoutMode::Wide => div().h(px(self.panel_band_height)),
+            LayoutMode::Medium => div()
+                .max_h(px(self.panel_band_height + 60.))
+                .h(px(self.panel_band_height + 180.)),
+            LayoutMode::Compact => div().h(px(self.panel_band_height + 320.)),
         };
         band.border_1()
             .border_color(self.theme.border)
@@ -2412,29 +3205,101 @@ impl Workspace {
     fn modal_content(
         &self,
         cx: &mut Context<'_, Self>,
-    ) -> Option<(ModalConfig, Vec<SharedString>, Option<gpui::AnyElement>)> {
+    ) -> Option<(ModalConfig, Vec<gpui::AnyElement>, Option<gpui::AnyElement>)> {
         match &self.state.active_modal {
             ActiveModal::None => None,
             ActiveModal::Settings => None,
             ActiveModal::Plugins => None,
             ActiveModal::History => {
-                // Live undo/redo history from the workspace log.
-                let mut lines = Vec::new();
-                if self.state.history.undo_stack.is_empty() {
-                    lines.push("Nothing to undo yet.".into());
-                } else {
-                    for (index, entry) in self.state.history.undo_stack.iter().enumerate().rev() {
-                        lines.push(SharedString::from(format!(
-                            "#{} undo: {}",
-                            index + 1,
-                            entry.label
-                        )));
-                    }
+                // Interactive undo/redo history: one readable row per entry
+                // with a divider between the stacks; clicking an entry
+                // restores the state up to it.
+                let mut rows = div().flex().flex_col().gap_1().min_w(px(420.));
+                if self.state.history.undo_stack.is_empty()
+                    && self.state.history.redo_stack.is_empty()
+                {
+                    rows = rows.child(
+                        div()
+                            .py_3()
+                            .text_color(self.theme.text_muted)
+                            .child("Nothing to undo yet."),
+                    );
+                }
+                let undo_len = self.state.history.undo_stack.len();
+                for (index, entry) in self.state.history.undo_stack.iter().enumerate().rev() {
+                    let depth = undo_len - index;
+                    rows = rows.child(
+                        div()
+                            .id(SharedString::from(format!("history-undo-{index}")))
+                            .cursor_pointer()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .px_2()
+                            .py_2()
+                            .rounded_md()
+                            .bg(self.theme.surface_elevated)
+                            .border_1()
+                            .border_color(self.theme.border)
+                            .hover(|style| style.bg(self.theme.surface_selected))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.restore_history(true, depth, cx);
+                            }))
+                            .child(
+                                div()
+                                    .px_1()
+                                    .text_color(self.theme.text_muted)
+                                    .text_size(px(11.))
+                                    .child(format!("-{}", depth)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .truncate()
+                                    .text_color(self.theme.text)
+                                    .child(SharedString::from(entry.label.clone())),
+                            ),
+                    );
                 }
                 if !self.state.history.redo_stack.is_empty() {
-                    lines.push("— redo —".into());
-                    for entry in self.state.history.redo_stack.iter().rev() {
-                        lines.push(SharedString::from(format!("redo: {}", entry.label)));
+                    rows = rows.child(div().my_1().h(px(1.)).w_full().bg(self.theme.border_strong));
+                    let redo_len = self.state.history.redo_stack.len();
+                    for (index, entry) in self.state.history.redo_stack.iter().enumerate().rev() {
+                        let depth = redo_len - index;
+                        rows = rows.child(
+                            div()
+                                .id(SharedString::from(format!("history-redo-{index}")))
+                                .cursor_pointer()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .px_2()
+                                .py_2()
+                                .rounded_md()
+                                .bg(self.theme.surface_elevated)
+                                .border_1()
+                                .border_color(self.theme.border)
+                                .hover(|style| style.bg(self.theme.surface_selected))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.restore_history(false, depth, cx);
+                                }))
+                                .child(
+                                    div()
+                                        .px_1()
+                                        .text_color(self.theme.text_muted)
+                                        .text_size(px(11.))
+                                        .child(format!("+{}", depth)),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .truncate()
+                                        .text_color(self.theme.text_muted)
+                                        .child(SharedString::from(entry.label.clone())),
+                                ),
+                        );
                     }
                 }
                 let footer = self.modal_cancel_footer(cx);
@@ -2443,7 +3308,7 @@ impl Workspace {
                         show_close: false,
                         ..ModalConfig::standard("Action History", ModalSize::Medium)
                     },
-                    lines,
+                    vec![rows.into_any_element()],
                     Some(footer),
                 ))
             }
@@ -2471,7 +3336,17 @@ impl Workspace {
                     .into_any_element();
                 Some((
                     ModalConfig::standard("Templates", ModalSize::Small),
-                    vec!["Future will be available on newer versions.".into()],
+                    vec![div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child("Templates")
+                        .child(
+                            div()
+                                .text_color(self.theme.text_muted)
+                                .child("Template management will be available in future versions."),
+                        )
+                        .into_any_element()],
                     Some(footer),
                 ))
             }
@@ -2513,6 +3388,11 @@ impl Workspace {
             .into_any_element()
     }
 }
+
+/// Scene thumbnails refresh one panel preview per 16 preview ticks
+/// (~2.4 s round-robin) — deliberately slower than the live loop.
+#[cfg(feature = "obs-backend")]
+const SCENE_THUMBNAIL_EVERY_TICKS: u64 = 16;
 
 /// Decoding of `data:image/png;base64,...` frames lives in
 /// `services::obs::decode_png_data_uri` so the auxiliary preview and
@@ -2580,9 +3460,29 @@ impl Render for Workspace {
             .size_full()
             .bg(self.theme.background)
             .text_color(self.theme.text)
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                if let Some(start) = this.divider_drag_start {
+                    // Incremental deltas keep the drag stable at fast moves.
+                    let delta = f32::from(event.position.y) - start;
+                    let max = (f32::from(window.viewport_size().height) - 280.0).max(160.0);
+                    this.panel_band_height = (this.panel_band_height - delta).clamp(120.0, max);
+                    this.divider_drag_start = Some(f32::from(event.position.y));
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.divider_drag_start.is_some() {
+                        this.divider_drag_start = None;
+                        cx.notify();
+                    }
+                }),
+            )
             .font_family("Space Grotesk")
             .child(self.header.clone())
             .child(self.preview_surface(cx))
+            .child(self.panel_divider(cx))
             .child(self.lower_panels(cx, mode));
 
         if let Some((config, lines, footer)) = self.modal_content(cx) {
@@ -2850,6 +3750,48 @@ impl Render for Workspace {
                 }
             }
             _ => {}
+        }
+
+        // The pickers are the topmost layers: they open over whichever
+        // surface requested them (panels and full-window modals alike), so
+        // they must paint after every modal layer above.
+        if self.color_picker.read(cx).open {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .occlude()
+                    .child(self.color_picker.clone()),
+            );
+        }
+
+        if self.font_picker.read(cx).open {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .occlude()
+                    .child(self.font_picker.clone()),
+            );
+        }
+
+        if self.dropdown_picker.read(cx).open {
+            root = root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .bottom_0()
+                    .left_0()
+                    .occlude()
+                    .child(self.dropdown_picker.clone()),
+            );
         }
 
         root
@@ -3238,17 +4180,19 @@ mod tests {
         let commands = state.route_transition(TransitionEvent::Apply {
             kind: "fade".into(),
             duration_ms: 5,
+            params: Default::default(),
         });
         assert_eq!(
             commands,
             vec![
                 BackendCommand::SetTransitionKind("fade".into()),
                 BackendCommand::SetTransitionDuration(5),
+                BackendCommand::SetTransitionParams(Default::default()),
             ]
         );
         assert_eq!(
             state.last_command,
-            Some(BackendCommand::SetTransitionDuration(5))
+            Some(BackendCommand::SetTransitionParams(Default::default()))
         );
         assert!(state.route_transition(TransitionEvent::Discard).is_empty());
     }
