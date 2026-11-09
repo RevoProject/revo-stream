@@ -1,5 +1,28 @@
 pub use revo_core::service::MoveDirection;
 
+/// Which editing field a dropdown-picker result belongs to. Routing identity
+/// for [`ComponentEvent::OpenDropdown`]: the workspace carries the picked
+/// option value back to the host component through this key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DropdownField {
+    /// One typed list param in the source editor's General tab.
+    SourceParam { source_id: String, key: String },
+    /// One typed list param in the source editor's per-filter accordion.
+    FilterParam {
+        source_id: String,
+        filter_name: String,
+        key: String,
+    },
+    /// One basic option of the add-source modal (including `__mode`).
+    AddSourceOption { key: String },
+    /// The add-filter kind selector in the source editor.
+    AddFilterKind { source_id: String },
+    /// The selected transition's kind (re-blends default params).
+    TransitionKind { transition_id: String },
+    /// One typed param of the selected transition draft.
+    TransitionParam { transition_id: String, key: String },
+}
+
 /// Which auxiliary (separate native window) surface a Tools-panel request
 /// wants. Opened once per kind; repeated requests focus the existing window.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +104,59 @@ pub enum ComponentEvent {
         /// Window-space cursor position (px) the menu opens at.
         position: (f32, f32),
     },
+    /// Open the shared color-picker popup for one editing field; UI-only.
+    OpenColorPicker {
+        field: ColorField,
+        /// Current `#RRGGBB` value the picker starts from.
+        current: String,
+        /// Window-space anchor (px) the popup opens under.
+        position: (f32, f32),
+    },
+    /// Open the shared system-font-picker popup for one editing field;
+    /// UI-only.
+    OpenFontPicker {
+        field: FontField,
+        current: String,
+        position: (f32, f32),
+    },
+    /// Open the shared dropdown-list popup for one editing field; UI-only.
+    /// `options` are `(value, label)` pairs.
+    OpenDropdown {
+        field: DropdownField,
+        options: Vec<(String, String)>,
+        current: String,
+        position: (f32, f32),
+    },
+}
+
+/// Which editing field a color-picker result belongs to. Routing identity
+/// for [`ComponentEvent::OpenColorPicker`]: the workspace carries the pick
+/// back to the host component through this key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ColorField {
+    /// The quick-action modal's color draft for one source.
+    QuickAction { source_id: String },
+    /// One typed param row in the source editor's General tab.
+    SourceParam { source_id: String, key: String },
+    /// One filter param in the source editor's per-filter settings.
+    FilterParam {
+        source_id: String,
+        filter_name: String,
+        key: String,
+    },
+    /// One param of the selected transition draft.
+    TransitionParam { transition_id: String, key: String },
+    /// One basic option of the add-source modal.
+    AddSource { key: String },
+}
+
+/// Which editing field a font-picker result belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FontField {
+    /// The source editor's Font row (text sources).
+    SourceFont { source_id: String },
+    /// The add-source modal's font option.
+    AddSource,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

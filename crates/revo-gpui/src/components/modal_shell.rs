@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
 
 use crate::theme::RevoTheme;
 
@@ -123,7 +123,19 @@ pub fn modal_card(
         ModalSize::Large => 800.,
         ModalSize::Workspace => 1040.,
     };
-    let body = div().flex().flex_col().gap_2().p_4().child(body);
+    // Taller-than-window cards clamp to the viewport (15px top/bottom
+    // margin comes from the shell padding) and scroll their body.
+    let body = div()
+        .id("modal-card-body")
+        .flex()
+        .flex_col()
+        .gap_2()
+        .p_4()
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .scrollbar_width(px(8.))
+        .child(body);
     let mut header = div()
         .flex()
         .flex_row()
@@ -171,6 +183,9 @@ pub fn modal_card(
     div()
         .w(gpui::px(width))
         .max_w_full()
+        .max_h_full()
+        .flex()
+        .flex_col()
         .bg(theme.surface)
         .border_1()
         .border_color(theme.border_strong)
@@ -192,11 +207,15 @@ pub fn modal_shell_with_body(
     footer: Option<gpui::AnyElement>,
     close: Option<gpui::AnyElement>,
 ) -> gpui::Div {
+    // 15px top/bottom margin keeps every card inside the window; taller
+    // bodies scroll inside the card instead.
     div()
         .flex()
         .items_center()
         .justify_center()
         .size_full()
+        .pt(px(15.))
+        .pb(px(15.))
         .bg(theme.overlay)
         .child(modal_card(config, theme, body, footer, close))
 }
