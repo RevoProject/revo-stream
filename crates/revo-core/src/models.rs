@@ -219,7 +219,27 @@ pub struct SourceCreate {
     pub params: HashMap<String, String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+/// The UI filter kind for a libobs filter source id (reverse of the
+/// backend's kind→ids table).
+pub fn filter_kind_from_libobs_id(source_id: &str) -> String {
+    match source_id.trim() {
+        "color_filter_v2" | "color_filter" => "color_correction",
+        "chroma_key_filter_v2" | "chroma_key_filter" => "chroma_key",
+        "crop_filter" => "crop_pad",
+        "gain_filter" => "gain",
+        "sharpness_filter" => "sharpness",
+        "scroll_filter" => "scroll",
+        "noise_suppress_filter" => "noise_suppression",
+        "noise_gate_filter" => "noise_gate",
+        "compressor_filter" => "compressor",
+        "limiter_filter" => "limiter",
+        "expander_filter" => "expander",
+        other => other,
+    }
+    .to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct SourceFilterItem {
     pub id: String,
     pub name: String,

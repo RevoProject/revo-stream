@@ -99,6 +99,30 @@ pub enum UiToEngine {
     /// [`EngineToUi::SourceSettingsData`]. Powers the source editor and the
     /// undo history for settings edits.
     SourceSettings { request_id: u64, id: String },
+    /// Fetch one source's filter list; answered with
+    /// [`EngineToUi::SourceFiltersData`].
+    SourceFilters { request_id: u64, id: String },
+    /// Fetch one filter's full settings (typed property specs from the
+    /// filter's libobs property API); answered with
+    /// [`EngineToUi::FilterSettingsData`]. An unknown filter name falls back
+    /// to the `kind`'s default property set so locally added (unsaved)
+    /// filters are editable too.
+    FilterSettings {
+        request_id: u64,
+        source_id: String,
+        filter_name: String,
+        kind: String,
+    },
+    /// Enumerate system font families (engine side `fc-list`); answered
+    /// with [`EngineToUi::SystemFontsData`]. Powers the font pickers.
+    SystemFonts { request_id: u64 },
+    /// Enumerate the device catalog for one capture source type; answered
+    /// with [`EngineToUi::SourceDevicesData`]. Powers the "Select device"
+    /// quick action picker.
+    SourceDevices {
+        request_id: u64,
+        source_type: String,
+    },
     /// Stop the engine: the libobs runtime shuts down and the process exits.
     Shutdown,
 }
@@ -137,6 +161,30 @@ pub enum EngineToUi {
     SourceSettingsData {
         request_id: u64,
         settings: Option<crate::models::SourceSettingsData>,
+    },
+    /// Correlated reply to [`UiToEngine::SourceFilters`].
+    SourceFiltersData {
+        request_id: u64,
+        filters: Vec<crate::models::SourceFilterItem>,
+    },
+    /// Correlated reply to [`UiToEngine::FilterSettings`]; `None` when the
+    /// filter cannot be resolved and its `kind` has no default properties.
+    FilterSettingsData {
+        request_id: u64,
+        settings: Option<crate::models::SourceSettingsData>,
+    },
+    /// Correlated reply to [`UiToEngine::SystemFonts`]; may be empty when no
+    /// fonts could be enumerated.
+    SystemFontsData {
+        request_id: u64,
+        fonts: Vec<crate::models::SourceTypeItem>,
+    },
+    /// Correlated reply to [`UiToEngine::SourceDevices`]; may be empty when
+    /// the source type has no dedicated lister (the UI then falls back to
+    /// the source's own OBS property options).
+    SourceDevicesData {
+        request_id: u64,
+        devices: Vec<crate::models::SourceTypeItem>,
     },
     /// Text for the status line (command results and startup errors).
     Status(String),
@@ -249,6 +297,65 @@ mod tests {
             }],
         };
         let frame = encode_frame(&reply).expect("reply frame encodes");
+        let (decoded, _) = decode_frame::<EngineToUi>(&frame).expect("reply decodes");
+        assert_eq!(decoded, reply);
+    }
+
+    #[test]
+    fn frames_roundtrip_filter_settings_and_system_font_payloads() {
+        let request = UiToEngine::FilterSettings {
+            request_id: 9,
+            source_id: "title".into(),
+            filter_name: "Color Correction 2".into(),
+            kind: "color_correction".into(),
+        };
+        let frame = encode_frame(&request).expect("filter settings request encodes");
+        let (decoded, consumed) = decode_frame::<UiToEngine>(&frame).expect("request decodes");
+        assert_eq!(consumed, frame.len());
+        assert_eq!(decoded, request);
+
+        let reply = EngineToUi::FilterSettingsData {
+            request_id: 9,
+            settings: Some(crate::models::SourceSettingsData::default()),
+        };
+        let frame = encode_frame(&reply).expect("filter settings reply encodes");
+        let (decoded, _) = decode_frame::<EngineToUi>(&frame).expect("reply decodes");
+        assert_eq!(decoded, reply);
+
+        let fonts = EngineToUi::SystemFontsData {
+            request_id: 10,
+            fonts: vec![crate::models::SourceTypeItem {
+                id: "DejaVu Sans".into(),
+                label: "DejaVu Sans".into(),
+                audio_capable: false,
+            }],
+        };
+        let frame = encode_frame(&fonts).expect("font list frame encodes");
+        let (decoded, consumed) = decode_frame::<EngineToUi>(&frame).expect("fonts decode");
+        assert_eq!(consumed, frame.len());
+        assert_eq!(decoded, fonts);
+    }
+
+    #[test]
+    fn device_catalog_request_and_reply_roundtrip() {
+        let request = UiToEngine::SourceDevices {
+            request_id: 11,
+            source_type: "pulse_input_capture".into(),
+        };
+        let frame = encode_frame(&request).expect("device request encodes");
+        let (decoded, consumed) = decode_frame::<UiToEngine>(&frame).expect("request decodes");
+        assert_eq!(consumed, frame.len());
+        assert_eq!(decoded, request);
+
+        let reply = EngineToUi::SourceDevicesData {
+            request_id: 11,
+            devices: vec![crate::models::SourceTypeItem {
+                id: "alsa_input.pci-0000".into(),
+                label: "Built-in Microphone".into(),
+                audio_capable: true,
+            }],
+        };
+        let frame = encode_frame(&reply).expect("device reply encodes");
         let (decoded, _) = decode_frame::<EngineToUi>(&frame).expect("reply decodes");
         assert_eq!(decoded, reply);
     }

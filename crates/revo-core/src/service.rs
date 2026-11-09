@@ -66,6 +66,12 @@ pub enum BackendCommand {
     UpdateSource {
         update: crate::models::SourceUpdate,
     },
+    /// Replace one source's filter list (Svelte `obs_set_source_filters`
+    /// parity) — the editor's Filters tab reconciles add/update/remove.
+    SetSourceFilters {
+        id: String,
+        filters: Vec<crate::models::SourceFilterItem>,
+    },
     SetSourceVolume {
         id: String,
         percent: f64,
@@ -80,6 +86,9 @@ pub enum BackendCommand {
     },
     SetTransitionKind(String),
     SetTransitionDuration(u32),
+    /// Per-kind transition settings (direction, color, softness, stinger
+    /// files…); applied to the live transition source by the engine.
+    SetTransitionParams(std::collections::BTreeMap<String, String>),
     SetSourceTransform {
         id: String,
         x: i32,
@@ -96,6 +105,22 @@ pub enum BackendCommand {
         modules: Vec<String>,
     },
     SetActivePluginProfile(String),
+    /// Export all scenes to a RevoStream collection JSON file at `path`.
+    ExportRevoSceneCollection {
+        path: String,
+    },
+    /// Import scenes from a RevoStream collection JSON file at `path`.
+    ImportRevoSceneCollection {
+        path: String,
+    },
+    /// Export all scenes as an OBS scene collection JSON file at `path`.
+    ExportObsSceneCollection {
+        path: String,
+    },
+    /// Import scenes from an OBS scene collection JSON file at `path`.
+    ImportObsSceneCollection {
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
