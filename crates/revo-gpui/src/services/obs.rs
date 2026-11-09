@@ -54,21 +54,70 @@ pub fn source_settings(
     service: &BackendService<EngineClient>,
     id: &str,
 ) -> Result<revo_core::models::SourceSettingsData, BackendError> {
-    service.call(|client: &mut EngineClient| client.source_settings(id))
+    let id = id.to_owned();
+    service.call(move |client: &mut EngineClient| client.source_settings(&id))
 }
 
 /// Captures one source-or-scene PNG frame over IPC and decodes it into
 /// raw PNG bytes; scene thumbnails use this slow path (worker thread).
 pub fn capture_source_png(
-    service: &BackendService<EngineClient>,
+    backend: &super::AnyBackend,
     source_name: &str,
 ) -> Result<Vec<u8>, BackendError> {
-    let data_uri = capture_preview_png(service, Some(source_name))?;
+    let source_name = source_name.to_owned();
+    let data_uri = capture_preview_png(backend, Some(&source_name))?;
     crate::services::decode_png_data_uri(&data_uri)
         .ok_or_else(|| BackendError::Runtime("failed to decode thumbnail PNG".into()))
 }
 
 /// Clears the engine process's libobs debug-log registry over IPC.
+/// Fetches one source's filter list over IPC for the editor's Filters tab.
+pub fn source_filters(
+    service: &BackendService<EngineClient>,
+    id: &str,
+) -> Result<Vec<revo_core::models::SourceFilterItem>, BackendError> {
+    let id = id.to_owned();
+    service.call(move |client: &mut EngineClient| client.source_filters(&id))
+}
+
+/// Fetches one filter's full settings over IPC (typed property specs from
+/// the filter's libobs property API) for the editor's per-filter settings.
+/// Runs on the backend worker thread.
+pub fn filter_settings(
+    service: &BackendService<EngineClient>,
+    source_id: &str,
+    filter_name: &str,
+    kind: &str,
+) -> Result<Option<revo_core::models::SourceSettingsData>, BackendError> {
+    let (source_id, filter_name, kind) = (
+        source_id.to_owned(),
+        filter_name.to_owned(),
+        kind.to_owned(),
+    );
+    service.call(move |client: &mut EngineClient| {
+        client.filter_settings(&source_id, &filter_name, &kind)
+    })
+}
+
+/// Enumerates the engine's system font families over IPC (engine-side
+/// `fc-list`). Runs on the backend worker thread.
+pub fn system_fonts(
+    service: &BackendService<EngineClient>,
+) -> Result<Vec<revo_core::models::SourceTypeItem>, BackendError> {
+    service.call(|client: &mut EngineClient| client.system_fonts())
+}
+
+/// Enumerates the engine's device catalog for one source type over IPC
+/// (engine-side pulse/video/window listers). Runs on the backend worker
+/// thread.
+pub fn source_devices(
+    service: &BackendService<EngineClient>,
+    source_type: &str,
+) -> Result<Vec<revo_core::models::SourceTypeItem>, BackendError> {
+    let source_type = source_type.to_owned();
+    service.call(move |client: &mut EngineClient| client.source_devices(&source_type))
+}
+
 pub fn clear_debug_logs(service: &BackendService<EngineClient>) -> Result<(), BackendError> {
     service.call(|client: &mut EngineClient| client.debug_log_clear())
 }

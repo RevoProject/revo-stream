@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use revo_core::ipc::{decode_frame, encode_frame, DebugLogEntry, EngineToUi, UiToEngine};
+use revo_core::models::SourceSettingsData;
 use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
 
 /// UI-side preview poll cadence; the engine also pushes frames between
@@ -70,6 +71,12 @@ struct Inbox {
     reply_data_uri: Option<String>,
     reply_log_entries: Option<Vec<DebugLogEntry>>,
     reply_source_settings: Option<SourceSettingsData>,
+    reply_source_filters: Vec<revo_core::models::SourceFilterItem>,
+    /// Filter-settings reply slot: `None` when no reply arrived yet,
+    /// `Some(inner)` with the inner `Option` carrying availability.
+    reply_filter_settings: Option<Option<SourceSettingsData>>,
+    reply_system_fonts: Option<Vec<revo_core::models::SourceTypeItem>>,
+    reply_source_devices: Option<Vec<revo_core::models::SourceTypeItem>>,
     reply_error: Option<String>,
     /// A correlated reply arrived — `true` even when it carried no frame
     /// (source offline), so the drain does not wait for data that will
@@ -286,6 +293,39 @@ impl Connection {
                 if target.matches_id(request_id) {
                     inbox.reply_seen = true;
                     inbox.reply_source_settings = settings;
+                }
+            }
+            EngineToUi::SourceFiltersData {
+                request_id,
+                filters,
+            } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_source_filters = filters;
+                }
+            }
+            EngineToUi::FilterSettingsData {
+                request_id,
+                settings,
+            } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_filter_settings = Some(settings);
+                }
+            }
+            EngineToUi::SystemFontsData { request_id, fonts } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_system_fonts = Some(fonts);
+                }
+            }
+            EngineToUi::SourceDevicesData {
+                request_id,
+                devices,
+            } => {
+                if target.matches_id(request_id) {
+                    inbox.reply_seen = true;
+                    inbox.reply_source_devices = Some(devices);
                 }
             }
             EngineToUi::Status(_) => {}
@@ -544,16 +584,12 @@ impl EngineClient {
 
     /// Fetches one source's full settings (params + typed property specs)
     /// over IPC; `None` when the engine cannot resolve the source.
-    pub fn source_settings(
-        &mut self,
-        id: &str,
-    ) -> Result<SourceSettingsData, BackendError> {
+    pub fn source_settings(&mut self, id: &str) -> Result<SourceSettingsData, BackendError> {
         let request_id = self.connection.next_request_id();
-        self.connection
-            .send_request(&UiToEngine::SourceSettings {
-                request_id,
-                id: id.to_owned(),
-            })?;
+        self.connection.send_request(&UiToEngine::SourceSettings {
+            request_id,
+            id: id.to_owned(),
+        })?;
         let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
         if let Some(error) = inbox.reply_error {
             return Err(BackendError::Runtime(error));
@@ -561,6 +597,79 @@ impl EngineClient {
         inbox
             .reply_source_settings
             .ok_or_else(|| BackendError::Runtime("source settings unavailable".into()))
+    }
+
+    /// Fetches one source's filter list over IPC.
+    pub fn source_filters(
+        &mut self,
+        id: &str,
+    ) -> Result<Vec<revo_core::models::SourceFilterItem>, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection.send_request(&UiToEngine::SourceFilters {
+            request_id,
+            id: id.to_owned(),
+        })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(inbox.reply_source_filters)
+    }
+
+    /// Fetches one filter's full settings over IPC (typed property specs);
+    /// `None` when the filter cannot be resolved and its kind has no
+    /// default properties.
+    pub fn filter_settings(
+        &mut self,
+        source_id: &str,
+        filter_name: &str,
+        kind: &str,
+    ) -> Result<Option<SourceSettingsData>, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection.send_request(&UiToEngine::FilterSettings {
+            request_id,
+            source_id: source_id.to_owned(),
+            filter_name: filter_name.to_owned(),
+            kind: kind.to_owned(),
+        })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(inbox
+            .reply_filter_settings
+            .ok_or_else(|| BackendError::Runtime("no filter settings reply".into()))?)
+    }
+
+    /// Enumerates the engine's system font families (engine-side `fc-list`).
+    pub fn system_fonts(&mut self) -> Result<Vec<revo_core::models::SourceTypeItem>, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection
+            .send_request(&UiToEngine::SystemFonts { request_id })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(inbox.reply_system_fonts.unwrap_or_default())
+    }
+
+    /// Enumerates the engine's device catalog for one source type over IPC
+    /// (pulse audio, V4L2/video capture, window picker items). Powers the
+    /// "Select device" quick action picker.
+    pub fn source_devices(
+        &mut self,
+        source_type: &str,
+    ) -> Result<Vec<revo_core::models::SourceTypeItem>, BackendError> {
+        let request_id = self.connection.next_request_id();
+        self.connection.send_request(&UiToEngine::SourceDevices {
+            request_id,
+            source_type: source_type.to_owned(),
+        })?;
+        let inbox = self.connection.drain(DrainTarget::Reply(request_id))?;
+        if let Some(error) = inbox.reply_error {
+            return Err(BackendError::Runtime(error));
+        }
+        Ok(inbox.reply_source_devices.unwrap_or_default())
     }
 
     /// Clears the engine process's libobs debug-log registry.
