@@ -460,6 +460,26 @@ impl SourcePropertiesModal {
         cx.notify();
     }
 
+    /// Applies a background settings-fetch result. Ignored once the editor
+    /// has already been seeded (e.g. from the warm startup cache), so the
+    /// revalidation fetch never overwrites an in-flight draft.
+    pub fn refresh_settings(
+        &mut self,
+        data: Option<revo_core::models::SourceSettingsData>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings_loaded {
+            return;
+        }
+        match data {
+            Some(data) => self.load_settings(data, cx),
+            None => {
+                self.notice = Some("Live source settings unavailable (mock backend)".into());
+                cx.notify();
+            }
+        }
+    }
+
     /// The parsed transform, or an error message when a field is not a
     /// whole number.
     fn parsed_transform(&self) -> Result<[i32; 5], String> {
@@ -741,6 +761,21 @@ impl SourcePropertiesModal {
                 keystroke.modifiers.platform,
             ) {
                 self.name_draft = next;
+                self.notice = None;
+            }
+            cx.notify();
+            return;
+        }
+        if index == FILTER_NAME_SLOT {
+            if let Some(next) = apply_line_keystroke(
+                &self.new_filter_name,
+                &keystroke.key,
+                keystroke.key_char.as_deref(),
+                keystroke.modifiers.control,
+                keystroke.modifiers.alt,
+                keystroke.modifiers.platform,
+            ) {
+                self.new_filter_name = next;
                 self.notice = None;
             }
             cx.notify();
