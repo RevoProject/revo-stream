@@ -27,7 +27,10 @@ fn startup_cwd_is_dev_dir(cwd: &std::path::Path) -> bool {
     let Some(name) = adapter_dev_dir_name() else {
         return false;
     };
-    cwd.file_name().and_then(|s| s.to_str()).map(|s| s == name).unwrap_or(false)
+    cwd.file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s == name)
+        .unwrap_or(false)
 }
 
 pub fn resource_dir() -> Option<&'static PathBuf> {
@@ -103,7 +106,10 @@ mod tests {
     #[test]
     fn release_requires_initialized_app_data_without_cwd_fallback() {
         let data = PathBuf::from("/user/app-data");
-        assert_eq!(runtime_app_data_dir_for(false, Some(&data)).unwrap(), Some(&data));
+        assert_eq!(
+            runtime_app_data_dir_for(false, Some(&data)).unwrap(),
+            Some(&data)
+        );
         assert!(runtime_app_data_dir_for(false, None).is_err());
     }
 

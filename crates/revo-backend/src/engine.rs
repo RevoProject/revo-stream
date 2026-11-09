@@ -247,6 +247,18 @@ fn apply_request(
             let _ = send(stream, &EngineToUi::DebugLogCleared { request_id });
             true
         }
+        UiToEngine::SourceFilters { request_id, id } => {
+            let filters = crate::sources::source_ops::get_source_filters(&backend.runtime, id)
+                .unwrap_or_default();
+            let _ = send(
+                stream,
+                &EngineToUi::SourceFiltersData {
+                    request_id,
+                    filters,
+                },
+            );
+            true
+        }
         UiToEngine::SourceSettings { request_id, id } => {
             let settings = crate::sources::source_ops::get_source_settings(&backend.runtime, id)
                 .ok()
@@ -256,6 +268,49 @@ fn apply_request(
                 &EngineToUi::SourceSettingsData {
                     request_id,
                     settings,
+                },
+            );
+            true
+        }
+        UiToEngine::FilterSettings {
+            request_id,
+            source_id,
+            filter_name,
+            kind,
+        } => {
+            let settings = crate::sources::source_ops::get_filter_settings(
+                &backend.runtime,
+                source_id,
+                filter_name,
+                kind,
+            )
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok());
+            let _ = send(
+                stream,
+                &EngineToUi::FilterSettingsData {
+                    request_id,
+                    settings,
+                },
+            );
+            true
+        }
+        UiToEngine::SystemFonts { request_id } => {
+            let fonts = crate::sources::fonts::list_system_fonts().unwrap_or_default();
+            let _ = send(stream, &EngineToUi::SystemFontsData { request_id, fonts });
+            true
+        }
+        UiToEngine::SourceDevices {
+            request_id,
+            source_type,
+        } => {
+            let devices = crate::sources::device_catalog::list_device_catalog(&source_type)
+                .unwrap_or_default();
+            let _ = send(
+                stream,
+                &EngineToUi::SourceDevicesData {
+                    request_id,
+                    devices,
                 },
             );
             true

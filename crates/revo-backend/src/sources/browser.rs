@@ -131,7 +131,7 @@ impl Drop for CaptureProcess {
 }
 
 pub fn chromium_binary_pub() -> Option<String> {
-	chromium_binary().map(|path| path.to_string_lossy().into_owned())
+    chromium_binary().map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Browser registration and session teardown must run outside the runtime
@@ -195,10 +195,9 @@ pub fn capture_png(
     if !user_agent.trim().is_empty() {
         cmd.arg(format!("--user-agent={}", user_agent.trim()));
     }
-    cmd
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -360,7 +359,9 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
             if name_ptr.is_null() {
                 String::new()
             } else {
-                std::ffi::CStr::from_ptr(name_ptr).to_string_lossy().into_owned()
+                std::ffi::CStr::from_ptr(name_ptr)
+                    .to_string_lossy()
+                    .into_owned()
             }
         };
         let result = if !source_name.is_empty()
@@ -372,7 +373,8 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
                 .map(|session_url| session_url != config.url)
                 .unwrap_or(false)
             {
-                let _ = crate::sources::browser_interact::navigate_session(&source_name, &config.url);
+                let _ =
+                    crate::sources::browser_interact::navigate_session(&source_name, &config.url);
             }
             crate::sources::browser_interact::frame_png(&source_name)
         } else {
@@ -384,32 +386,29 @@ fn worker(shared: Arc<Shared>, source_address: usize) {
                 &shared.stop,
             )
         }
-            .and_then(|png| {
-                image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-                    .map(|image| image.to_rgba8())
-                    .map_err(|e| format!("decode browser snapshot: {e}"))
-            })
-            .and_then(|image| {
-                if image.dimensions() == (config.width, config.height) {
-                    Ok(image)
-                } else {
-                    Err(format!(
-                        "Chromium returned {}x{} instead of {}x{}",
-                        image.width(),
-                        image.height(),
-                        config.width,
-                        config.height
-                    ))
-                }
-            });
+        .and_then(|png| {
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+                .map(|image| image.to_rgba8())
+                .map_err(|e| format!("decode browser snapshot: {e}"))
+        })
+        .and_then(|image| {
+            if image.dimensions() == (config.width, config.height) {
+                Ok(image)
+            } else {
+                Err(format!(
+                    "Chromium returned {}x{} instead of {}x{}",
+                    image.width(),
+                    image.height(),
+                    config.width,
+                    config.height
+                ))
+            }
+        });
         let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         if shared.stop.load(Ordering::Acquire) {
             break;
         }
-        if state.revision != revision
-            || !state.visible
-            || shared.paused.load(Ordering::Acquire)
-        {
+        if state.revision != revision || !state.visible || shared.paused.load(Ordering::Acquire) {
             continue;
         }
         match result {

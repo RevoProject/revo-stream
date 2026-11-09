@@ -1,29 +1,27 @@
-pub fn list_scenes(
-	runtime: &crate::ObsRuntime,
-) -> Result<Vec<crate::SceneInfo>, String> {
-	let current = runtime.current_scene.clone().unwrap_or_default();
-	let mut list = Vec::new();
-	for name in runtime.scene_order.iter() {
-		if !runtime.scenes.contains_key(name) {
-			continue;
-		}
-		list.push(crate::SceneInfo {
-			name: name.clone(),
-			active: name == &current,
-			locked: runtime.locked_scenes.contains(name),
-		});
-	}
-	for name in runtime.scenes.keys() {
-		if runtime.scene_order.iter().any(|n| n == name) {
-			continue;
-		}
-		list.push(crate::SceneInfo {
-			name: name.clone(),
-			active: name == &current,
-			locked: runtime.locked_scenes.contains(name),
-		});
-	}
-	Ok(list)
+pub fn list_scenes(runtime: &crate::ObsRuntime) -> Result<Vec<crate::SceneInfo>, String> {
+    let current = runtime.current_scene.clone().unwrap_or_default();
+    let mut list = Vec::new();
+    for name in runtime.scene_order.iter() {
+        if !runtime.scenes.contains_key(name) {
+            continue;
+        }
+        list.push(crate::SceneInfo {
+            name: name.clone(),
+            active: name == &current,
+            locked: runtime.locked_scenes.contains(name),
+        });
+    }
+    for name in runtime.scenes.keys() {
+        if runtime.scene_order.iter().any(|n| n == name) {
+            continue;
+        }
+        list.push(crate::SceneInfo {
+            name: name.clone(),
+            active: name == &current,
+            locked: runtime.locked_scenes.contains(name),
+        });
+    }
+    Ok(list)
 }
 
 const PROGRAM_TRANSITION_TYPES: &[(&str, &str)] = &[
@@ -50,8 +48,8 @@ pub fn set_program_transition(
         .ok_or_else(|| format!("unknown transition kind: {trimmed}"))?;
 
     unsafe {
-        let needs_new = runtime.transition_source.is_null()
-            || runtime.program_transition_kind != trimmed;
+        let needs_new =
+            runtime.transition_source.is_null() || runtime.program_transition_kind != trimmed;
         if needs_new {
             if !runtime.transition_source.is_null() {
                 crate::logging::trace::step("transition-replace", "obs_source_release:enter");
@@ -91,6 +89,18 @@ pub fn set_program_transition(
                 }
             }
         }
+        // The duration lives on the transition source's settings ("duration"
+        // in ms) — apply it here so kind switches keep the configured speed.
+        unsafe {
+            let duration_settings = revo_lib::obs::obs_data_create();
+            revo_lib::obs::obs_data_set_int(
+                duration_settings,
+                c"duration".as_ptr(),
+                duration as i64,
+            );
+            revo_lib::obs::obs_source_update(runtime.transition_source, duration_settings);
+            revo_lib::obs::obs_data_release(duration_settings);
+        }
     }
 
     runtime.program_transition_kind = trimmed.to_string();
@@ -98,174 +108,217 @@ pub fn set_program_transition(
     Ok(format!("program transition: {trimmed} ({duration}ms)"))
 }
 
-pub fn set_current_scene(
-	runtime: &mut crate::ObsRuntime,
-	name: String,
+/// Applies per-kind transition settings to the live transition source
+/// (duration, direction, color, softness, stinger files…). Values arrive as
+/// strings from the UI; the known keys map to typed obs_data writes.
+pub fn set_program_transition_params(
+    runtime: &mut crate::ObsRuntime,
+    params: &std::collections::BTreeMap<String, String>,
 ) -> Result<String, String> {
-	let trimmed = name.trim();
-	if trimmed.is_empty() {
-		return Err("scene name required".to_string());
-	}
-	crate::set_current_scene_internal(runtime, trimmed)?;
-	Ok(format!("active scene: {trimmed}"))
+    if !runtime.initialized {
+        return Ok("transition params stored (offline)".to_string());
+    }
+    if runtime.transition_source.is_null() {
+        return Err("transition source unavailable".to_string());
+    }
+    unsafe {
+        let settings = revo_lib::obs::obs_data_create();
+        for (key, value) in params {
+            let key_c = std::ffi::CString::new(key.as_str())
+                .map_err(|_| "invalid transition param key".to_string())?;
+            let wire_key = match key.as_str() {
+                // libobs calls the fade/slide duration simply "duration".
+                "duration_ms" => "duration",
+                other => other,
+            };
+            let wire_c = std::ffi::CString::new(wire_key)
+                .map_err(|_| "invalid transition param key".to_string())?;
+            match key.as_str() {
+                "duration_ms" | "sequence_fps" | "transition_point_ms" | "softness_pct" => {
+                    if let Ok(number) = value.trim().parse::<i64>() {
+                        revo_lib::obs::obs_data_set_int(settings, wire_c.as_ptr(), number);
+                    }
+                }
+                "color" => {
+                    if let Some(abgr) = crate::sources::helpers::parse_color_abgr(value) {
+                        revo_lib::obs::obs_data_set_int(settings, wire_c.as_ptr(), abgr as i64);
+                    }
+                }
+                // direction, source_mode, media_file, sequence_dir and
+                // unknown string keys travel as strings.
+                _ => {
+                    let value_c = std::ffi::CString::new(value.as_str())
+                        .map_err(|_| "invalid transition param value".to_string())?;
+                    revo_lib::obs::obs_data_set_string(settings, wire_c.as_ptr(), value_c.as_ptr());
+                }
+            }
+        }
+        revo_lib::obs::obs_source_update(runtime.transition_source, settings);
+        revo_lib::obs::obs_data_release(settings);
+    }
+    crate::logging::trace::step("transition-params", "applied");
+    Ok("transition params applied".to_string())
 }
 
-pub fn create_scene(
-	runtime: &mut crate::ObsRuntime,
-	name: String,
-) -> Result<String, String> {
-	let trimmed = name.trim();
-	if trimmed.is_empty() {
-		return Err("scene name required".to_string());
-	}
-	if runtime.scenes.contains_key(trimmed) {
-		return Err("scene already exists".to_string());
-	}
+pub fn set_current_scene(runtime: &mut crate::ObsRuntime, name: String) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    crate::set_current_scene_internal(runtime, trimmed)?;
+    Ok(format!("active scene: {trimmed}"))
+}
 
-	let scene_name =
-		std::ffi::CString::new(trimmed).map_err(|_| "scene name invalid".to_string())?;
-	let scene = unsafe { revo_lib::obs::obs_scene_create(scene_name.as_ptr()) };
-	if scene.is_null() {
-		return Err("failed to create scene".to_string());
-	}
-	let scene_source = unsafe { revo_lib::obs::obs_scene_get_source(scene) };
-	let state = crate::SceneState::new(trimmed.to_string(), scene, scene_source);
-	runtime.scenes.insert(trimmed.to_string(), state);
-	if !runtime.scene_order.iter().any(|n| n == trimmed) {
-		runtime.scene_order.push(trimmed.to_string());
-	}
-	crate::set_current_scene_internal(runtime, trimmed)?;
-	Ok(format!("created {trimmed}"))
+pub fn create_scene(runtime: &mut crate::ObsRuntime, name: String) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    if runtime.scenes.contains_key(trimmed) {
+        return Err("scene already exists".to_string());
+    }
+
+    let scene_name =
+        std::ffi::CString::new(trimmed).map_err(|_| "scene name invalid".to_string())?;
+    let scene = unsafe { revo_lib::obs::obs_scene_create(scene_name.as_ptr()) };
+    if scene.is_null() {
+        return Err("failed to create scene".to_string());
+    }
+    let scene_source = unsafe { revo_lib::obs::obs_scene_get_source(scene) };
+    let state = crate::SceneState::new(trimmed.to_string(), scene, scene_source);
+    runtime.scenes.insert(trimmed.to_string(), state);
+    if !runtime.scene_order.iter().any(|n| n == trimmed) {
+        runtime.scene_order.push(trimmed.to_string());
+    }
+    crate::set_current_scene_internal(runtime, trimmed)?;
+    Ok(format!("created {trimmed}"))
 }
 
 pub fn rename_scene(
-	runtime: &mut crate::ObsRuntime,
-	old_name: String,
-	new_name: String,
+    runtime: &mut crate::ObsRuntime,
+    old_name: String,
+    new_name: String,
 ) -> Result<String, String> {
-	let old_trim = old_name.trim();
-	let new_trim = new_name.trim();
-	if old_trim.is_empty() || new_trim.is_empty() {
-		return Err("scene name required".to_string());
-	}
-	if runtime.locked_scenes.contains(old_trim) {
-		return Err("scene is locked".to_string());
-	}
-	if runtime.scenes.contains_key(new_trim) {
-		return Err("scene name already exists".to_string());
-	}
-	let mut state = runtime
-		.scenes
-		.remove(old_trim)
-		.ok_or_else(|| "scene not found".to_string())?;
-	state.name = new_trim.to_string();
-	unsafe {
-		if !state.scene_source.is_null() {
-			if let Ok(name_c) = std::ffi::CString::new(new_trim) {
-				revo_lib::obs::obs_source_set_name(state.scene_source, name_c.as_ptr());
-			}
-		}
-	}
-	runtime.scenes.insert(new_trim.to_string(), state);
-	if runtime.current_scene.as_deref() == Some(old_trim) {
-		runtime.current_scene = Some(new_trim.to_string());
-	}
-	if runtime.locked_scenes.remove(old_trim) {
-		runtime.locked_scenes.insert(new_trim.to_string());
-	}
-	for name in runtime.scene_order.iter_mut() {
-		if name == old_trim {
-			*name = new_trim.to_string();
-		}
-	}
-	Ok(format!("renamed {old_trim} to {new_trim}"))
+    let old_trim = old_name.trim();
+    let new_trim = new_name.trim();
+    if old_trim.is_empty() || new_trim.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    if runtime.locked_scenes.contains(old_trim) {
+        return Err("scene is locked".to_string());
+    }
+    if runtime.scenes.contains_key(new_trim) {
+        return Err("scene name already exists".to_string());
+    }
+    let mut state = runtime
+        .scenes
+        .remove(old_trim)
+        .ok_or_else(|| "scene not found".to_string())?;
+    state.name = new_trim.to_string();
+    unsafe {
+        if !state.scene_source.is_null() {
+            if let Ok(name_c) = std::ffi::CString::new(new_trim) {
+                revo_lib::obs::obs_source_set_name(state.scene_source, name_c.as_ptr());
+            }
+        }
+    }
+    runtime.scenes.insert(new_trim.to_string(), state);
+    if runtime.current_scene.as_deref() == Some(old_trim) {
+        runtime.current_scene = Some(new_trim.to_string());
+    }
+    if runtime.locked_scenes.remove(old_trim) {
+        runtime.locked_scenes.insert(new_trim.to_string());
+    }
+    for name in runtime.scene_order.iter_mut() {
+        if name == old_trim {
+            *name = new_trim.to_string();
+        }
+    }
+    Ok(format!("renamed {old_trim} to {new_trim}"))
 }
 
-pub fn remove_scene(
-	runtime: &mut crate::ObsRuntime,
-	name: String,
-) -> Result<String, String> {
-	let trimmed = name.trim();
-	if trimmed.is_empty() {
-		return Err("scene name required".to_string());
-	}
-	if runtime.locked_scenes.contains(trimmed) {
-		return Err("scene is locked".to_string());
-	}
-	if runtime.scenes.len() <= 1 {
-		return Err("cannot remove last scene".to_string());
-	}
-	let state = runtime
-		.scenes
-		.remove(trimmed)
-		.ok_or_else(|| "scene not found".to_string())?;
-	unsafe {
-		if !state.scene_source.is_null() {
-			revo_lib::obs::obs_source_dec_showing(state.scene_source);
-		}
-		if !state.scene.is_null() {
-			revo_lib::obs::obs_scene_enum_items(
-				state.scene,
-				Some(crate::scenes::scene_items::remove_scene_item_cb),
-				std::ptr::null_mut(),
-			);
-			revo_lib::obs::obs_scene_release(state.scene);
-		}
-	}
+pub fn remove_scene(runtime: &mut crate::ObsRuntime, name: String) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    if runtime.locked_scenes.contains(trimmed) {
+        return Err("scene is locked".to_string());
+    }
+    if runtime.scenes.len() <= 1 {
+        return Err("cannot remove last scene".to_string());
+    }
+    let state = runtime
+        .scenes
+        .remove(trimmed)
+        .ok_or_else(|| "scene not found".to_string())?;
+    unsafe {
+        if !state.scene_source.is_null() {
+            revo_lib::obs::obs_source_dec_showing(state.scene_source);
+        }
+        if !state.scene.is_null() {
+            revo_lib::obs::obs_scene_enum_items(
+                state.scene,
+                Some(crate::scenes::scene_items::remove_scene_item_cb),
+                std::ptr::null_mut(),
+            );
+            revo_lib::obs::obs_scene_release(state.scene);
+        }
+    }
 
-	if runtime.current_scene.as_deref() == Some(trimmed) {
-		if let Some((next_name, _)) = runtime.scenes.iter().next() {
-			let next = next_name.clone();
-			crate::set_current_scene_internal(runtime, &next)?;
-		} else {
-			runtime.current_scene = None;
-		}
-	}
-	runtime.locked_scenes.remove(trimmed);
-	runtime.scene_order.retain(|n| n != trimmed);
-	Ok(format!("removed {trimmed}"))
+    if runtime.current_scene.as_deref() == Some(trimmed) {
+        if let Some((next_name, _)) = runtime.scenes.iter().next() {
+            let next = next_name.clone();
+            crate::set_current_scene_internal(runtime, &next)?;
+        } else {
+            runtime.current_scene = None;
+        }
+    }
+    runtime.locked_scenes.remove(trimmed);
+    runtime.scene_order.retain(|n| n != trimmed);
+    Ok(format!("removed {trimmed}"))
 }
 
 pub fn set_scene_lock(
-	runtime: &mut crate::ObsRuntime,
-	name: String,
-	locked: bool,
+    runtime: &mut crate::ObsRuntime,
+    name: String,
+    locked: bool,
 ) -> Result<String, String> {
-	let trimmed = name.trim();
-	if trimmed.is_empty() {
-		return Err("scene name required".to_string());
-	}
-	if !runtime.scenes.contains_key(trimmed) {
-		return Err("scene not found".to_string());
-	}
-	if locked {
-		runtime.locked_scenes.insert(trimmed.to_string());
-	} else {
-		runtime.locked_scenes.remove(trimmed);
-	}
-	Ok(format!("scene {trimmed} lock={locked}"))
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    if !runtime.scenes.contains_key(trimmed) {
+        return Err("scene not found".to_string());
+    }
+    if locked {
+        runtime.locked_scenes.insert(trimmed.to_string());
+    } else {
+        runtime.locked_scenes.remove(trimmed);
+    }
+    Ok(format!("scene {trimmed} lock={locked}"))
 }
 
 pub fn reorder_scene(
-	runtime: &mut crate::ObsRuntime,
-	name: String,
-	to_index: usize,
+    runtime: &mut crate::ObsRuntime,
+    name: String,
+    to_index: usize,
 ) -> Result<(), String> {
-	if !runtime.scenes.contains_key(name.as_str()) {
-		return Err("scene not found".to_string());
-	}
-	let from_index = runtime
-		.scene_order
-		.iter()
-		.position(|n| n == &name)
-		.ok_or_else(|| "scene not found".to_string())?;
-	let scene_name = runtime.scene_order.remove(from_index);
-	let mut index = if to_index > from_index {
-		to_index.saturating_sub(1)
-	} else {
-		to_index
-	};
-	index = std::cmp::min(index, runtime.scene_order.len());
-	runtime.scene_order.insert(index, scene_name);
-	Ok(())
+    if !runtime.scenes.contains_key(name.as_str()) {
+        return Err("scene not found".to_string());
+    }
+    let from_index = runtime
+        .scene_order
+        .iter()
+        .position(|n| n == &name)
+        .ok_or_else(|| "scene not found".to_string())?;
+    let scene_name = runtime.scene_order.remove(from_index);
+    let mut index = if to_index > from_index {
+        to_index.saturating_sub(1)
+    } else {
+        to_index
+    };
+    index = std::cmp::min(index, runtime.scene_order.len());
+    runtime.scene_order.insert(index, scene_name);
+    Ok(())
 }

@@ -504,6 +504,10 @@ impl ObsBackendRuntime {
                 source_ops::move_source(&self.runtime, id.clone(), direction.to_string())
                     .map(|()| format!("source moved: {id} {direction}"))
             }
+            BackendCommand::SetSourceFilters { id, filters } => {
+                source_ops::set_source_filters(&self.runtime, id.clone(), filters)
+                    .map(|message| format!("source filters updated: {id}: {message}"))
+            }
             BackendCommand::UpdateSource { update } => {
                 source_ops::update_source(&self.runtime, update)
                     .map(|message| format!("source updated: {message}"))
@@ -567,6 +571,9 @@ impl ObsBackendRuntime {
                     Ok(format!("transition duration: {duration_ms}ms (offline)"))
                 }
             }
+            BackendCommand::SetTransitionParams(params) => {
+                scene_ops::set_program_transition_params(&mut self.runtime, &params)
+            }
             BackendCommand::SetSourceTransform {
                 id,
                 x,
@@ -615,6 +622,25 @@ impl ObsBackendRuntime {
                     "activated plugin profile '{}'",
                     self.active_plugin_profile.as_deref().unwrap_or_default()
                 ))
+            }
+            BackendCommand::ExportRevoSceneCollection { path } => {
+                let json = crate::scenes::collection_io::export_scene_collection(&self.runtime)?;
+                crate::scenes::collection_io::export_scene_collection_to_file(json, path, None)
+            }
+            BackendCommand::ImportRevoSceneCollection { path } => {
+                let json = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("failed to read '{path}': {e}"))?;
+                crate::scenes::collection_io::import_scene_collection(&mut self.runtime, json)
+            }
+            BackendCommand::ExportObsSceneCollection { path } => {
+                let json =
+                    crate::scenes::collection_io::export_scene_collection_obs(&self.runtime)?;
+                crate::scenes::collection_io::export_scene_collection_to_file(json, path, None)
+            }
+            BackendCommand::ImportObsSceneCollection { path } => {
+                let json = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("failed to read '{path}': {e}"))?;
+                crate::scenes::collection_io::import_scene_collection(&mut self.runtime, json)
             }
         }
     }

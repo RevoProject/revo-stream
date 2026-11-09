@@ -9,8 +9,7 @@ pub fn current_year_local() -> i32 {
             libc::localtime_r(&now as *const libc::time_t, &mut tm as *mut libc::tm).is_null();
 
         #[cfg(windows)]
-        let failed =
-            libc::localtime_s(&mut tm as *mut libc::tm, &now as *const libc::time_t) != 0;
+        let failed = libc::localtime_s(&mut tm as *mut libc::tm, &now as *const libc::time_t) != 0;
 
         if failed {
             return 1970;

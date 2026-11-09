@@ -120,10 +120,7 @@ pub fn push_debug_log_entry(action: String, detail: Option<serde_json::Value>) {
     }
 }
 
-pub fn debug_console_log(
-    action: String,
-    detail: Option<serde_json::Value>,
-) -> Result<(), String> {
+pub fn debug_console_log(action: String, detail: Option<serde_json::Value>) -> Result<(), String> {
     let action = action.trim().to_string();
     if action.is_empty() {
         return Err("action is required".to_string());
