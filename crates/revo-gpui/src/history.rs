@@ -47,6 +47,49 @@ impl HistoryLog {
         self.undo_stack.push(entry.clone());
         Some((entry.label, entry.redo))
     }
+
+    /// Restores the state after the undo entry at `index` (0 = oldest):
+    /// pops that entry and everything above it, returning the combined
+    /// inverse commands. The popped entries land on the redo stack.
+    pub fn restore_to_undo(&mut self, index: usize) -> Option<(String, Vec<BackendCommand>)> {
+        if index >= self.undo_stack.len() {
+            return None;
+        }
+        let steps = self.undo_stack.len() - index;
+        let mut label = String::new();
+        let mut commands = Vec::new();
+        for step in 0..steps {
+            if let Some((entry_label, entry_commands)) = self.undo() {
+                // The label names the destination state (the entry being
+                // restored to, applied last).
+                if step + 1 == steps {
+                    label = format!("Back to '{entry_label}'");
+                }
+                commands.extend(entry_commands);
+            }
+        }
+        Some((label, commands))
+    }
+
+    /// Applies redo entries down to `index` (0 = oldest redo entry),
+    /// returning the combined forward commands.
+    pub fn restore_to_redo(&mut self, index: usize) -> Option<(String, Vec<BackendCommand>)> {
+        if index >= self.redo_stack.len() {
+            return None;
+        }
+        let steps = self.redo_stack.len() - index;
+        let mut label = String::new();
+        let mut commands = Vec::new();
+        for step in 0..steps {
+            if let Some((entry_label, entry_commands)) = self.redo() {
+                if step + 1 == steps {
+                    label = format!("Forward to '{entry_label}'");
+                }
+                commands.extend(entry_commands);
+            }
+        }
+        Some((label, commands))
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +180,47 @@ mod tests {
             log.undo_stack.last().unwrap().label,
             format!("e{}", HISTORY_LIMIT + 9)
         );
+    }
+
+    #[test]
+    fn restore_to_undo_replays_the_inverse_commands() {
+        let mut log = HistoryLog::default();
+        log.record(entry(
+            "a",
+            vec![BackendCommand::AddScene("A".into())],
+            vec![],
+        ));
+        log.record(entry(
+            "b",
+            vec![BackendCommand::AddScene("B".into())],
+            vec![],
+        ));
+        let (label, commands) = log.restore_to_undo(0).expect("restores oldest");
+        assert_eq!(label, "Back to 'a'");
+        assert_eq!(commands.len(), 2);
+        assert!(log.undo_stack.is_empty());
+        assert_eq!(log.redo_stack.len(), 2);
+    }
+
+    #[test]
+    fn restore_to_redo_replays_the_forward_commands() {
+        let mut log = HistoryLog::default();
+        log.record(entry(
+            "a",
+            vec![],
+            vec![BackendCommand::AddScene("A".into())],
+        ));
+        log.record(entry(
+            "b",
+            vec![],
+            vec![BackendCommand::AddScene("B".into())],
+        ));
+        log.undo();
+        log.undo();
+        let (label, commands) = log.restore_to_redo(0).expect("restores oldest redo");
+        assert_eq!(label, "Forward to 'b'");
+        // Both redo entries replay: 'b' then 'a'.
+        assert_eq!(commands.len(), 2);
     }
 
     #[test]

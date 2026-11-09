@@ -150,6 +150,7 @@ impl Render for AudioMixerContextMenu {
                     .size_full()
                     .top_0()
                     .left_0()
+                    .occlude()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.close();
                         cx.notify();

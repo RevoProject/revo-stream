@@ -133,6 +133,46 @@ impl AudioMixerPanel {
         }
     }
 
+    /// Rebuilds the channel list from the backend snapshot: one channel per
+    /// audio-capable source, with volumes/mutes/locks applied. The mock
+    /// seed only serves mock builds.
+    pub fn sync_from_snapshot(
+        &mut self,
+        items: &[revo_core::service::SourceSnapshotItem],
+        volumes: &[(String, u32)],
+        muted: &[String],
+        locked: &[String],
+        levels: &[(String, u32)],
+    ) {
+        let volume_of = |id: &str| {
+            volumes
+                .iter()
+                .find(|(entry, _)| entry == id)
+                .map(|(_, percent)| *percent as f32)
+                .unwrap_or(100.0)
+        };
+        self.channels = items
+            .iter()
+            .filter(|item| item.audio_capable)
+            .map(|item| {
+                let mut channel = AudioChannel::new(item.id.clone(), item.name.clone());
+                channel.volume_percent = clamp_percent(volume_of(&item.id));
+                channel.volume_db = percent_to_db(channel.volume_percent);
+                channel.muted = muted.iter().any(|entry| entry == &item.id);
+                channel.locked = locked.iter().any(|entry| entry == &item.id);
+                channel
+            })
+            .collect();
+        for (id, level) in levels {
+            self.set_level(id, *level as f32);
+        }
+    }
+
+    /// Whether the mixer has any channel to show.
+    pub fn is_empty(&self) -> bool {
+        self.channels.is_empty()
+    }
+
     pub fn set_level(&mut self, id: &str, level: f32) {
         if !level.is_finite() {
             return;
@@ -242,6 +282,24 @@ impl gpui::EventEmitter<MixerEvent> for AudioMixerPanel {}
 
 impl Render for AudioMixerPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        if self.channels.is_empty() {
+            // Empty state (Svelte parity): crossed-speaker icon over a note
+            // that no audio sources are available.
+            return div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .py_6()
+                .text_color(self.theme.text_muted)
+                .child(crate::components::icon::icon(
+                    self.theme.text_muted,
+                    "volume-x",
+                    28.,
+                ))
+                .child(div().text_size(px(12.)).child("No audio sources available"));
+        }
         let mut list = div().flex().flex_col().gap_2();
         for channel_zero in 0..self.channels.len() {
             let channel = self.channels[channel_zero].clone();

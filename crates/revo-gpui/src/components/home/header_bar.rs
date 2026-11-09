@@ -107,12 +107,14 @@ impl Render for HeaderBar {
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenDebugConsoleWindow)));
         let settings = ghost_button(self.theme, "settings", true, "header-settings")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::OpenSettings)));
+        // The resolution button opens the floating preview window (the
+        // resolution label describes what the window shows).
         let preview = button(self.theme, "1920x1080 Preview", !busy, Some("monitor"))
-            .id("header-force-preview")
+            .id("header-open-preview")
             .when(!busy, |button| {
-                button.on_click(
-                    cx.listener(|_, _, _, cx| cx.emit(ComponentEvent::ForcePreviewResolution)),
-                )
+                button.on_click(cx.listener(|_, _, _, cx| {
+                    cx.emit(ComponentEvent::OpenPreviewInWindow { target_id: None })
+                }))
             });
         let studio = button(self.theme, "Studio", !busy, Some("layers"))
             .id("header-studio-toggle")

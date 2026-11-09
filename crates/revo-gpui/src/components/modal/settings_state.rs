@@ -36,13 +36,18 @@ pub enum OutputTab {
 pub enum TextField {
     StreamUrl,
     StreamKey,
-    WhepUrl,
-    WhipUrl,
     RecordPath,
     SceneResolution,
     ObsPluginsPath,
     ObsWebsocketPassword,
     ActiveProfile,
+    RootDir,
+    /// Path used by scene import/export actions (not persisted).
+    ImportExportPath,
+    /// A `ui_profile`-backed key (encoder settings, audio channels,
+    /// shortcuts, accessibility…). Stored as strings inside the profile
+    /// document so new options persist without schema churn.
+    ProfileKey(&'static str),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +55,22 @@ pub enum SettingsEvent {
     /// The user confirmed the draft; carries the normalized settings to save.
     Saved(AppSettings),
     Cancelled,
+    /// Export all scenes to a RevoStream collection JSON file at the given path.
+    ExportRevoSceneCollection {
+        path: String,
+    },
+    /// Import scenes from a RevoStream collection JSON file at the given path.
+    ImportRevoSceneCollection {
+        path: String,
+    },
+    /// Export all scenes as an OBS scene collection JSON file at the given path.
+    ExportObsSceneCollection {
+        path: String,
+    },
+    /// Import scenes from an OBS scene collection JSON file at the given path.
+    ImportObsSceneCollection {
+        path: String,
+    },
 }
 
 pub const PREVIEW_QUALITIES: [&str; 3] = ["low", "medium", "high"];
@@ -62,6 +83,11 @@ pub struct SettingsDraft {
     pub active_section: SettingsSection,
     pub output_tab: OutputTab,
     pub field_error: Option<String>,
+    /// Transient modal notice (import/export status, restart hints); not
+    /// persisted.
+    pub notice: Option<String>,
+    /// Path used by scene import/export actions; not persisted.
+    pub import_export_path: String,
 }
 
 impl SettingsDraft {
@@ -72,6 +98,8 @@ impl SettingsDraft {
             active_section: SettingsSection::General,
             output_tab: OutputTab::Streaming,
             field_error: None,
+            notice: None,
+            import_export_path: String::new(),
         }
     }
 
@@ -84,10 +112,12 @@ impl SettingsDraft {
     }
 
     pub fn select_section(&mut self, section: SettingsSection) {
+        self.notice = None;
         self.active_section = section;
     }
 
     pub fn select_output_tab(&mut self, tab: OutputTab) {
+        self.notice = None;
         self.output_tab = tab;
     }
 
@@ -101,52 +131,54 @@ impl SettingsDraft {
         alt: bool,
         platform: bool,
     ) {
-        if let Some(next) = apply_field_keystroke(
-            self.field_text(field),
-            key,
-            key_char,
-            control,
-            alt,
-            platform,
-        ) {
+        let current = self.field_text(field);
+        if let Some(next) = apply_field_keystroke(&current, key, key_char, control, alt, platform) {
             self.set_field_text(field, next);
         }
     }
 
-    fn field_text(&self, field: TextField) -> &str {
+    fn field_text(&self, field: TextField) -> String {
         match field {
-            TextField::StreamUrl => &self.settings.stream_url,
-            TextField::StreamKey => &self.settings.stream_key,
-            TextField::WhepUrl => self.settings.whep_url.as_deref().unwrap_or(""),
-            TextField::WhipUrl => self.settings.whip_url.as_deref().unwrap_or(""),
-            TextField::RecordPath => &self.settings.record_path,
-            TextField::SceneResolution => self.settings.scene_resolution.as_deref().unwrap_or(""),
-            TextField::ObsPluginsPath => self.settings.obs_plugins_path.as_deref().unwrap_or(""),
+            TextField::StreamUrl => self.settings.stream_url.clone(),
+            TextField::StreamKey => self.settings.stream_key.clone(),
+            TextField::RecordPath => self.settings.record_path.clone(),
+            TextField::SceneResolution => self
+                .settings
+                .scene_resolution
+                .as_deref()
+                .unwrap_or("")
+                .to_string(),
+            TextField::ObsPluginsPath => self
+                .settings
+                .obs_plugins_path
+                .as_deref()
+                .unwrap_or("")
+                .to_string(),
             TextField::ObsWebsocketPassword => self
                 .settings
                 .obs_websocket_password
                 .as_deref()
-                .unwrap_or(""),
-            TextField::ActiveProfile => self.settings.active_profile.as_deref().unwrap_or(""),
+                .unwrap_or("")
+                .to_string(),
+            TextField::ActiveProfile => self
+                .settings
+                .active_profile
+                .as_deref()
+                .unwrap_or("")
+                .to_string(),
+            TextField::RootDir => self.settings.root_dir.as_deref().unwrap_or("").to_string(),
+            TextField::ImportExportPath => self.import_export_path.clone(),
+            TextField::ProfileKey(key) => self.profile_value(key),
         }
     }
 
-    fn set_field_text(&mut self, field: TextField, value: String) {
+    pub fn set_field_text(&mut self, field: TextField, value: String) {
         self.field_error = None;
         match field {
-            TextField::StreamUrl => match validate_url(&value) {
-                Ok(()) => self.settings.stream_url = value,
-                Err(message) => self.field_error = Some(message),
-            },
+            // Scheme checks happen at commit time; validating per keystroke
+            // would reject every partial value while typing.
+            TextField::StreamUrl => self.settings.stream_url = value,
             TextField::StreamKey => self.settings.stream_key = value,
-            TextField::WhepUrl => match validate_url(&value) {
-                Ok(()) => self.settings.whep_url = Some(value),
-                Err(message) => self.field_error = Some(message),
-            },
-            TextField::WhipUrl => match validate_url(&value) {
-                Ok(()) => self.settings.whip_url = Some(value),
-                Err(message) => self.field_error = Some(message),
-            },
             TextField::RecordPath => {
                 let trimmed = value.trim().to_string();
                 if trimmed.is_empty() {
@@ -155,16 +187,11 @@ impl SettingsDraft {
                     self.settings.record_path = trimmed;
                 }
             }
+            // WidthxHEIGHT checks happen at commit time; validating per
+            // keystroke would reject every partial value while typing.
             TextField::SceneResolution => {
                 let trimmed = value.trim().to_string();
-                if trimmed.is_empty() {
-                    self.settings.scene_resolution = None;
-                } else if parse_resolution(&trimmed).is_some() {
-                    self.settings.scene_resolution = Some(trimmed);
-                } else {
-                    self.field_error =
-                        Some("resolution must be WIDTHxHEIGHT, e.g. 1920x1080".into());
-                }
+                self.settings.scene_resolution = (!trimmed.is_empty()).then_some(trimmed);
             }
             TextField::ObsPluginsPath => {
                 let trimmed = value.trim().to_string();
@@ -182,7 +209,67 @@ impl SettingsDraft {
                     self.settings.active_profile = Some(trimmed);
                 }
             }
+            TextField::RootDir => {
+                let trimmed = value.trim().to_string();
+                self.settings.root_dir = (!trimmed.is_empty()).then_some(trimmed);
+            }
+            TextField::ImportExportPath => {
+                self.import_export_path = value.trim().to_string();
+            }
+            TextField::ProfileKey(key) => {
+                self.set_profile_value(key, value);
+            }
         }
+    }
+
+    /// Reads one `ui_profile`-backed value as a string (empty when unset).
+    pub fn profile_value(&self, key: &str) -> String {
+        match self.settings.ui_profile.as_ref() {
+            Some(serde_json::Value::Object(map)) => map
+                .get(key)
+                .and_then(|value| match value {
+                    serde_json::Value::String(text) => Some(text.clone()),
+                    serde_json::Value::Bool(flag) => Some(flag.to_string()),
+                    serde_json::Value::Number(number) => Some(number.to_string()),
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
+    /// Writes one `ui_profile`-backed value as a string.
+    pub fn set_profile_value(&mut self, key: &str, value: String) {
+        let profile = self
+            .settings
+            .ui_profile
+            .get_or_insert_with(|| serde_json::Value::Object(Default::default()));
+        if !profile.is_object() {
+            *profile = serde_json::Value::Object(Default::default());
+        }
+        if let serde_json::Value::Object(map) = profile {
+            map.insert(key.to_owned(), serde_json::Value::String(value));
+        }
+        self.field_error = None;
+    }
+
+    /// Flips a `ui_profile`-backed boolean ("true"/"false").
+    pub fn toggle_profile(&mut self, key: &str) {
+        let next = !self.profile_value(key).eq_ignore_ascii_case("true");
+        self.set_profile_value(key, next.to_string());
+    }
+
+    /// Cycles a `ui_profile`-backed value through `options`.
+    pub fn cycle_profile(&mut self, key: &str, options: &[&str]) {
+        if options.is_empty() {
+            return;
+        }
+        let current = self.profile_value(key);
+        let index = options
+            .iter()
+            .position(|option| option.eq_ignore_ascii_case(&current))
+            .map_or(0, |index| (index + 1) % options.len());
+        self.set_profile_value(key, options[index].to_string());
     }
 
     /// Cycles the streaming/recording video encoder preference through the
@@ -271,6 +358,14 @@ impl SettingsDraft {
         if let Some(message) = &self.field_error {
             return Err(message.clone());
         }
+        if let Err(message) = validate_url(&self.settings.stream_url) {
+            return Err(message);
+        }
+        if let Some(resolution) = &self.settings.scene_resolution {
+            if parse_resolution(resolution).is_none() {
+                return Err("resolution must be WIDTHxHEIGHT, e.g. 1920x1080".into());
+            }
+        }
         let settings = self.settings.clone();
         self.saved = settings.clone();
         Ok(settings)
@@ -352,10 +447,10 @@ mod tests {
     }
 
     #[test]
-    fn resolution_field_validates_and_allows_clearing() {
+    fn resolution_field_accepts_partial_typing_and_validates_at_commit() {
         let mut state = draft();
-        // Appending an extra segment makes WIDTHxHEIGHTx... unparseable; the
-        // previous valid value is retained and an error is surfaced.
+        // Typing must be free: partial values are accepted while typing and
+        // the WIDTHxHEIGHT check happens at commit time.
         state.field_keystroke(
             TextField::SceneResolution,
             "x",
@@ -364,18 +459,44 @@ mod tests {
             false,
             false,
         );
-        assert!(state.field_error.is_some());
         assert_eq!(
             state.settings.scene_resolution.as_deref(),
-            Some("1920x1080")
+            Some("1920x1080x")
         );
+        assert!(state.commit().is_err());
 
-        state.field_error = None;
         state.set_field_text(TextField::SceneResolution, " 1280x720 ".into());
         assert_eq!(state.settings.scene_resolution.as_deref(), Some("1280x720"));
 
         state.set_field_text(TextField::SceneResolution, String::new());
         assert_eq!(state.settings.scene_resolution, None);
+    }
+
+    #[test]
+    fn url_field_accepts_partial_typing_and_validates_at_commit() {
+        let mut state = draft();
+        // Each intermediate keystroke of a URL must be accepted while typing.
+        for ch in "https://".chars() {
+            state.field_keystroke(
+                TextField::StreamUrl,
+                &ch.to_string(),
+                Some(&ch.to_string()),
+                false,
+                false,
+                false,
+            );
+        }
+        assert_eq!(state.settings.stream_url, "https://");
+
+        state.field_keystroke(TextField::StreamUrl, "e", Some("e"), false, false, false);
+        assert_eq!(state.settings.stream_url, "https://e");
+        assert!(state.commit().is_ok());
+
+        state.set_field_text(TextField::StreamUrl, "rtmp://example/live".into());
+        assert!(state.commit().is_err());
+
+        state.set_field_text(TextField::StreamUrl, "https://example/live".into());
+        assert!(state.commit().is_ok());
     }
 
     #[test]

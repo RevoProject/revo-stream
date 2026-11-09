@@ -5,7 +5,11 @@ use gpui::{
     SharedString, Window,
 };
 
-use crate::{components::text_field::apply_line_keystroke, theme::RevoTheme};
+use crate::{
+    actions::{ColorField, ComponentEvent},
+    components::text_field::apply_line_keystroke,
+    theme::RevoTheme,
+};
 
 const DURATION_APPLY_MIN: i64 = 50;
 const DURATION_APPLY_MAX: i64 = 20000;
@@ -156,6 +160,7 @@ pub enum TransitionEvent {
     Apply {
         kind: String,
         duration_ms: u32,
+        params: std::collections::BTreeMap<String, String>,
     },
     /// A transition was created in the draft list (Svelte parity: the
     /// add-transition section); persistence still happens through `Apply`.
@@ -186,17 +191,27 @@ pub struct TransitionsPanel {
     /// the slot currently focused.
     field_focus: Option<FocusHandle>,
     focused_field: Option<FieldSlot>,
+    /// Whether the kind selector's expanding list is open.
+    kind_dropdown_open: bool,
+    /// The selected transition's param key receiving keystrokes.
+    focused_param: Option<String>,
 }
 
 /// Identifies which draft text field currently owns keyboard input.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum FieldSlot {
     NewName,
     SelectedName,
     SelectedDuration,
+    /// One of the selected transition's typed params, by key.
+    SelectedParam(String),
 }
 
 impl gpui::EventEmitter<TransitionEvent> for TransitionsPanel {}
+
+// Color-picker requests flow through the shared ComponentEvent vocabulary;
+// the Workspace opens the popup and routes the pick back to `set_param_value`.
+impl gpui::EventEmitter<ComponentEvent> for TransitionsPanel {}
 
 impl TransitionsPanel {
     pub fn new(items: Vec<TransitionItem>, theme: RevoTheme) -> Self {
@@ -212,6 +227,8 @@ impl TransitionsPanel {
             theme,
             field_focus: None,
             focused_field: None,
+            kind_dropdown_open: false,
+            focused_param: None,
         }
     }
 
@@ -269,6 +286,15 @@ impl TransitionsPanel {
             item.kind = kind;
             item.params = blend_transition_params(&item.params, kind);
         }
+    }
+
+    /// Dropdown target: resolves the kind by its wire value and re-blends
+    /// default params (no-op for an unknown value).
+    pub fn set_transition_kind_value(&mut self, id: &str, value: &str, cx: &mut Context<Self>) {
+        if let Some(kind) = TransitionKind::from_value(value) {
+            self.set_transition_kind(id, kind);
+        }
+        cx.notify();
     }
 
     pub fn update_transition_param(&mut self, id: &str, key: &str, value: impl Into<String>) {
@@ -350,6 +376,12 @@ impl TransitionsPanel {
         let event = TransitionEvent::Apply {
             kind: active.kind.value().to_owned(),
             duration_ms: apply_transition_duration_ms(&active.params),
+            params: active
+                .params
+                .iter()
+                .filter(|(key, _)| key.as_str() != "duration_ms")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         };
         self.snapshot = None;
         Some(event)
@@ -391,10 +423,10 @@ impl TransitionsPanel {
     /// Routes one keystroke into the focused draft field; digits-only for
     /// the duration field. Returns true when the value changed.
     pub fn apply_field_keystroke(&mut self, keystroke: &gpui::Keystroke) -> bool {
-        let Some(slot) = self.focused_field else {
+        let Some(slot) = self.focused_field.clone() else {
             return false;
         };
-        let (current, digits_only) = match slot {
+        let (current, digits_only) = match &slot {
             FieldSlot::NewName => (self.new_name.clone(), false),
             FieldSlot::SelectedName => (
                 self.selected_item()
@@ -407,6 +439,12 @@ impl TransitionsPanel {
                     .and_then(|item| item.params.get("duration_ms").cloned())
                     .unwrap_or_default(),
                 true,
+            ),
+            FieldSlot::SelectedParam(key) => (
+                self.selected_item()
+                    .and_then(|item| item.params.get(key.as_str()).cloned())
+                    .unwrap_or_default(),
+                false,
             ),
         };
         let key_char = keystroke
@@ -435,6 +473,13 @@ impl TransitionsPanel {
                             self.set_transition_duration_ms(&id, parsed);
                         }
                     }
+                    FieldSlot::SelectedParam(key) => {
+                        if let Some(id) = self.selected_id.clone() {
+                            if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+                                item.params.insert(key.clone(), next);
+                            }
+                        }
+                    }
                 }
                 true
             }
@@ -442,16 +487,53 @@ impl TransitionsPanel {
         }
     }
 
+    /// Routes one keystroke into the selected transition's focused param;
+    /// numeric keys are digits-only.
+    fn route_param_keystroke(&mut self, key: &str, keystroke: &gpui::Keystroke) -> bool {
+        let Some(id) = self.selected_id.clone() else {
+            return false;
+        };
+        let numeric = matches!(
+            key,
+            "softness_pct" | "sequence_fps" | "transition_point_ms" | "duration_ms"
+        );
+        let key_char = keystroke
+            .key_char
+            .as_deref()
+            .filter(|chars| !numeric || chars.chars().all(|ch| ch.is_ascii_digit()));
+        let current = self
+            .selected_item()
+            .and_then(|item| item.params.get(key).cloned())
+            .unwrap_or_default();
+        let Some(next) = apply_line_keystroke(
+            &current,
+            &keystroke.key,
+            key_char,
+            keystroke.modifiers.control,
+            keystroke.modifiers.alt,
+            keystroke.modifiers.platform,
+        ) else {
+            return false;
+        };
+        if next == current {
+            return false;
+        }
+        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+            item.params.insert(key.to_owned(), next);
+        }
+        true
+    }
+
     fn draft_field(
         &mut self,
         id: &'static str,
-        slot: FieldSlot,
+        slot: &FieldSlot,
         placeholder: &str,
         value: String,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let focus = self.focus_handle_or_create(cx);
-        let focused = self.focused_field == Some(slot);
+        let focused = self.focused_field.as_ref() == Some(slot);
         div()
             .id(id)
             .cursor_pointer()
@@ -473,10 +555,13 @@ impl TransitionsPanel {
             })
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, window, cx| {
-                    this.focused_field = Some(slot);
-                    focus.focus(window);
-                    cx.notify();
+                cx.listener({
+                    let slot = slot.clone();
+                    move |this, _, window, cx| {
+                        this.focused_field = Some(slot.clone());
+                        focus.focus(window);
+                        cx.notify();
+                    }
                 }),
             )
             .child(if value.is_empty() {
@@ -590,7 +675,7 @@ impl Render for TransitionsPanel {
                     .flex_wrap()
                     .child(self.draft_field(
                         "transition-new-name",
-                        FieldSlot::NewName,
+                        &FieldSlot::NewName,
                         "Transition name…",
                         self.new_name.clone(),
                         cx,
@@ -684,32 +769,69 @@ impl Render for TransitionsPanel {
                             .flex_wrap()
                             .child(self.draft_field(
                                 "transition-selected-name",
-                                FieldSlot::SelectedName,
+                                &FieldSlot::SelectedName,
                                 "Name…",
                                 item.name.clone(),
                                 cx,
                             ))
                             .child(self.draft_field(
                                 "transition-selected-duration",
-                                FieldSlot::SelectedDuration,
+                                &FieldSlot::SelectedDuration,
                                 "Duration (ms)",
                                 duration,
                                 cx,
                             ))
                             .child(
-                                div()
-                                    .id("transition-selected-kind")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(self.theme.surface_active)
-                                    .text_color(self.theme.text)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.cycle_selected_kind();
-                                        cx.notify();
-                                    }))
-                                    .child(SharedString::from(kind_label)),
+                                {
+                                    let selected_id = self.selected_id.clone().unwrap_or_default();
+                                    let current = self
+                                        .selected_item()
+                                        .map(|item| item.kind.value().to_string())
+                                        .unwrap_or_default();
+                                    div()
+                                        .id("transition-selected-kind")
+                                        .cursor_pointer()
+                                        .px_3()
+                                        .py_1()
+                                        .rounded_md()
+                                        .bg(self.theme.surface_active)
+                                        .text_color(self.theme.text)
+                                        .flex()
+                                        .items_center()
+                                        .gap_1()
+                                        .child(SharedString::from(kind_label))
+                                        .child(crate::components::icon::icon(
+                                            self.theme.text_muted,
+                                            "chevron-down",
+                                            12.,
+                                        ))
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                                cx.stop_propagation();
+                                                let options = TransitionKind::all()
+                                                    .into_iter()
+                                                    .map(|kind| {
+                                                        (
+                                                            kind.value().to_string(),
+                                                            kind.label().to_string(),
+                                                        )
+                                                    })
+                                                    .collect();
+                                                cx.emit(ComponentEvent::OpenDropdown {
+                                                    field: crate::actions::DropdownField::TransitionKind {
+                                                        transition_id: selected_id.clone(),
+                                                    },
+                                                    options,
+                                                    current: current.clone(),
+                                                    position: (
+                                                        f32::from(event.position.x),
+                                                        f32::from(event.position.y),
+                                                    ),
+                                                });
+                                            }),
+                                        )
+                                },
                             ),
                     )
                     .child(
@@ -761,8 +883,224 @@ impl Render for TransitionsPanel {
                     )
             });
 
+        // The selected kind opens the shared dropdown overlay (the panel is
+        // embedded in a scrollable modal body, so inline expansion would be
+        // clipped); `kind_list` stays empty.
+        let kind_list: Option<gpui::AnyElement> = None;
+
+        // Per-kind typed params for the selected transition (duration lives
+        // in the duration field above; direction/color/softness/stinger
+        // fields follow).
+        let params_block = self
+            .selected_id
+            .clone()
+            .and_then(|id| self.items.iter().find(|item| item.id == id).cloned())
+            .map(|item| {
+                let mut rows = div().flex().flex_col().gap_2().mt_1();
+                let mut keys: Vec<String> = item.params.keys().cloned().collect();
+                keys.sort();
+                for key in keys {
+                    let value = item.params.get(&key).cloned().unwrap_or_default();
+                    let label = match key.as_str() {
+                        "direction" => "Direction".to_string(),
+                        "color" => "Color".to_string(),
+                        "softness_pct" => "Softness (%)".to_string(),
+                        "source_mode" => "Stinger source".to_string(),
+                        "media_file" => "Media file".to_string(),
+                        "sequence_dir" => "Sequence directory".to_string(),
+                        "sequence_fps" => "Sequence FPS".to_string(),
+                        "transition_point_ms" => "Transition point (ms)".to_string(),
+                        other => other.to_string(),
+                    };
+                    let field: gpui::AnyElement = match key.as_str() {
+                        "direction" | "source_mode" => {
+                            let options: Vec<(&'static str, &'static str)> = if key == "direction" {
+                                vec![
+                                    ("left", "left"),
+                                    ("right", "right"),
+                                    ("up", "up"),
+                                    ("down", "down"),
+                                ]
+                            } else {
+                                vec![("media", "media"), ("sequence", "sequence")]
+                            };
+                            let display = if value.is_empty() {
+                                options.first().map(|(_, label)| *label).unwrap_or("")
+                            } else {
+                                value.as_str()
+                            };
+                            let transition_id = self.selected_id.clone().unwrap_or_default();
+                            let param_key = key.clone();
+                            let current = value.clone();
+                            let options_owned: Vec<(String, String)> = options
+                                .iter()
+                                .map(|(value, label)| (value.to_string(), label.to_string()))
+                                .collect();
+                            div()
+                                .id(SharedString::from(format!("transition-param-cycle-{key}")))
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .bg(self.theme.surface_active)
+                                .text_color(self.theme.text)
+                                .text_size(px(11.2))
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .child(SharedString::from(display.to_string()))
+                                .child(crate::components::icon::icon(
+                                    self.theme.text_muted,
+                                    "chevron-down",
+                                    11.,
+                                ))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.emit(ComponentEvent::OpenDropdown {
+                                            field: crate::actions::DropdownField::TransitionParam {
+                                                transition_id: transition_id.clone(),
+                                                key: param_key.clone(),
+                                            },
+                                            options: options_owned.clone(),
+                                            current: current.clone(),
+                                            position: (
+                                                f32::from(event.position.x),
+                                                f32::from(event.position.y),
+                                            ),
+                                        });
+                                    }),
+                                )
+                                .into_any_element()
+                        }
+                        "color" => {
+                            let hex = value.trim_start_matches('#').to_string();
+                            let swatch = u32::from_str_radix(&hex, 8)
+                                .or_else(|_| u32::from_str_radix(&hex, 16))
+                                .unwrap_or(0x000000);
+                            let picker_key = key.clone();
+                            let picker_current = if value.is_empty() {
+                                "#000000".to_string()
+                            } else {
+                                value.clone()
+                            };
+                            let picker_transition = self.selected_id.clone().unwrap_or_default();
+                            div()
+                                .id(SharedString::from(format!("transition-param-color-{key}")))
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(self.theme.border_strong)
+                                .bg(self.theme.surface_elevated)
+                                .text_color(self.theme.text)
+                                .text_size(px(11.2))
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .w(px(14.))
+                                        .h(px(14.))
+                                        .rounded_sm()
+                                        .border_1()
+                                        .border_color(self.theme.border_strong)
+                                        .bg(gpui::rgb(swatch))
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(
+                                                move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                                    // The swatch opens the shared
+                                                    // color picker; the rest of the
+                                                    // row still focuses hex editing.
+                                                    cx.stop_propagation();
+                                                    cx.emit(ComponentEvent::OpenColorPicker {
+                                                        field: ColorField::TransitionParam {
+                                                            transition_id: picker_transition
+                                                                .clone(),
+                                                            key: picker_key.clone(),
+                                                        },
+                                                        current: picker_current.clone(),
+                                                        position: (
+                                                            f32::from(event.position.x),
+                                                            f32::from(event.position.y),
+                                                        ),
+                                                    });
+                                                },
+                                            ),
+                                        ),
+                                )
+                                .child(SharedString::from(value.clone()))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.focused_param = Some(key.clone());
+                                    let focus = this.focus_handle_or_create(cx);
+                                    focus.focus(window);
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }
+                        _ => div()
+                            .id(SharedString::from(format!("transition-param-text-{key}")))
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(if self.focused_param.as_deref() == Some(key.as_str()) {
+                                self.theme.accent
+                            } else {
+                                self.theme.border_strong
+                            })
+                            .bg(self.theme.surface_elevated)
+                            .text_color(if value.is_empty() {
+                                self.theme.text_muted
+                            } else {
+                                self.theme.text
+                            })
+                            .text_size(px(11.2))
+                            .child(if value.is_empty() {
+                                SharedString::from("…")
+                            } else {
+                                SharedString::from(value.clone())
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.focused_param = Some(key.clone());
+                                let focus = this.focus_handle_or_create(cx);
+                                focus.focus(window);
+                                cx.notify();
+                            }))
+                            .into_any_element(),
+                    };
+                    rows = rows.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .w(px(140.))
+                                    .flex_none()
+                                    .text_color(self.theme.text_secondary)
+                                    .text_size(px(11.))
+                                    .child(SharedString::from(label)),
+                            )
+                            .child(field),
+                    );
+                }
+                rows
+            });
+
         let focus = self.focus_handle_or_create(cx);
         let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
+            if let Some(key) = this.focused_param.clone() {
+                if this.route_param_keystroke(&key, &event.keystroke) {
+                    cx.notify();
+                    return;
+                }
+            }
             if this.apply_field_keystroke(&event.keystroke) {
                 cx.notify();
             }
@@ -782,6 +1120,8 @@ impl Render for TransitionsPanel {
             })
             .child(add_section)
             .children(selected_section)
+            .children(kind_list)
+            .children(params_block)
             .child(
                 div()
                     .flex()
@@ -915,6 +1255,7 @@ mod tests {
             Some(TransitionEvent::Apply {
                 kind: "fade".into(),
                 duration_ms: 20000,
+                params: Default::default(),
             })
         );
 
@@ -978,6 +1319,7 @@ mod tests {
             Some(TransitionEvent::Apply {
                 kind: "fade".into(),
                 duration_ms: 50,
+                params: Default::default(),
             })
         );
         assert!(panel.selected_item().is_none());
@@ -993,6 +1335,7 @@ mod tests {
             Some(TransitionEvent::Apply {
                 kind: "fade".into(),
                 duration_ms: 300,
+                params: Default::default(),
             })
         );
         assert_eq!(panel.active_id.as_deref(), Some("t1"));

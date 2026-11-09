@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use gpui::{
-    div, prelude::*, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
-    Window,
+    div, prelude::*, px, rgb, Context, Image as GpuiImage, IntoElement, MouseButton,
+    MouseDownEvent, Render, SharedString, Window,
 };
 
 use crate::{
@@ -20,6 +23,11 @@ pub struct ScenesPanel {
     pub preview_scene: Option<String>,
     pub studio_mode: bool,
     pub rename_draft: Option<(String, String)>,
+    /// Tiny per-scene preview frames (Svelte `.scene-thumb` parity); filled
+    /// by the workspace's slow round-robin capture loop.
+    pub thumbnails: HashMap<String, Arc<GpuiImage>>,
+    /// Round-robin cursor for the thumbnail refresh cycle.
+    pub thumbnail_cursor: usize,
     pub theme: RevoTheme,
 }
 
@@ -70,6 +78,24 @@ impl ScenesPanel {
             .find(|scene| scene.name == from)?
             .name = to.clone();
         Some(ComponentEvent::RenameScene { from, to })
+    }
+
+    /// Stores one decoded scene thumbnail.
+    pub fn set_thumbnail(&mut self, scene: &str, image: Arc<GpuiImage>) {
+        self.thumbnails.insert(scene.to_owned(), image);
+    }
+
+    /// The next scene whose thumbnail should refresh (round-robin over the
+    /// current list); `None` when there are no scenes.
+    pub fn next_thumbnail_target(&mut self) -> Option<String> {
+        if self.scenes.is_empty() {
+            return None;
+        }
+        let name = self.scenes[self.thumbnail_cursor % self.scenes.len()]
+            .name
+            .clone();
+        self.thumbnail_cursor = (self.thumbnail_cursor + 1) % self.scenes.len();
+        Some(name)
     }
 
     /// Right-click request for one scene row; positions the shared workspace
@@ -137,15 +163,50 @@ impl Render for ScenesPanel {
                             }
                         }),
                     )
-                    .child(crate::components::icon::icon(
-                        if scene.active {
-                            self.theme.text_strong
-                        } else {
-                            self.theme.text_muted
-                        },
-                        "layers",
-                        14.,
-                    ))
+                    .children(match self.thumbnails.get(&scene.name) {
+                        Some(image) => Some(
+                            // Svelte `.scene-thumb`: 72x40 16:9 box, cover fit.
+                            div()
+                                .w(px(72.))
+                                .h(px(40.))
+                                .flex_none()
+                                .overflow_hidden()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(self.theme.border)
+                                .bg(rgb(0x000000))
+                                .child(
+                                    gpui::img(image.clone())
+                                        .size_full()
+                                        .object_fit(gpui::ObjectFit::Cover),
+                                )
+                                .into_any_element(),
+                        ),
+                        None => Some(
+                            // Placeholder keeps the row height stable.
+                            div()
+                                .w(px(72.))
+                                .h(px(40.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(self.theme.border)
+                                .bg(self.theme.surface_elevated)
+                                .child(crate::components::icon::icon(
+                                    if scene.active {
+                                        self.theme.text_strong
+                                    } else {
+                                        self.theme.text_muted
+                                    },
+                                    "layers",
+                                    14.,
+                                ))
+                                .into_any_element(),
+                        ),
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -198,6 +259,15 @@ impl Render for ScenesPanel {
 
 #[cfg(test)]
 mod tests {
+    /// A valid 1x1 transparent PNG used as a thumbnail fixture.
+    const TEST_PNG: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
     use super::*;
 
     #[test]
@@ -211,6 +281,8 @@ mod tests {
             preview_scene: None,
             studio_mode: true,
             rename_draft: None,
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
             theme: RevoTheme::classic(),
         };
         assert_eq!(panel.select("A"), None);
@@ -237,6 +309,8 @@ mod tests {
             preview_scene: None,
             studio_mode: false,
             rename_draft: None,
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
             theme: RevoTheme::classic(),
         };
         assert_eq!(
@@ -267,6 +341,8 @@ mod tests {
             preview_scene: None,
             studio_mode: false,
             rename_draft: Some(("A".into(), "  B  ".into())),
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
             theme: RevoTheme::classic(),
         };
         assert_eq!(panel.commit_rename(), None);
@@ -283,6 +359,8 @@ mod tests {
             preview_scene: None,
             studio_mode: false,
             rename_draft: None,
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
             theme: RevoTheme::classic(),
         };
         assert_eq!(
@@ -296,5 +374,41 @@ mod tests {
             })
         );
         assert_eq!(panel.open_menu("missing", (0.0, 0.0)), None);
+    }
+
+    #[test]
+    fn thumbnails_round_robin_over_scenes() {
+        let mut panel = ScenesPanel {
+            scenes: vec![
+                SceneItem {
+                    name: "A".into(),
+                    active: true,
+                    locked: false,
+                },
+                SceneItem {
+                    name: "B".into(),
+                    active: false,
+                    locked: false,
+                },
+            ],
+            preview_scene: None,
+            studio_mode: false,
+            rename_draft: None,
+            thumbnails: Default::default(),
+            thumbnail_cursor: 0,
+            theme: RevoTheme::classic(),
+        };
+        assert_eq!(panel.next_thumbnail_target().as_deref(), Some("A"));
+        assert_eq!(panel.next_thumbnail_target().as_deref(), Some("B"));
+        // The cycle wraps.
+        assert_eq!(panel.next_thumbnail_target().as_deref(), Some("A"));
+        panel.set_thumbnail(
+            "A",
+            std::sync::Arc::new(gpui::Image::from_bytes(
+                gpui::ImageFormat::Png,
+                TEST_PNG.to_vec(),
+            )),
+        );
+        assert!(panel.thumbnails.contains_key("A"));
     }
 }

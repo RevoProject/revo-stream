@@ -358,15 +358,13 @@ impl Render for PluginsModal {
             }
         });
 
-        let close = div()
-            .id("plugins-close")
-            .cursor_pointer()
-            .text_color(self.theme.text_muted)
-            .child("Close")
-            .on_click(cx.listener(|_this, _, _, cx| cx.emit(PluginsEvent::Cancelled)))
-            .into_any_element();
+        // The footer carries the dismissal controls; the header Close would
+        // be a duplicate.
         modal_shell_with_body(
-            &config,
+            &ModalConfig {
+                show_close: false,
+                ..config
+            },
             self.theme,
             div()
                 .flex()
@@ -378,7 +376,7 @@ impl Render for PluginsModal {
                 .child(self.module_body(cx))
                 .on_key_down(on_key),
             Some(footer),
-            Some(close),
+            None,
         )
     }
 }

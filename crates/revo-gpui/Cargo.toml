@@ -23,3 +23,6 @@ obs-backend = ["dep:base64"]
 # xattr 0.2.3, pulled by GPUI's HTTP client, does not compile with libc 0.2.191.
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.186"
+
+[dev-dependencies]
+gpui = { version = "=0.2.2", features = ["test-support"] }

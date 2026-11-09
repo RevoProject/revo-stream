@@ -1,5 +1,5 @@
 use gpui::{
-    div, prelude::*, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
+    div, prelude::*, px, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
     Window,
 };
 
@@ -221,6 +221,9 @@ impl Render for SourcesPanel {
                     .gap_2()
                     .px_2()
                     .py_1p5()
+                    // Same row height as the Scenes panel rows (which carry
+                    // the 72x40 thumbnails).
+                    .min_h(px(48.))
                     .bg(if selected {
                         self.theme.surface_selected
                     } else {
