@@ -532,6 +532,12 @@ pub struct Workspace {
     /// The interface style already applied from `ui_profile` (Svelte Look
     /// section); `None` until the first snapshot carries the profile.
     applied_theme_style: Option<String>,
+    /// Source settings fetched once per source when the first snapshots
+    /// arrive and kept warm so the editor and quick actions open with an
+    /// instant prefill (every open still revalidates in the background).
+    source_settings_cache: std::collections::HashMap<String, revo_core::models::SourceSettingsData>,
+    /// Source ids whose settings warm-up has already been requested.
+    settings_warmed: std::collections::HashSet<String>,
     /// Draggable panel-band height (px); the preview band takes the rest.
     /// Grabbing the divider above Scenes/Sources/Tools resizes it.
     panel_band_height: f32,
@@ -925,6 +931,8 @@ impl Workspace {
             pending_history_entry: None,
             pending_source_params: None,
             applied_theme_style: None,
+            source_settings_cache: std::collections::HashMap::new(),
+            settings_warmed: std::collections::HashSet::new(),
             panel_band_height: 240.0,
             divider_drag_start: None,
             advanced_drafts,
@@ -1043,9 +1051,42 @@ impl Workspace {
             cx.notify();
         });
         self.state.apply_snapshot(&snapshot);
+        self.warm_source_settings(&snapshot, cx);
         self.resolve_pending_properties(&snapshot, cx);
         self.apply_theme_style(&snapshot, cx);
         cx.notify();
+    }
+
+    /// Warms the source-settings cache once per source (settings are loaded
+    /// at startup instead of paying a cold engine round-trip on first open).
+    /// Ids with no settings are dropped from the warmed set so a later
+    /// snapshot retries them; history restores invalidate everything.
+    fn warm_source_settings(&mut self, snapshot: &BackendSnapshot, cx: &mut Context<'_, Self>) {
+        for item in &snapshot.source_items {
+            if !self.settings_warmed.insert(item.id.clone()) {
+                continue;
+            }
+            let backend = self.backend.clone();
+            let id = item.id.clone();
+            cx.spawn(async move |workspace, cx| {
+                let fetch_id = id.clone();
+                let data = cx
+                    .background_executor()
+                    .spawn(
+                        async move { crate::services::fetch_source_settings(&backend, &fetch_id) },
+                    )
+                    .await;
+                let _ = workspace.update(cx, |this, _| match data {
+                    Some(data) => {
+                        this.source_settings_cache.insert(id, data);
+                    }
+                    None => {
+                        this.settings_warmed.remove(&id);
+                    }
+                });
+            })
+            .detach();
+        }
     }
 
     /// Clicking a history row replays every step up to it in one batch.
@@ -1062,6 +1103,10 @@ impl Workspace {
         match result {
             Some((label, commands)) => {
                 self.state.status = label;
+                // Any source's settings may change; re-warm after the next
+                // snapshot lands.
+                self.source_settings_cache.clear();
+                self.settings_warmed.clear();
                 self.dispatch(commands, cx);
             }
             None => {
@@ -2098,6 +2143,13 @@ impl Workspace {
     ) {
         self.open_source_properties_modal_inner(source_id, editor, cx);
         if editor {
+            // A warmed cache (fetched at startup) fills the editor instantly;
+            // the background fetch below revalidates it.
+            if let Some(cached) = self.source_settings_cache.get(source_id).cloned() {
+                if let Some(entity) = self.source_properties_modal.clone() {
+                    entity.update(cx, |modal, cx| modal.load_settings(cached, cx));
+                }
+            }
             // Fetch the filter list too for the Filters tab.
             let filter_backend = self.backend.clone();
             let filter_source = source_id.to_owned();
@@ -2119,6 +2171,7 @@ impl Workspace {
             // seed the editor; mock builds keep the transform-only view.
             let backend = self.backend.clone();
             let source_id = source_id.to_owned();
+            let cache_id = source_id.clone();
             cx.spawn(async move |workspace, cx| {
                 let settings = cx
                     .background_executor()
@@ -2127,18 +2180,11 @@ impl Workspace {
                     )
                     .await;
                 let _ = workspace.update(cx, |this, cx| {
-                    let Some(entity) = this.source_properties_modal.clone() else {
-                        return;
-                    };
-                    match settings {
-                        Some(data) => entity.update(cx, |modal, cx| {
-                            modal.load_settings(data, cx);
-                        }),
-                        None => entity.update(cx, |modal, cx| {
-                            modal.notice =
-                                Some("Live source settings unavailable (mock backend)".into());
-                            cx.notify();
-                        }),
+                    if let Some(data) = &settings {
+                        this.source_settings_cache.insert(cache_id, data.clone());
+                    }
+                    if let Some(entity) = this.source_properties_modal.clone() {
+                        entity.update(cx, |modal, cx| modal.refresh_settings(settings, cx));
                     }
                 });
             })
@@ -2305,6 +2351,7 @@ impl Workspace {
                         });
                     }
                     this.state.status = format!("Source '{name}' updated");
+                    this.source_settings_cache.remove(&id);
                     this.dispatch(
                         [
                             BackendCommand::UpdateSource {
@@ -2446,6 +2493,17 @@ impl Workspace {
         if action == QuickSourceAction::SelectDevice {
             // Device drafts start from the backend catalog plus the source's
             // current selection (Svelte openQuickDeviceModal parity).
+            if let Some(current) = self.source_settings_cache.get(&item.id).and_then(|data| {
+                crate::services::device_param_keys(&item.source_type)
+                    .iter()
+                    .find_map(|key| data.params.get(*key).cloned())
+            }) {
+                if let Some(entity) = self.quick_action_modal.clone() {
+                    entity.update(cx, |modal, cx| {
+                        modal.prefill_devices(current, Vec::new(), cx)
+                    });
+                }
+            }
             let backend = self.backend.clone();
             let fetch_id = item.id.clone();
             let fetch_type = item.source_type.clone();
@@ -2475,7 +2533,16 @@ impl Workspace {
             .detach();
         } else if let Some(key) = crate::components::quick_modal::param_key(action) {
             // Preload the current value so edits start from what the source
-            // already shows (mock builds open with an empty draft).
+            // already shows — instantly from the warm cache, then revalidated.
+            if let Some(current) = self
+                .source_settings_cache
+                .get(&item.id)
+                .and_then(|data| data.params.get(key).cloned())
+            {
+                if let Some(entity) = self.quick_action_modal.clone() {
+                    entity.update(cx, |modal, cx| modal.prefill(current, cx));
+                }
+            }
             let backend = self.backend.clone();
             let fetch_id = item.id.clone();
             let fetch_key = key.to_string();
@@ -2588,6 +2655,7 @@ impl Workspace {
         previous: Vec<(String, String)>,
         cx: &mut Context<'_, Self>,
     ) {
+        self.source_settings_cache.remove(&id);
         let mut params = std::collections::HashMap::new();
         for key in &keys {
             params.insert(key.clone(), value.clone());
