@@ -463,10 +463,12 @@ pub fn start_with_platform(
     }
 
     unsafe {
+        // Must match the `obs_logger` module gate in `logging/mod.rs`:
+        // `obs_log_handler` has no macOS `VaListParam` layout, so macOS builds
+        // keep libobs' own logging.
         #[cfg(any(
             target_os = "windows",
-            all(target_os = "linux", target_arch = "x86_64"),
-            target_os = "macos"
+            all(target_os = "linux", target_arch = "x86_64")
         ))]
         revo_lib::obs::base_set_log_handler(
             Some(crate::logging::obs_logger::obs_log_handler),
