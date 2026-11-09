@@ -28,6 +28,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 
 revo-core = { path = "../crates/revo-core" }
+revo-backend = { path = "../crates/revo-backend" }
 tauri = { version = "2", features = ["unstable", "tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

@@ -3721,6 +3721,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "revo-backend"
+version = "0.4.1"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "libc",
+ "revo-core",
+ "revo-lib",
+ "serde",
+ "serde_json",
+ "tungstenite",
+ "url",
+ "uuid",
+ "zip",
+]
+
+[[package]]
 name = "revo-cef"
 version = "0.1.0"
 
@@ -3749,6 +3766,7 @@ dependencies = [
  "base64 0.22.1",
  "image",
  "libc",
+ "revo-backend",
  "revo-cef",
  "revo-core",
  "revo-lib",

@@ -75,26 +75,6 @@ fn obs_list_external_source_types(state: tauri::State<ObsState>) -> Result<Vec<S
     sources::source_ops::list_external_source_types(&runtime)
 }
 
-fn resolve_scene_item(scene: &SceneState, id: &str) -> Option<*mut obs::obs_scene_item> {
-    scenes::scene_items::resolve_scene_item(scene, id)
-}
-
-fn scene_item_id(scene: &SceneState, item: *mut obs::obs_scene_item) -> Option<String> {
-    scenes::scene_items::scene_item_id(scene, item)
-}
-
-fn current_scene(runtime: &ObsRuntime) -> Result<&SceneState, String> {
-    scenes::scene_state::current_scene(runtime)
-}
-
-fn current_scene_mut(runtime: &mut ObsRuntime) -> Result<&mut SceneState, String> {
-    scenes::scene_state::current_scene_mut(runtime)
-}
-
-fn set_current_scene_internal(runtime: &mut ObsRuntime, name: &str) -> Result<(), String> {
-    scenes::scene_state::set_current_scene_internal(runtime, name)
-}
-
 #[tauri::command(async)]
 fn obs_list_scenes(state: tauri::State<ObsState>) -> Result<Vec<SceneInfo>, String> {
     let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
@@ -388,45 +368,6 @@ fn debug_interact_stats() -> Result<JsonValue, String> {
     Ok(sources::browser_interact::debug_stats())
 }
 
-fn extract_source_params(settings: *mut obs::obs_data, params: &mut HashMap<String, String>) {
-    sources::helpers::extract_source_params(settings, params)
-}
-
-fn collect_source_property_specs(
-    props: *mut obs::obs_properties_t,
-    out: &mut Vec<SourcePropertySpec>,
-) {
-    sources::helpers::collect_source_property_specs(props, out)
-}
-
-fn refresh_source_properties_with_settings(
-    props: *mut obs::obs_properties_t,
-    settings: *mut obs::obs_data_t,
-) {
-    sources::helpers::refresh_source_properties_with_settings(props, settings)
-}
-
-fn source_editable_list_keys(source: *mut obs::obs_source_t) -> HashSet<String> {
-    sources::helpers::source_editable_list_keys(source)
-}
-
-fn live_scene_resolution() -> Option<String> {
-    sources::helpers::live_scene_resolution()
-}
-
-fn apply_scene_item_transform(item: *mut obs::obs_scene_item, source: *mut obs::obs_source, params: &HashMap<String, String>) {
-    sources::helpers::apply_scene_item_transform(item, source, params)
-}
-
-fn apply_source_params(
-    settings: *mut obs::obs_data,
-    source_type: &str,
-    params: &HashMap<String, String>,
-    editable_list_keys: Option<&HashSet<String>>,
-) {
-    sources::helpers::apply_source_params(settings, source_type, params, editable_list_keys)
-}
-
 #[tauri::command]
 fn obs_export_scene_collection(state: tauri::State<ObsState>) -> Result<String, String> {
     let runtime = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
@@ -665,7 +606,23 @@ fn obs_is_initialized(state: tauri::State<ObsState>) -> Result<bool, String> {
 
 #[tauri::command]
 fn obs_version() -> Result<String, String> {
-    runtime::lifecycle::version()
+    runtime::version()
+}
+
+// Tauri command surface over the framework-neutral permission helpers.
+#[tauri::command]
+fn macos_permissions_status() -> permissions::PermissionsStatus {
+    permissions::status()
+}
+
+#[tauri::command]
+fn macos_request_screen_capture() -> permissions::PermissionsStatus {
+    permissions::request_screen_capture()
+}
+
+#[tauri::command]
+fn macos_open_privacy_pane(pane: String) -> Result<(), String> {
+    permissions::open_privacy_pane(pane)
 }
 
 #[tauri::command(async)]
@@ -718,10 +675,6 @@ fn obs_apply_sceneitem_transform(
         return Err("OBS not initialized".to_string());
     }
     sources::source_ops::apply_sceneitem_transform(&runtime, id, transform)
-}
-
-fn collect_sources(runtime: &ObsRuntime) -> Vec<SourceInfo> {
-    sources::source_ops::collect_sources(runtime)
 }
 
 #[tauri::command]
@@ -843,11 +796,7 @@ fn obs_open_source_interaction(
         }
         sources::source_ops::read_interaction_source(&runtime, &id)?
     };
-    sources::source_ops::open_source_interaction(app, id, open_window.unwrap_or(true), values)
-}
-
-fn create_source_in_scene(runtime: &mut ObsRuntime, create: &SourceCreate) -> Result<String, String> {
-    sources::source_ops::create_source_in_scene(runtime, create)
+    ui::interact::open_source_interaction(app, id, open_window.unwrap_or(true), values)
 }
 
 // Runs off the UI thread: `obs_source_create` performs heavy per-type
@@ -861,10 +810,6 @@ fn obs_create_source(state: tauri::State<ObsState>, create: SourceCreate) -> Res
         return Err("OBS not initialized".to_string());
     }
     sources::source_ops::create_source(&mut runtime, create)
-}
-
-fn abgr_to_hex(abgr: u32) -> String {
-    sources::helpers::abgr_to_hex(abgr)
 }
 
 // Runs off the UI thread: source updates apply settings and transforms and
@@ -1374,9 +1319,9 @@ pub fn run() {
             obs_get_graphic_planner_init,
             obs_set_graphic_planner_init,
             obs_list_pulse_devices,
-            permissions::macos_permissions_status,
-            permissions::macos_request_screen_capture,
-            permissions::macos_open_privacy_pane,
+            macos_permissions_status,
+            macos_request_screen_capture,
+            macos_open_privacy_pane,
             obs_list_alsa_devices,
             obs_get_settings_select_options,
             obs_list_window_picker_items,
