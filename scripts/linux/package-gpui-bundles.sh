@@ -68,6 +68,8 @@ test "${#ELF_FILES[@]}" -gt 0 || { echo "no ELF files found under $STAGED" >&2; 
 STAGED_REAL="$(realpath "$STAGED")"
 HOST_LIBS=()
 while IFS= read -r library; do
+  # Record the canonical path: dpkg's file database knows /usr/lib/... and a
+  # usr-merged /lib symlink would not resolve to any package.
   resolved="$(realpath "$library" 2>/dev/null || echo "$library")"
   case "$resolved" in
     "$STAGED_REAL"/*) continue ;;          # bundled inside revo-root
@@ -75,7 +77,7 @@ while IFS= read -r library; do
   case "$(basename "$library")" in
     ld-linux*|linux-gate*|linux-vdso*) continue ;;
   esac
-  HOST_LIBS+=("$library")
+  HOST_LIBS+=("$resolved")
 done < <(
   for elf in "${ELF_FILES[@]}"; do
     LD_LIBRARY_PATH="$STAGED_REAL/revo-root/core/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
@@ -96,8 +98,10 @@ mapfile -t RPM_REQUIRES < <(printf '%s\n' "${RPM_REQUIRES[@]}" | sort -u)
 DEB_REQUIRES=()
 if command -v dpkg >/dev/null 2>&1; then
   for library in "${HOST_LIBS[@]}"; do
-    owner="$(dpkg -S "$library" 2>/dev/null | cut -d: -f1 || true)"
-    if [ -z "$owner" ]; then
+    # dpkg -S prints several lines for split-usr file lists; the first field of
+    # the first line is the owning package.
+    owner="$(dpkg -S "$library" 2>/dev/null | sed -E 's/^[^:]+: .*/&/; q' | cut -d: -f1 || true)"
+    if [ -z "$owner" ] || ! printf '%s' "$owner" | grep -qE '^[a-z0-9][a-z0-9+.-]*$'; then
       echo "WARNING: no Debian package owns $library; it will not be declared." >&2
       continue
     fi
