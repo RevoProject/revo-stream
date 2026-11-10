@@ -1,5 +1,6 @@
 //! Engine IPC server: hosts the typed obs command backend in a dedicated
-//! process and speaks `revo_core::ipc` over a local Unix socket.
+//! process and speaks `revo_core::ipc` over the platform local transport
+//! ([`revo_core::transport::EngineStream`]).
 //!
 //! The UI owns no libobs code at all on this path: it spawns the engine,
 //! streams [`UiToEngine`] requests, and consumes [`EngineToUi`] pushes. The
@@ -8,18 +9,21 @@
 //! in-process preview loop used, now on the engine side of the process
 //! boundary where libobs OpenGL cannot disturb the UI's Vulkan renderer.
 
-use std::io::{ErrorKind, Read, Write};
-use std::os::unix::net::UnixStream;
+use std::io::ErrorKind;
 use std::time::Duration;
 
 use revo_core::ipc::{decode_frame, encode_frame, EngineToUi, UiToEngine};
 use revo_core::service::{BackendError, BackendRuntime};
+use revo_core::transport::EngineStream;
 
 use crate::obs_service::{ObsBackendRuntime, PREVIEW_CAPTURE_INTERVAL_MS};
 
 /// Serves one connected UI client until it disconnects. Returns when the
 /// client goes away or asks for [`UiToEngine::Shutdown`].
-pub fn serve_connection(stream: &mut UnixStream, backend: &mut ObsBackendRuntime) {
+pub fn serve_connection<S: EngineStream + ?Sized>(
+    stream: &mut S,
+    backend: &mut ObsBackendRuntime,
+) {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(PREVIEW_CAPTURE_INTERVAL_MS)));
     // First push: the UI boots its workspace on this snapshot before any
     // command arrives (parity with the in-process boot refresh).
@@ -49,7 +53,7 @@ fn timed_out(error: &std::io::Error) -> bool {
 }
 
 /// Reads one full request frame; `Ok(None)` on orderly disconnect.
-fn read_request(stream: &mut UnixStream) -> std::io::Result<Option<UiToEngine>> {
+fn read_request<S: EngineStream + ?Sized>(stream: &mut S) -> std::io::Result<Option<UiToEngine>> {
     let mut header = [0u8; 4];
     match stream.read_exact(&mut header) {
         Ok(()) => {}
@@ -74,8 +78,8 @@ fn read_request(stream: &mut UnixStream) -> std::io::Result<Option<UiToEngine>> 
 }
 
 /// Applies one request; `false` when the serve loop should stop.
-fn apply_request(
-    stream: &mut UnixStream,
+fn apply_request<S: EngineStream + ?Sized>(
+    stream: &mut S,
     backend: &mut ObsBackendRuntime,
     request: UiToEngine,
 ) -> bool {
@@ -331,13 +335,13 @@ fn error_to_reply(request_id: u64, error: BackendError) -> EngineToUi {
     }
 }
 
-fn push_snapshot(stream: &mut UnixStream, backend: &mut ObsBackendRuntime) {
+fn push_snapshot<S: EngineStream + ?Sized>(stream: &mut S, backend: &mut ObsBackendRuntime) {
     if let Ok(snapshot) = backend.snapshot() {
         let _ = send(stream, &EngineToUi::Snapshot(snapshot));
     }
 }
 
-fn push_preview_frame(stream: &mut UnixStream, backend: &mut ObsBackendRuntime) {
+fn push_preview_frame<S: EngineStream + ?Sized>(stream: &mut S, backend: &mut ObsBackendRuntime) {
     if !backend.runtime.initialized {
         return;
     }
@@ -346,7 +350,7 @@ fn push_preview_frame(stream: &mut UnixStream, backend: &mut ObsBackendRuntime) 
     }
 }
 
-fn send(stream: &mut UnixStream, message: &EngineToUi) -> std::io::Result<()> {
+fn send<S: EngineStream + ?Sized>(stream: &mut S, message: &EngineToUi) -> std::io::Result<()> {
     let frame = encode_frame(message)?;
     stream.write_all(&frame)?;
     stream.flush()
@@ -355,7 +359,14 @@ fn send(stream: &mut UnixStream, message: &EngineToUi) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixStream as Stream;
+    use std::io::{Read, Write};
+    use revo_core::transport::test_pair;
+
+    type Stream = Box<dyn EngineStream + Send>;
+
+    fn socket_pair() -> (Stream, Stream) {
+        test_pair().expect("engine transport pair")
+    }
 
     fn connected_backend() -> ObsBackendRuntime {
         ObsBackendRuntime::new(None, Box::new(crate::obs_service::NativeObsPlatform))
@@ -363,7 +374,7 @@ mod tests {
 
     #[test]
     fn serve_loop_pushes_snapshot_then_executes_commands_then_stops() {
-        let (mut client, mut server) = Stream::pair().expect("socket pair");
+        let (mut client, mut server) = socket_pair();
         let mut backend = connected_backend();
         let worker = std::thread::spawn(move || serve_connection(&mut server, &mut backend));
 
@@ -422,7 +433,7 @@ mod tests {
 
     #[test]
     fn serve_loop_answers_debug_log_requests() {
-        let (mut client, mut server) = Stream::pair().expect("socket pair");
+        let (mut client, mut server) = socket_pair();
         let mut backend = connected_backend();
         let worker = std::thread::spawn(move || serve_connection(&mut server, &mut backend));
 
