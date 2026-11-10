@@ -166,22 +166,13 @@ if ($Candle -and -not $SkipMsi) {
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="RevoStream"/>
       </Directory>
-      <Directory Id="ProgramMenuFolder">
-        <Directory Id="ApplicationShortcutDir" Name="RevoStream"/>
-      </Directory>
     </Directory>
-    <DirectoryRef Id="ApplicationShortcutDir">
-      <Component Id="ApplicationShortcut" Guid="*" Win64="yes">
-        <Shortcut Id="RevoStreamShortcut" Name="RevoStream" Target="[INSTALLFOLDER]revo-gpui.exe"
-                  WorkingDirectory="INSTALLFOLDER"/>
-        <RemoveFolder Id="ApplicationShortcutDir" On="uninstall"/>
-        <RegistryValue Root="HKLM" Key="Software\RevoProject\RevoStream" Name="shortcut"
-                       Type="integer" Value="1" KeyPath="yes"/>
-      </Component>
-    </DirectoryRef>
+    <!-- No Start Menu shortcut here: a shortcut lives in a per-user profile and
+         Windows Installer ICE38/43/57 reject it in a per-machine component
+         (per-user data with a per-machine KeyPath). The NSIS setup and the
+         portable ZIP deliver the launch experience; the MSI installs the tree. -->
     <Feature Id="MainFeature" Title="RevoStream" Level="1">
       <ComponentGroupRef Id="Payload"/>
-      <ComponentRef Id="ApplicationShortcut"/>
     </Feature>
   </Product>
 </Wix>
