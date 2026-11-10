@@ -19,11 +19,19 @@ is_macho() {
 # dylibs stored in Resources, and arm64 refuses to load such binaries
 # (SIGKILL on dlopen), so sign every Mach-O individually — inner-most first —
 # and then the outer bundle.
+#
+# Only the bundle's *main* executable is left to the final `codesign "$APP"`,
+# which signs it and seals the bundle in one step. Any other binary under
+# Contents/MacOS — the GPUI app ships `revo-engine` next to `revo-gpui` — is
+# nested code that must be signed here, or `codesign --verify` fails with
+# "code object is not signed at all / In subcomponent". rustc ad-hoc signs
+# built binaries on Apple Silicon but not on Intel, so only x86_64 hits that.
+MAIN_BINARY="${REVO_APP_BINARY:-revo-ui}"
 signed=0
 while IFS= read -r -d '' binary; do
   is_macho "$binary" || continue
   case "$binary" in
-    "$APP/Contents/MacOS/"*) continue ;;
+    "$APP/Contents/MacOS/$MAIN_BINARY") continue ;;
   esac
   codesign --force --sign - "$binary" 2>/dev/null || {
     echo "ERROR: failed to sign $binary"
