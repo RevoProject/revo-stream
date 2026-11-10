@@ -34,4 +34,6 @@ __pycache__/
 
 # Standalone library crate build artifacts
 /crates/*/target/
-/crates/*/Cargo.lock
+# Crate lockfiles are committed: the release pipeline patches libobs-rs sources by
+# revision, so an unpinned `branch = "main"` git dep drifts under CI.
+!/crates/*/Cargo.lock
