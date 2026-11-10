@@ -133,7 +133,7 @@ Exec=$exec_line
 Icon=revo-gpui
 Terminal=false
 Type=Application
-Categories=AudioVideo;Video;Network;
+Categories=AudioVideo;Network;
 StartupWMClass=RevoStream
 EOF
 }
@@ -149,10 +149,16 @@ write_metainfo() {
   <summary>Native GPUI streaming and recording studio</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-only</project_license>
+  <developer_name>RevoProject</developer_name>
+  <launchable type="desktop-id">$APP_ID.desktop</launchable>
   <url type="homepage">https://github.com/RevoProject/revo-stream</url>
   <releases>
     <release version="$VERSION" date="$(date -u +%Y-%m-%d)"/>
   </releases>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Network</category>
+  </categories>
   <content_rating type="oars-1.1"/>
   <description>
     <p>$DESCRIPTION</p>

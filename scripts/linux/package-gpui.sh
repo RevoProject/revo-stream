@@ -109,7 +109,7 @@ Exec=launch.sh
 Icon=revo-gpui
 Terminal=false
 Type=Application
-Categories=AudioVideo;Video;Network;
+Categories=AudioVideo;Network;
 StartupWMClass=RevoStream
 EOF
 
