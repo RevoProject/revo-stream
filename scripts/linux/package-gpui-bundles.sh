@@ -138,6 +138,29 @@ StartupWMClass=RevoStream
 EOF
 }
 
+write_metainfo() {
+  local file="$1"
+  mkdir -p "$(dirname "$file")"
+  cat > "$file" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>$APP_ID</id>
+  <name>$APP_NAME</name>
+  <summary>Native GPUI streaming and recording studio</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <url type="homepage">https://github.com/RevoProject/revo-stream</url>
+  <releases>
+    <release version="$VERSION" date="$(date -u +%Y-%m-%d)"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+  <description>
+    <p>$DESCRIPTION</p>
+  </description>
+</component>
+EOF
+}
+
 copy_runtime() {
   local root="$1"
   mkdir -p "$root$EXEC_PREFIX"
@@ -145,9 +168,14 @@ copy_runtime() {
   cp -a "$STAGED/revo-root" "$root$EXEC_PREFIX/revo-root"
   write_launcher "$root$EXEC_PREFIX/launch.sh" "$EXEC_PREFIX"
   mkdir -p "$root/usr/bin"
-  ln -sf "$EXEC_PREFIX/launch.sh" "$root/usr/bin/revo-gpui"
+  cat > "$root/usr/bin/revo-gpui" << EOF
+#!/usr/bin/env bash
+exec "$EXEC_PREFIX/launch.sh" "\$@"
+EOF
+  chmod 0755 "$root/usr/bin/revo-gpui"
   install -Dm644 "$STAGED/share/applications/$APP_ID.desktop" \
     "$root/usr/share/applications/$APP_ID.desktop"
+  write_metainfo "$root/usr/share/metainfo/$APP_ID.appdata.xml"
   if [ -n "$2" ]; then
     sed -i "s|^Exec=.*|Exec=$2|" "$root/usr/share/applications/$APP_ID.desktop"
   fi
@@ -206,6 +234,10 @@ License:        AGPL-3.0-only
 URL:            https://github.com/RevoProject/revo-stream
 Source0:        payload.tar.gz
 BuildArch:      $ARCH
+# The staged runtime carries its own private library closure, so rpm's automatic
+# generator would require sonames the package itself ships. Dependencies are
+# derived from the staged ELF closure above instead.
+AutoReq:        no
 $REQUIRES_BLOCK
 %description
 $DESCRIPTION
@@ -224,11 +256,12 @@ cp -a payload/. %{buildroot}/
 $EXEC_PREFIX
 /usr/bin/revo-gpui
 /usr/share/applications/$APP_ID.desktop
+/usr/share/metainfo
 /usr/share/icons
 /usr/share/revo-gpui-version
 
 %changelog
-* $(date -u '+%a %b %d %Y') RevoProject <https://github.com/RevoProject> - $VERSION-1
+* $(LC_ALL=C date -u '+%a %b %d %Y') RevoProject <https://github.com/RevoProject> - $VERSION-1
 - Native GPUI build.
 EOF
   rpmbuild --define "_topdir $TOPDIR" -bb "$TOPDIR/SPECS/revo-gpui.spec" \
