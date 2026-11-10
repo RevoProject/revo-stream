@@ -188,7 +188,16 @@ if ($Candle -and -not $SkipMsi) {
     New-Item -ItemType Directory -Force -Path $ObjectDir | Out-Null
     $Msi = Join-Path $BundleDir "$Prefix.msi"
     if (Test-Path $Msi) { Remove-Item -Force $Msi }
-    & $Candle -nologo -arch x64 "-dPayloadSource=$Stage" -out $ObjectDir $Product $Fragment
+    # Several source files (product + fragment) cannot share one -out file, and a
+    # trailing-backslash directory for -out is unreliable through PowerShell's
+    # native-argument quoting. Compile into the object directory instead (WiX's
+    # documented fallback: no -out writes .wixobj files to the current directory).
+    Push-Location $ObjectDir
+    try {
+        & $Candle -nologo -arch x64 "-dPayloadSource=$Stage" $Product $Fragment
+    } finally {
+        Pop-Location
+    }
     if ($LASTEXITCODE -ne 0) { throw "candle failed with $LASTEXITCODE" }
     & $Light -nologo -ext WixUIExtension -out $Msi (Get-ChildItem $ObjectDir -Filter *.wixobj | ForEach-Object FullName)
     if ($LASTEXITCODE -ne 0) { throw "light failed with $LASTEXITCODE" }
