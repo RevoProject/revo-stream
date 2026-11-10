@@ -56,10 +56,29 @@ RevoStream (native GPUI build) $Version
 revo-gpui.exe    UI process (GPUI renderer, no libobs in this process)
 revo-engine.exe  libobs runtime, spawned automatically by the UI
 revo-root\       OBS runtime: core\lib, core\bin, core\share, data
+launch.cmd       REQUIRED entry point: puts revo-root\core\lib on PATH so the
+                 engine's import of obs.dll resolves, and exports REVO_ROOT.
+                 Starting revo-gpui.exe directly fails with STATUS_DLL_NOT_FOUND.
 
 Set REVO_ROOT to relocate the runtime, REVO_ENGINE_BIN to use another engine
 process, REVO_DATA_DIR to relocate per-user settings and logs.
 "@ | Set-Content -Encoding utf8 (Join-Path $Stage "README.txt")
+
+# Windows has no LD_LIBRARY_PATH: an exe's DLL imports are resolved by the OS
+# loader before main() runs, and revo-engine.exe imports obs.dll from the staged
+# revo-root. The launcher is therefore part of the portable layout, mirroring
+# scripts/linux/package-gpui.sh's launch.sh, and the UI's engine spawn inherits
+# this PATH (std::process::Command passes the environment through).
+@'
+@echo off
+setlocal
+set "APPDIR=%~dp0"
+set "REVO_ROOT=%APPDIR%revo-root"
+set "REVO_ENGINE_BIN=%APPDIR%revo-engine.exe"
+if not defined REVO_DATA_DIR set "REVO_DATA_DIR=%LOCALAPPDATA%\com.klubuntuprojects.revo"
+set "PATH=%APPDIR%revo-root\core\lib;%PATH%"
+start "" "%APPDIR%revo-gpui.exe" %*
+'@ | Set-Content -Encoding ascii (Join-Path $Stage "launch.cmd")
 
 Write-Host "=== Portable ZIP ==="
 $Zip = Join-Path $BundleDir "$Prefix.zip"
@@ -113,8 +132,8 @@ Section "RevoStream"
     SetShellVarContext current
     SetOutPath "`$INSTDIR"
     File /r "$Stage\*"
-    CreateShortCut "`$SMPROGRAMS\RevoStream.lnk" "`$INSTDIR\revo-gpui.exe"
-    CreateShortCut "`$DESKTOP\RevoStream.lnk" "`$INSTDIR\revo-gpui.exe"
+    CreateShortCut "`$SMPROGRAMS\RevoStream.lnk" "`$INSTDIR\launch.cmd" "" "`$INSTDIR\revo-gpui.exe" 0
+    CreateShortCut "`$DESKTOP\RevoStream.lnk" "`$INSTDIR\launch.cmd" "" "`$INSTDIR\revo-gpui.exe" 0
     WriteUninstaller "`$INSTDIR\uninstall.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\RevoStream" "DisplayName" "RevoStream"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\RevoStream" "DisplayVersion" "`${PRODUCT_VERSION}"

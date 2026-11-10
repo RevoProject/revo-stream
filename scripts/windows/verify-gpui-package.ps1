@@ -40,7 +40,10 @@ $extract = Join-Path $env:RUNNER_TEMP "gpui-zip-check"
 if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
 Expand-Archive -Path (Join-Path $BundleDir "$Prefix.zip") -DestinationPath $extract
 $root = Join-Path $extract "revo-gpui-$Version-windows-x64"
-foreach ($required in @("revo-gpui.exe", "revo-engine.exe", "revo-root\core\lib\obs-plugins", "README.txt")) {
+# launch.cmd is load-bearing: without it the engine's obs.dll import cannot be
+# resolved by the OS loader, so a missing launcher is a broken package.
+foreach ($required in @("revo-gpui.exe", "revo-engine.exe", "launch.cmd",
+    "revo-root\core\lib\obs-plugins", "README.txt")) {
     if (-not (Test-Path (Join-Path $root $required))) { throw "portable tree is missing $required" }
     Write-Host "  ok: $required"
 }
