@@ -37,6 +37,11 @@ $Prefix = "revo-gpui-$Version-windows-x64"
 New-Item -ItemType Directory -Force -Path $BundleDir | Out-Null
 if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+# makensis resolves script-relative paths against the .nsi file's own directory
+# (the bundle), not the repository, so everything embedded below must be
+# absolute before the NSIS/WiX sources are generated.
+$BundleDir = (Resolve-Path $BundleDir).Path
+$Stage = (Resolve-Path $Stage).Path
 
 Write-Host "=== Staging application tree ($Version) ==="
 Copy-Item $UiBin (Join-Path $Stage "revo-gpui.exe")
