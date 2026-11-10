@@ -1,6 +1,7 @@
 # Smoke-tests the packaged GPUI engine process on Windows: it must bind its
-# loopback endpoint, publish it, and accept a connection. The UI process needs
-# a GPU desktop session, so it is not started here.
+# loopback endpoint, publish it, accept a connection, push its boot snapshot and
+# answer a snapshot request, then exit cleanly once the client disconnects. The
+# UI process needs a GPU desktop session, so it is not started here.
 param(
     [string]$Root = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
 )
@@ -23,6 +24,25 @@ if (Test-Path $EndpointFile) { Remove-Item -Force $EndpointFile }
 # The engine binary imports obs.dll, which the bundle stages inside revo-root;
 # expose it through PATH so the loader resolves it before the process starts.
 $env:PATH = (Join-Path $Stage "revo-root\core\lib") + ";" + $env:PATH
+
+function Read-Exact([System.IO.Stream]$stream, [int]$count) {
+    $buffer = New-Object byte[] $count
+    $filled = 0
+    while ($filled -lt $count) {
+        $read = $stream.Read($buffer, $filled, $count - $filled)
+        if ($read -le 0) { throw "engine closed the stream after $filled of $count bytes" }
+        $filled += $read
+    }
+    return ,$buffer
+}
+
+function Read-Frame([System.IO.Stream]$stream) {
+    $header = Read-Exact $stream 4
+    $length = [System.BitConverter]::ToInt32($header, 0)
+    if ($length -le 0) { throw "engine frame is not a length prefix ($length)" }
+    $payload = Read-Exact $stream $length
+    return [System.Text.Encoding]::UTF8.GetString($payload)
+}
 
 Write-Host "=== Starting the packaged engine ==="
 $process = Start-Process -FilePath $Engine `
@@ -49,20 +69,30 @@ try {
     Write-Host "  loopback connection accepted"
 
     $stream = $client.GetStream()
-    $stream.ReadTimeout = 10000
-    $header = New-Object byte[] 4
-    $read = $stream.Read($header, 0, 4)
-    if ($read -ne 4) { throw "engine did not send its boot snapshot header" }
-    $payloadLength = [System.BitConverter]::ToInt32($header, 0)
-    if ($payloadLength -le 0) { throw "engine snapshot header is not a length prefix ($payloadLength)" }
-    $received = 0
-    while ($received -lt $payloadLength) {
-        $chunk = $stream.Read($header, 0, [System.Math]::Min(4, $payloadLength - $received))
-        if ($chunk -le 0) { break }
-        $received += $chunk
-    }
-    Write-Host ("  boot snapshot frame received ({0} bytes)" -f $payloadLength)
+    $stream.ReadTimeout = 20000
+
+    $boot = Read-Frame $stream
+    if ($boot -notmatch '"Snapshot"') { throw "boot frame is not a snapshot: $boot" }
+    Write-Host "  boot snapshot received"
+
+    $request = [System.Text.Encoding]::UTF8.GetBytes('"RequestSnapshot"')
+    $stream.Write([System.BitConverter]::GetBytes($request.Length), 0, 4)
+    $stream.Write($request, 0, $request.Length)
+    $stream.Flush()
+
+    $reply = Read-Frame $stream
+    if ($reply -notmatch '"Snapshot"') { throw "snapshot reply is not a snapshot: $reply" }
+    Write-Host "  snapshot round-trip ok"
+
+    if ($process.HasExited) { throw "engine exited while the client was connected" }
+
+    # The engine serves one client and exits once that client disconnects, so a
+    # clean exit here is the expected outcome.
     $client.Close()
+    $exitDeadline = (Get-Date).AddSeconds(15)
+    while (-not $process.HasExited -and (Get-Date) -lt $exitDeadline) { Start-Sleep -Milliseconds 100 }
+    if (-not $process.HasExited) { throw "engine stayed alive after the client disconnected" }
+    Write-Host "  engine exited cleanly on disconnect"
 } finally {
     if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
     Remove-Item -Force $EndpointFile -ErrorAction SilentlyContinue
