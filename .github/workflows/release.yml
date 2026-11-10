@@ -110,15 +110,13 @@ jobs:
         run: ./scripts/windows/prepare-runtime.ps1
       - name: Verify Windows runtime
         run: ./scripts/windows/verify-runtime.ps1
+      # LIBOBS_PATH must stay unset here: the `libobs` crate links the MSVC
+      # import library that libobs-bootstrapper installs inside its own checkout,
+      # while the OBS bootstrap only drops obs.dll into target/release (no
+      # obs.lib), so pointing the linker there fails with LNK1181.
       - name: Build GPUI application
-        env:
-          REVO_OBS_LIB_DIR: ${{ github.workspace }}\src-tauri\target\release
-          LIBOBS_PATH: ${{ github.workspace }}\src-tauri\target\release
         run: cargo build --release --locked --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml
       - name: Build engine process
-        env:
-          REVO_OBS_LIB_DIR: ${{ github.workspace }}\src-tauri\target\release
-          LIBOBS_PATH: ${{ github.workspace }}\src-tauri\target\release
         run: cargo build --release --locked --bin revo-engine --manifest-path crates/revo-backend/Cargo.toml
       - name: Package GPUI (ZIP, NSIS, MSI)
         run: ./scripts/windows/package-gpui.ps1
