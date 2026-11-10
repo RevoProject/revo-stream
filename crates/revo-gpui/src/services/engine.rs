@@ -2,7 +2,7 @@
 //!
 //! The UI process owns no libobs code on this path: [`EngineClient`] spawns
 //! (or connects to) the `revo-engine` binary and speaks
-//! `revo_core::ipc` over a local Unix socket. Preview frames stream from the
+//! `revo_core::ipc` over the platform local transport ([`revo_core::transport`]). Preview frames stream from the
 //! engine on its own cadence into a bounded newest-wins slot; commands and
 //! correlated requests (preview captures, browser interaction) round-trip
 //! synchronously on the backend worker thread, never blocking the GPUI
@@ -16,11 +16,12 @@
 //!    crate's manifest.
 //!
 //! An externally started engine is also supported through `REVO_ENGINE_SOCK`
-//! (connect without spawning; the engine still exits on `Shutdown`).
+//! (connect without spawning; the engine still exits on `Shutdown`). The
+//! value is an endpoint string (`unix:<path>` or `tcp:127.0.0.1:<port>`), the
+//! same form the engine publishes in its endpoint file.
 
 use std::io::{ErrorKind, Read, Write};
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +30,7 @@ use std::time::{Duration, Instant};
 use revo_core::ipc::{decode_frame, encode_frame, DebugLogEntry, EngineToUi, UiToEngine};
 use revo_core::models::SourceSettingsData;
 use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
+use revo_core::transport::{connect, read_endpoint_file, EngineEndpoint, EngineStream};
 
 /// UI-side preview poll cadence; the engine also pushes frames between
 /// requests so this only bounds the loop, it does not drive the capture.
@@ -100,7 +102,7 @@ impl Inbox {
 /// blocking I/O through the mutex-guarded stream; slots are shared so the
 /// foreground can drain the newest preview frame without touching I/O.
 struct Connection {
-    stream: Mutex<Option<UnixStream>>,
+    stream: Mutex<Option<Box<dyn EngineStream + Send>>>,
     child: Mutex<Option<Child>>,
     next_request_id: AtomicU64,
     /// Newest engine-pushed scene frame, newest-wins.
@@ -384,9 +386,11 @@ pub struct EngineClient {
 impl EngineClient {
     /// Connects (or spawns) the engine process.
     pub fn new() -> Result<Self, BackendError> {
-        if let Ok(path) = std::env::var("REVO_ENGINE_SOCK") {
-            if let Ok(stream) = UnixStream::connect(&path) {
-                return Ok(Self::over_stream(stream, None));
+        if let Ok(value) = std::env::var("REVO_ENGINE_SOCK") {
+            if let Ok(endpoint) = EngineEndpoint::parse(&value) {
+                if let Ok(stream) = connect(&endpoint) {
+                    return Ok(Self::over_stream(stream, None));
+                }
             }
         }
         let binary = engine_binary_path().ok_or_else(|| {
@@ -396,38 +400,31 @@ impl EngineClient {
                     .into(),
             )
         })?;
-        let socket =
-            std::env::temp_dir().join(format!("revo-engine-ui-{}.sock", std::process::id()));
-        let _ = std::fs::remove_file(&socket);
+        // The engine binds its own platform default endpoint and publishes it
+        // here: the UI cannot name the TCP port before bind assigns it, and it
+        // must not keep a stale endpoint file from a previous run.
+        let endpoint_file = endpoint_file_path();
+        let _ = std::fs::remove_file(&endpoint_file);
         let mut child = Command::new(&binary)
-            .arg("--socket")
-            .arg(&socket)
+            .arg("--endpoint-file")
+            .arg(&endpoint_file)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|error| BackendError::Runtime(format!("engine spawn failed: {error}")))?;
-        let deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = child.try_wait() {
-                return Err(BackendError::Runtime(
-                    "engine process exited before accepting a connection".into(),
-                ));
+        let outcome = match connect_to_spawned_engine(&mut child, &endpoint_file) {
+            Ok(stream) => Ok(Self::over_stream(stream, Some(child))),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error)
             }
-            match UnixStream::connect(&socket) {
-                Ok(stream) => {
-                    return Ok(Self::over_stream(stream, Some(child)));
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(50)),
-            }
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        Err(BackendError::Runtime(
-            "engine socket never became ready".into(),
-        ))
+        };
+        let _ = std::fs::remove_file(&endpoint_file);
+        outcome
     }
 
-    fn over_stream(stream: UnixStream, child: Option<Child>) -> Self {
+    fn over_stream(stream: Box<dyn EngineStream + Send>, child: Option<Child>) -> Self {
         Self {
             connection: Arc::new(Connection {
                 stream: Mutex::new(Some(stream)),
@@ -700,6 +697,47 @@ impl EngineClient {
     }
 }
 
+/// Endpoint publication file, unique per UI process so concurrent sessions
+/// never read each other's endpoint.
+fn endpoint_file_path() -> PathBuf {
+    std::env::temp_dir().join(format!("revo-engine-ui-{}.endpoint", std::process::id()))
+}
+
+/// Polls the published endpoint, then the endpoint itself, until the deadline
+/// while watching for an early engine exit.
+fn connect_to_spawned_engine(
+    child: &mut Child,
+    endpoint_file: &Path,
+) -> Result<Box<dyn EngineStream + Send>, BackendError> {
+    let deadline = Instant::now() + SPAWN_CONNECT_TIMEOUT;
+    loop {
+        if let Ok(Some(_)) = child.try_wait() {
+            return Err(BackendError::Runtime(
+                "engine process exited before accepting a connection".into(),
+            ));
+        }
+        match read_endpoint_file(endpoint_file) {
+            Ok(Some(endpoint)) => {
+                if let Ok(stream) = connect(&endpoint) {
+                    return Ok(stream);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(BackendError::Runtime(format!(
+                    "engine endpoint file unreadable: {error}"
+                )))
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(BackendError::Runtime(
+                "engine endpoint never became ready".into(),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn engine_binary_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("REVO_ENGINE_BIN") {
         let path = PathBuf::from(path);
@@ -708,13 +746,16 @@ fn engine_binary_path() -> Option<PathBuf> {
         }
     }
     let executable = std::env::current_exe().ok()?;
-    let sibling = executable.with_file_name("revo-engine");
+    let sibling = executable.with_file_name(format!("revo-engine{}", std::env::consts::EXE_SUFFIX));
     if sibling.is_file() {
         return Some(sibling);
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for profile in ["debug", "release"] {
-        let candidate = manifest.join(format!("../revo-backend/target/{profile}/revo-engine"));
+        let candidate = manifest.join(format!(
+            "../revo-backend/target/{profile}/revo-engine{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -762,7 +803,7 @@ mod tests {
     /// serve loop so the client's request/reply mechanics are exercised
     /// without libobs.
     struct StubEngine {
-        stream: UnixStream,
+        stream: Box<dyn EngineStream + Send>,
     }
 
     impl StubEngine {
@@ -793,7 +834,8 @@ mod tests {
 
     /// Builds a client over a socket pair plus the stub's half.
     fn client_and_stub() -> (EngineClient, StubEngine) {
-        let (client_half, server_half) = UnixStream::pair().expect("socket pair");
+        let (client_half, server_half) =
+            revo_core::transport::test_pair().expect("engine transport pair");
         let client = EngineClient::over_stream(client_half, None);
         (
             client,
