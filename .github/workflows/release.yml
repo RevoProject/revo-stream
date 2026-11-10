@@ -46,11 +46,11 @@ jobs:
       - name: Disable unavailable sibling CEF dependency
         run: python3 scripts/release/disable-cef.py
       - name: Check the legacy Tauri adapter still builds
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
       - name: Build GPUI application
-        run: cargo build --release --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml
+        run: cargo build --release --locked --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml
       - name: Build engine process
-        run: cargo build --release --bin revo-engine --manifest-path crates/revo-backend/Cargo.toml
+        run: cargo build --release --locked --bin revo-engine --manifest-path crates/revo-backend/Cargo.toml
       - name: Stage the portable GPUI tree
         run: bash scripts/linux/package-gpui.sh
       - name: Build DEB, RPM and AppImage
@@ -114,12 +114,12 @@ jobs:
         env:
           REVO_OBS_LIB_DIR: ${{ github.workspace }}\src-tauri\target\release
           LIBOBS_PATH: ${{ github.workspace }}\src-tauri\target\release
-        run: cargo build --release --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml
+        run: cargo build --release --locked --features obs-backend --manifest-path crates/revo-gpui/Cargo.toml
       - name: Build engine process
         env:
           REVO_OBS_LIB_DIR: ${{ github.workspace }}\src-tauri\target\release
           LIBOBS_PATH: ${{ github.workspace }}\src-tauri\target\release
-        run: cargo build --release --bin revo-engine --manifest-path crates/revo-backend/Cargo.toml
+        run: cargo build --release --locked --bin revo-engine --manifest-path crates/revo-backend/Cargo.toml
       - name: Package GPUI (ZIP, NSIS, MSI)
         run: ./scripts/windows/package-gpui.ps1
       - name: Verify Windows GPUI packages
@@ -276,13 +276,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --target "$REVO_TARGET" --features obs-backend \
+          cargo build --release --locked --target "$REVO_TARGET" --features obs-backend \
             --manifest-path crates/revo-gpui/Cargo.toml 2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-gpui.log"
       - name: Build engine process
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --target "$REVO_TARGET" --bin revo-engine \
+          cargo build --release --locked --target "$REVO_TARGET" --bin revo-engine \
             --manifest-path crates/revo-backend/Cargo.toml 2>&1 | tee "$REVO_DIAGNOSTICS/logs/build-engine.log"
       - name: Assemble the GPUI app bundle
         shell: bash
