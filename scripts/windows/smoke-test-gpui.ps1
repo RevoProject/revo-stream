@@ -3,7 +3,7 @@
 # answer a snapshot request, then exit cleanly once the client disconnects. The
 # UI process needs a GPU desktop session, so it is not started here.
 param(
-    [string]$Root = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    [string]$Root = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 )
 
 $ErrorActionPreference = "Stop"

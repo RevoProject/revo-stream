@@ -1,7 +1,7 @@
 # Verifies the GPUI Windows artifacts: every package exists, the portable ZIP
 # extracts to a complete tree, and both binaries are x64 PE images.
 param(
-    [string]$Root = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    [string]$Root = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 )
 
 $ErrorActionPreference = "Stop"

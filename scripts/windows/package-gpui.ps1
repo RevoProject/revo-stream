@@ -12,7 +12,7 @@
 #   revo-gpui-<version>-windows-x64.exe   (NSIS)
 #   revo-gpui-<version>-windows-x64.msi   (WiX)
 param(
-    [string]$Root = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
+    [string]$Root = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$SkipMsi
 )
 
