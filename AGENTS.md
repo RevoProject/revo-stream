@@ -39,11 +39,26 @@
   full compile requires a provisioned host (libobs/libssl dev packages). The
   macOS libobs hooks dispatch through a GPUI foreground-executor trampoline
   (`GpuiObsPlatform`); on-hardware verification is still pending. The GPUI
-  packaging layout is defined: `scripts/linux/package-gpui.sh` stages the
-  binary, launcher, and OBS runtime (`prepare-runtime.sh` layout) into a
-  portable tar.gz/.run. The remaining src-tauri removal blockers are macOS
+  packaging layout is defined and is what the release workflow now builds:
+  `scripts/linux/package-gpui.sh` stages the UI binary, the `revo-engine`
+  binary, launcher, desktop entry, icons and OBS runtime (`prepare-runtime.sh`
+  layout) into a portable tree and emits `tar.gz` + `.run`;
+  `scripts/linux/package-gpui-bundles.sh` turns the same tree into DEB, RPM and
+  AppImage, deriving package dependencies from the staged ELF closure instead of
+  a hand-maintained list; `scripts/linux/verify-gpui-release.sh` validates all
+  five artifacts and writes checksums. `scripts/macos/package-gpui-app.sh`
+  assembles `RevoStream.app` (UI + engine +
+  `Contents/Resources/resources/revo-root`) so the existing
+  ensure-resources/normalize-rpaths/codesign/verify/DMG scripts keep working,
+  and `scripts/windows/package-gpui.ps1` produces the portable ZIP, NSIS setup
+  EXE and WiX MSI. The engine transport is platform-neutral
+  (`revo_core::transport`): a Unix socket on Unix, a loopback TCP endpoint
+  published through `--endpoint-file` on Windows, and the engine derives its own
+  resource/data paths (`utils::fs::init_standalone_app_paths`) because no GUI
+  adapter injects them. The remaining src-tauri removal blockers are macOS
   on-hardware verification and installed-artifact validation. The GPUI shell
-  has not replaced the Tauri application yet. The settings modal is now
+  has not replaced the Tauri application yet; the Linux release job still
+  `cargo check`s the adapter as the parity reference. The settings modal is now
   functional: a typed draft state machine (dirty tracking, URL/resolution
   validation, option cycling) persists through the `SaveSettings` backend
   command, with a shared single-line keystroke text-field helper.
@@ -173,7 +188,20 @@ The commands below operate on the current compatibility application.
 
 ### Release and packaging
 
-- `scripts/appimage/build-appimage.sh`: build the current Tauri AppImage.
+- `scripts/appimage/build-appimage.sh`: build the current Tauri AppImage
+  (legacy parity path, not part of the GPUI release pipeline).
+- `bash scripts/linux/package-gpui.sh [OBS_INSTALL]`: stage the GPUI tree and
+  build the portable tar.gz and self-extracting `.run`.
+- `bash scripts/linux/package-gpui-bundles.sh [STAGED_DIR]`: build the GPUI
+  DEB, RPM and AppImage from that staged tree.
+- `bash scripts/linux/verify-gpui-release.sh`: validate every Linux GPUI
+  artifact and write `*-linux-x64-SHA256SUMS.txt`.
+- `./scripts/windows/package-gpui.ps1`: GPUI ZIP/NSIS/MSI, checked by
+  `verify-gpui-package.ps1` and `smoke-test-gpui.ps1` (the smoke test drives the
+  packaged engine's endpoint and reads its boot snapshot).
+- `bash scripts/macos/package-gpui-app.sh`: assemble the GPUI `.app` (needs
+  `REVO_TARGET` and `REVO_ARCH`); `scripts/macos/smoke-test-gpui.sh` starts the
+  engine from inside the bundle.
 - `scripts/linux/`: build/stage OBS, install dependencies, package portable
   releases, and verify Linux artifacts.
 - `scripts/macos/`: prepare OBS/runtime dependencies, build and sign the DMG,
@@ -182,9 +210,12 @@ The commands below operate on the current compatibility application.
   ZIP, and smoke-test Windows packages.
 - `.github/workflows/release.yml`: current cross-platform release pipeline.
 
-Do not assume Tauri bundle paths or WebKit dependencies apply to the final
-GPUI package. Define and test the GPUI resource layout before removing the
-existing release path.
+Do not assume Tauri bundle paths or WebKit dependencies apply to the GPUI
+packages: the GPUI pipeline stages the runtime itself (`revo-root` next to the
+binary on Linux, `Contents/Resources/resources/revo-root` inside the macOS
+`.app`) and resolves it through `revo_backend::settings::core::resolve_root_dir`
+plus `revo_backend::utils::fs::init_standalone_app_paths`, not through the Tauri
+resource directory.
 
 ## Validation Rules
 
