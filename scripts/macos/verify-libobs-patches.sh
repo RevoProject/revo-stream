@@ -5,7 +5,8 @@ echo "============================================================"
 echo "VERIFY libobs bindgen"
 echo "============================================================"
 BUILD_RS=$(find "$HOME/.cargo/git/checkouts" \
-  -path "*/7e76c91/libobs/build.rs" \
+  -path "*/libobs/build.rs" \
+  -path "*libobs-rs-*" \
   -print -quit)
 if [ -z "$BUILD_RS" ]; then
   echo "libobs build.rs not found"
@@ -19,7 +20,8 @@ echo "============================================================"
 echo "VERIFY libobs-wrapper"
 echo "============================================================"
 WRAPPER_SRC=$(find "$HOME/.cargo/git/checkouts" \
-  -path "*/7e76c91/libobs-wrapper/src" \
+  -path "*/libobs-wrapper/src" \
+  -path "*libobs-rs-*" \
   -type d \
   -print -quit)
 if [ -z "$WRAPPER_SRC" ]; then
