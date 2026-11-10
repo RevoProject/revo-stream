@@ -17,8 +17,14 @@ if [ -z "$APP" ]; then
 fi
 
 ROOT="$APP/Contents/Resources/resources/revo-root"
-EXE="$APP/Contents/MacOS/revo-ui"
+# GPUI packages ship revo-gpui (+ revo-engine); the Tauri app ships revo-ui.
+EXE="$APP/Contents/MacOS/${REVO_APP_BINARY:-revo-ui}"
 test -x "$EXE"
+if [ -n "${REVO_APP_EXTRA_BINARIES:-}" ]; then
+  for extra in $REVO_APP_EXTRA_BINARIES; do
+    test -x "$APP/Contents/MacOS/$extra" || { echo "ERROR: final app is missing $extra"; exit 1; }
+  done
+fi
 test -d "$ROOT/core/lib"
 test -d "$ROOT/core/lib/obs-plugins"
 

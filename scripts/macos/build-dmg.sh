@@ -23,7 +23,7 @@ mkdir -p "$RUNNER_TEMP/revo-dmg-stage" "$DMG_DIR"
 cp -R "$APP" "$RUNNER_TEMP/revo-dmg-stage/"
 
 rm -f "$DMG_DIR"/*.dmg
-DMG="$DMG_DIR/revo-ui_${VERSION}_${DMG_ARCH}.dmg"
+DMG="$DMG_DIR/${REVO_DMG_BASENAME:-revo-ui}_${VERSION}_${DMG_ARCH}.dmg"
 
 hdiutil create \
   -volname "RevoStream" \
