@@ -11,7 +11,11 @@ set -euo pipefail
 ROOT="${HOME}/.cargo/git/checkouts"
 LOCKS=(src-tauri/Cargo.lock crates/revo-backend/Cargo.lock crates/revo-gpui/Cargo.lock)
 
-mapfile -t revisions < <(
+# macOS runners ship bash 3.2, which has no mapfile/readarray.
+revisions=()
+while IFS= read -r revision; do
+  [ -n "$revision" ] && revisions+=("$revision")
+done < <(
   for lock in "${LOCKS[@]}"; do
     [ -f "$lock" ] || continue
     grep -oE 'git\+https://github\.com/libobs-rs/libobs-rs\?branch=main#[0-9a-f]+' "$lock" |
