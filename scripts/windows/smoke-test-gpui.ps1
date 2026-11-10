@@ -13,17 +13,50 @@ $BundleDir = "crates\revo-gpui\target\release\bundle"
 $Version = (Get-Content "crates\revo-gpui\Cargo.toml" | Select-String -Pattern '^version = "([^"]+)"' |
     Select-Object -First 1).Matches.Groups[1].Value
 if (-not $Version) { throw "could not read the version" }
-$Stage = Join-Path $BundleDir "revo-gpui-$Version-windows-x64"
+$Stage = (Resolve-Path (Join-Path $BundleDir "revo-gpui-$Version-windows-x64")).Path
 $Engine = Join-Path $Stage "revo-engine.exe"
 if (-not (Test-Path $Engine)) { throw "missing $Engine" }
 
 $EndpointFile = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID.endpoint"
 $Stdout = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID.log"
+$Stderr = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID.err.log"
 if (Test-Path $EndpointFile) { Remove-Item -Force $EndpointFile }
 
-# The engine binary imports obs.dll, which the bundle stages inside revo-root;
-# expose it through PATH so the loader resolves it before the process starts.
-$env:PATH = (Join-Path $Stage "revo-root\core\lib") + ";" + $env:PATH
+# Reproduce the environment the packaged launch.cmd exports. The engine binary
+# imports obs.dll, which lives under revo-root\core\lib, and PATH entries must
+# be absolute: a relative entry would be resolved against the *child's* working
+# directory and the process would die with STATUS_DLL_NOT_FOUND before main().
+$RuntimeLib = Join-Path $Stage "revo-root\core\lib"
+$env:PATH = "$RuntimeLib;$env:PATH"
+$env:REVO_ROOT = (Join-Path $Stage "revo-root")
+$env:REVO_DATA_DIR = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID-data"
+$env:REVO_ENGINE_BIN = $Engine
+New-Item -ItemType Directory -Force -Path $env:REVO_DATA_DIR | Out-Null
+
+# Loader failures leave the logs empty, so translate the exit code as well.
+function Format-EngineExit([int]$Code) {
+    if ($Code -lt 0) { $Code = [int][uint32]([uint64]([uint32]$Code)) }
+    $status = "0x{0:X8}" -f $Code
+    $known = [ordered]@{
+        "0xC0000135" = "STATUS_DLL_NOT_FOUND (obs.dll missing from the search path)"
+        "0xC0000139" = "STATUS_ENTRYPOINT_NOT_FOUND"
+        "0xC000007B" = "STATUS_INVALID_IMAGE_FORMAT"
+    }
+    if ($known.Contains($status)) { return "$status $($known[$status])" }
+    return "$status ($Code)"
+}
+
+function Get-EngineOutput {
+    $text = ""
+    foreach ($file in @($Stdout, $Stderr)) {
+        if (Test-Path $file) {
+            $content = (Get-Content $file -Raw -ErrorAction SilentlyContinue)
+            if ($content) { $text += "[$(Split-Path -Leaf $file)]`n$content`n" }
+        }
+    }
+    if (-not $text) { return "<engine produced no output: loader failure?>" }
+    return $text.Trim()
+}
 
 function Read-Exact([System.IO.Stream]$stream, [int]$count) {
     $buffer = New-Object byte[] $count
@@ -49,12 +82,15 @@ $process = Start-Process -FilePath $Engine `
     -ArgumentList @("--endpoint-file", $EndpointFile) `
     -WorkingDirectory $Stage `
     -RedirectStandardOutput $Stdout `
+    -RedirectStandardError $Stderr `
     -PassThru
 
 try {
     $deadline = (Get-Date).AddSeconds(30)
     while (-not (Test-Path $EndpointFile) -and (Get-Date) -lt $deadline) {
-        if ($process.HasExited) { throw "engine exited with $($process.ExitCode):`n$(Get-Content $Stdout -Raw)" }
+        if ($process.HasExited) {
+            throw "engine exited before publishing its endpoint: $(Format-EngineExit $process.ExitCode)`n$(Get-EngineOutput)"
+        }
         Start-Sleep -Milliseconds 200
     }
     if (-not (Test-Path $EndpointFile)) { throw "engine never published its endpoint" }
