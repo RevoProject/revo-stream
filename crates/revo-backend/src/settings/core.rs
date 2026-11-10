@@ -346,6 +346,20 @@ pub fn resolve_root_dir(root_dir: Option<String>) -> Result<std::path::PathBuf, 
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            // Packaged layouts without a Tauri resource directory: the runtime
+            // sits next to the binary (portable tree, AppImage, FHS install)
+            // or inside a macOS bundle one level up.
+            for relative in [
+                "revo-root",
+                "../Resources/revo-root",
+                "../Resources/resources/revo-root",
+                "../lib/revo-stream/revo-root",
+            ] {
+                let candidate = dir.join(relative);
+                if is_valid_root(&candidate) {
+                    return Ok(candidate);
+                }
+            }
             if let Some(found) = find_root_from(&dir.to_path_buf()) {
                 return Ok(found);
             }
