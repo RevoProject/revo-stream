@@ -43,6 +43,8 @@ jobs:
         run: bash scripts/linux/build-obs.sh
       - name: Stage OBS libraries, plugins and helper dependencies
         run: bash scripts/linux/prepare-runtime.sh "$RUNNER_TEMP/obs-install"
+      - name: Disable unavailable sibling CEF dependency
+        run: python3 scripts/release/disable-cef.py
       - name: Check the legacy Tauri adapter still builds
         run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Build GPUI application
@@ -86,9 +88,15 @@ jobs:
         run: choco install nsis wixtoolset -y --no-progress
       - name: Prepare revo-root
         run: ./scripts/windows/prepare-revo-root.ps1
+      - name: Disable CEF for CI build
+        shell: bash
+        run: python3 scripts/release/disable-cef.py
       - name: Fetch Rust dependencies
         shell: bash
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml
+        run: |
+          cargo fetch --manifest-path src-tauri/Cargo.toml
+          cargo fetch --manifest-path crates/revo-backend/Cargo.toml
+          cargo fetch --manifest-path crates/revo-gpui/Cargo.toml
       - name: Patch libobs-bootstrapper dummy DLL feature
         run: ./scripts/windows/patch-libobs-bootstrapper.ps1
       - name: Install cargo-obs-build
