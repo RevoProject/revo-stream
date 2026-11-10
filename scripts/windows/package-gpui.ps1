@@ -149,30 +149,33 @@ if ($Candle -and -not $SkipMsi) {
     & $Heat dir $Stage -sfrag -srd -scom -sreg -gg -cg Payload -dr INSTALLFOLDER -var var.PayloadSource -out $Fragment
     if ($LASTEXITCODE -ne 0) { throw "heat harvest failed with $LASTEXITCODE" }
 
+    # The MSI is per-machine (ProgramFiles64Folder): heat harvests the runtime
+    # as hundreds of file-KeyPath components, and Windows Installer ICE38 rejects
+    # file KeyPaths installed under the user profile (LocalAppDataFolder). A
+    # per-machine target sidesteps that class of errors and is the normal scope
+    # for an MSI; per-user NSIS stays as the no-elevation option.
     $Product = Join-Path $BundleDir "product.wxs"
     @"
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="RevoStream" Language="1033" Version="$Version"
            Manufacturer="RevoProject" UpgradeCode="6f0b4a1c-9f4d-4b17-9d3e-7c1c5a90b1aa">
-    <Package InstallerVersion="200" Compressed="yes" InstallScope="perUser" Platform="x64"/>
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Platform="x64"/>
     <MajorUpgrade DowngradeErrorMessage="A newer version of RevoStream is already installed."/>
     <MediaTemplate EmbedCab="yes" CompressionLevel="high"/>
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="LocalAppDataFolder">
-        <Directory Id="ProgramsFolder" Name="Programs">
-          <Directory Id="INSTALLFOLDER" Name="RevoStream"/>
-        </Directory>
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="RevoStream"/>
       </Directory>
       <Directory Id="ProgramMenuFolder">
         <Directory Id="ApplicationShortcutDir" Name="RevoStream"/>
       </Directory>
     </Directory>
     <DirectoryRef Id="ApplicationShortcutDir">
-      <Component Id="ApplicationShortcut" Guid="*">
+      <Component Id="ApplicationShortcut" Guid="*" Win64="yes">
         <Shortcut Id="RevoStreamShortcut" Name="RevoStream" Target="[INSTALLFOLDER]revo-gpui.exe"
                   WorkingDirectory="INSTALLFOLDER"/>
         <RemoveFolder Id="ApplicationShortcutDir" On="uninstall"/>
-        <RegistryValue Root="HKCU" Key="Software\RevoProject\RevoStream" Name="shortcut"
+        <RegistryValue Root="HKLM" Key="Software\RevoProject\RevoStream" Name="shortcut"
                        Type="integer" Value="1" KeyPath="yes"/>
       </Component>
     </DirectoryRef>
