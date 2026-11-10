@@ -57,6 +57,10 @@ while IFS= read -r -d '' binary; do
   done < <(printf '%s\n' "$dependencies" | awk '/=> \/[^ ]+/ { print $3 }')
 done < <(find "$ROOT/core" -type f -print0)
 
+# patchelf rewrites load commands in place: a runtime staged from a read-only
+# store directory (Nix) must be made writable first.
+chmod -R u+rwX "$ROOT/core"
+
 # DT_RUNPATH is not transitive: each private library needs its own relative path.
 while IFS= read -r -d '' binary; do
   if ! patchelf --print-rpath "$binary" >/dev/null 2>&1; then
