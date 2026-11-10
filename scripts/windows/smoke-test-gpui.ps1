@@ -20,6 +20,10 @@ $EndpointFile = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID.endpoint"
 $Stdout = Join-Path $env:RUNNER_TEMP "revo-engine-smoke-$PID.log"
 if (Test-Path $EndpointFile) { Remove-Item -Force $EndpointFile }
 
+# The engine binary imports obs.dll, which the bundle stages inside revo-root;
+# expose it through PATH so the loader resolves it before the process starts.
+$env:PATH = (Join-Path $Stage "revo-root\core\lib") + ";" + $env:PATH
+
 Write-Host "=== Starting the packaged engine ==="
 $process = Start-Process -FilePath $Engine `
     -ArgumentList @("--endpoint-file", $EndpointFile) `
