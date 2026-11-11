@@ -6,7 +6,7 @@ pub enum ThemeKind {
     RevoFuture,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RevoTheme {
     pub background: Rgba,
     pub header: Rgba,

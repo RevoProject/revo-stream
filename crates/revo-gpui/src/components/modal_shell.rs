@@ -68,6 +68,27 @@ pub struct ModalShell {
     pub body: Vec<SharedString>,
 }
 
+/// Shared header close control for modal shells: an icon button that turns
+/// danger-red on hover (plan §2.3). The caller wires `on_click` because the
+/// listener is bound to the modal entity.
+pub fn close_x_button(id: &'static str, theme: RevoTheme) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(28.))
+        .h(px(28.))
+        .rounded_md()
+        .hover(|style| style.bg(theme.danger))
+        .child(crate::components::icon::icon(
+            theme.text_muted,
+            "close",
+            14.,
+        ))
+}
+
 impl ModalShell {
     pub fn new(config: ModalConfig, theme: RevoTheme, body: Vec<SharedString>) -> Self {
         Self {
@@ -208,7 +229,8 @@ pub fn modal_shell_with_body(
     close: Option<gpui::AnyElement>,
 ) -> gpui::Div {
     // 15px top/bottom margin keeps every card inside the window; taller
-    // bodies scroll inside the card instead.
+    // bodies scroll inside the card instead. The shell occludes: while a
+    // modal is open, clicks must never land on the panels behind it.
     div()
         .flex()
         .items_center()
@@ -217,6 +239,7 @@ pub fn modal_shell_with_body(
         .pt(px(15.))
         .pb(px(15.))
         .bg(theme.overlay)
+        .occlude()
         .child(modal_card(config, theme, body, footer, close))
 }
 

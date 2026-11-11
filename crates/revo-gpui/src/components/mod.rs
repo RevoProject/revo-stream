@@ -1,6 +1,7 @@
 pub mod color_picker;
 pub mod context_menu;
 pub mod dropdown_picker;
+pub mod editable_text;
 pub mod font_picker;
 pub mod home;
 pub mod icon;
