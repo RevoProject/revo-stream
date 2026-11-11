@@ -2,7 +2,7 @@ use revo_core::planner::{
     centered_position, fit_scale, parse_resolution, stretch_scale, DEFAULT_SCENE_RESOLUTION,
 };
 
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
 
 use crate::theme::RevoTheme;
 
@@ -344,11 +344,15 @@ impl Render for GraphicPlannerPanel {
                 div()
                     .id("planner-close")
                     .cursor_pointer()
-                    .px_3()
-                    .py_2()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w(px(30.))
+                    .h(px(30.))
                     .rounded_md()
                     .bg(self.theme.surface_active)
-                    .child("Close")
+                    .hover(|style| style.bg(self.theme.danger))
+                    .child(crate::components::icon::icon(self.theme.text, "close", 14.))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.open = false;
                         cx.emit(PlannerEvent::Cancel);

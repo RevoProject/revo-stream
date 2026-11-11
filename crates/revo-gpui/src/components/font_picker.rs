@@ -14,7 +14,11 @@ use gpui::{
     MouseButton, Render, SharedString, Window,
 };
 
-use crate::{actions::FontField, components::text_field::apply_line_keystroke, theme::RevoTheme};
+use crate::{actions::FontField, components::editable_text::CaretField, theme::RevoTheme};
+
+/// Font size and left padding the filter box renders at.
+const FILTER_FONT_PX: f32 = 11.2;
+const FILTER_PAD_PX: f32 = 8.;
 
 /// Fixed popup geometry used for the viewport clamp.
 pub const FONT_PICKER_WIDTH: f32 = 260.0;
@@ -51,6 +55,7 @@ pub struct FontPickerPopup {
     pub fonts_loaded: bool,
     /// Case-insensitive filter draft.
     pub filter: String,
+    caret: CaretField,
     filter_focused: bool,
     main_focus: Option<FocusHandle>,
     pub theme: RevoTheme,
@@ -67,6 +72,7 @@ impl FontPickerPopup {
             fonts: Vec::new(),
             fonts_loaded: false,
             filter: String::new(),
+            caret: CaretField::default(),
             filter_focused: false,
             main_focus: Some(cx.focus_handle()),
             theme,
@@ -135,15 +141,18 @@ impl Render for FontPickerPopup {
         let y = (self.position.1 + ANCHOR_DROP)
             .clamp(MARGIN, (viewport_h - PICKER_MAX_HEIGHT - MARGIN).max(0.0));
 
-        let filter_field = div()
+        self.caret.set_value(self.filter.clone());
+        let filter_focused = self.filter_focused;
+        let mut filter_field = div()
             .id("font-picker-filter")
+            .relative()
             .cursor_pointer()
             .w_full()
             .px_2()
             .py_1()
             .rounded_md()
             .border_1()
-            .border_color(if self.filter_focused {
+            .border_color(if filter_focused {
                 theme.accent
             } else {
                 theme.border_strong
@@ -157,19 +166,37 @@ impl Render for FontPickerPopup {
             .text_size(px(11.2))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     this.filter_focused = true;
+                    this.caret.place_caret(
+                        window,
+                        event.position.x,
+                        &this.filter,
+                        FILTER_FONT_PX,
+                        FILTER_PAD_PX,
+                    );
                     if let Some(focus) = this.main_focus.clone() {
                         focus.focus(window);
                     }
                     cx.notify();
                 }),
-            )
-            .child(if self.filter.is_empty() {
+            );
+        filter_field = if filter_focused {
+            filter_field.child(self.caret.display(
+                window,
+                FILTER_FONT_PX,
+                FILTER_PAD_PX,
+                theme.text,
+                theme.accent,
+            ))
+        } else {
+            filter_field.child(if self.filter.is_empty() {
                 SharedString::from("Filter fonts…")
             } else {
                 SharedString::from(self.filter.clone())
-            });
+            })
+        };
+        let filter_field = filter_field.child(self.caret.bounds_probe());
 
         let mut list = div()
             .id("font-picker-list")
@@ -257,15 +284,7 @@ impl Render for FontPickerPopup {
                 if !this.filter_focused {
                     return;
                 }
-                let keystroke = &event.keystroke;
-                if let Some(next) = apply_line_keystroke(
-                    &this.filter,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ) {
+                if let Some(next) = this.caret.keystroke(event, &this.filter) {
                     this.filter = next;
                 }
                 cx.notify();
@@ -321,6 +340,7 @@ mod tests {
             fonts: Vec::new(),
             fonts_loaded: false,
             filter: String::new(),
+            caret: CaretField::default(),
             filter_focused: false,
             main_focus: None,
             theme: RevoTheme::future(),

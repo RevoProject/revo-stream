@@ -8,11 +8,16 @@ use gpui::{
 };
 
 use crate::{
+    components::editable_text::CaretField,
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
     components::naming::default_scene_name,
-    components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
+
+/// Font size and left padding the name box renders at; caret geometry must
+/// match the painted glyphs (plan §5.1).
+const FIELD_FONT_PX: f32 = 13.;
+const FIELD_PAD_PX: f32 = 8.;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AddSceneEvent {
@@ -31,6 +36,7 @@ pub struct AddSceneModal {
     field_focus: FocusHandle,
     field_focused: bool,
     error: Option<String>,
+    caret: CaretField,
 }
 
 impl EventEmitter<AddSceneEvent> for AddSceneModal {}
@@ -42,14 +48,15 @@ impl Focusable for AddSceneModal {
 }
 
 impl AddSceneModal {
-    pub fn new(existing_names: Vec<String>, cx: &mut Context<Self>) -> Self {
+    pub fn new(existing_names: Vec<String>, theme: RevoTheme, cx: &mut Context<Self>) -> Self {
         Self {
-            theme: RevoTheme::future(),
+            theme,
             existing_names,
             name: String::new(),
             field_focus: cx.focus_handle(),
             field_focused: false,
             error: None,
+            caret: CaretField::default(),
         }
     }
 
@@ -68,7 +75,58 @@ impl AddSceneModal {
         cx.emit(AddSceneEvent::Created { name });
     }
 
-    fn name_field(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn name_field(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
+        let focused = self.field_focused;
+        self.caret.set_value(self.name.clone());
+        let value_box = div()
+            .id("add-scene-field")
+            .relative()
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if focused {
+                self.theme.accent
+            } else {
+                self.theme.border_strong
+            })
+            .bg(self.theme.surface_elevated)
+            .text_color(if self.name.is_empty() {
+                self.theme.text_muted
+            } else {
+                self.theme.text
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.field_focused = true;
+                    this.caret.place_caret(
+                        window,
+                        event.position.x,
+                        &this.name,
+                        FIELD_FONT_PX,
+                        FIELD_PAD_PX,
+                    );
+                    this.field_focus.focus(window);
+                    cx.notify();
+                }),
+            );
+        let value_box = if focused {
+            value_box.child(self.caret.display(
+                window,
+                FIELD_FONT_PX,
+                FIELD_PAD_PX,
+                self.theme.text,
+                self.theme.accent,
+            ))
+        } else {
+            value_box.child(if self.name.is_empty() {
+                SharedString::from(self.default_name())
+            } else {
+                SharedString::from(self.name.clone())
+            })
+        };
         div()
             .flex()
             .flex_col()
@@ -79,44 +137,12 @@ impl AddSceneModal {
                     .text_size(gpui::px(12.))
                     .child("Scene name"),
             )
-            .child(
-                div()
-                    .id("add-scene-field")
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if self.field_focused {
-                        self.theme.accent
-                    } else {
-                        self.theme.border_strong
-                    })
-                    .bg(self.theme.surface_elevated)
-                    .text_color(if self.name.is_empty() {
-                        self.theme.text_muted
-                    } else {
-                        self.theme.text
-                    })
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            this.field_focused = true;
-                            this.field_focus.focus(window);
-                            cx.notify();
-                        }),
-                    )
-                    .child(if self.name.is_empty() {
-                        SharedString::from(self.default_name())
-                    } else {
-                        SharedString::from(self.name.clone())
-                    }),
-            )
+            .child(value_box.child(self.caret.bounds_probe()))
     }
 }
 
 impl Render for AddSceneModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let error_note = self.error.clone().unwrap_or_default();
 
         let config = ModalConfig::standard("Add Scene", ModalSize::Small);
@@ -169,26 +195,15 @@ impl Render for AddSceneModal {
 
         let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
             if this.field_focused {
-                let keystroke = &event.keystroke;
-                if let Some(next) = apply_line_keystroke(
-                    &this.name,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ) {
+                if let Some(next) = this.caret.keystroke(event, &this.name) {
                     this.name = next;
+                    this.error = None;
                 }
                 cx.notify();
             }
         });
 
-        let close = div()
-            .id("add-scene-close")
-            .cursor_pointer()
-            .text_color(self.theme.text_muted)
-            .child("Close")
+        let close = crate::components::modal_shell::close_x_button("add-scene-close", self.theme)
             .on_click(cx.listener(|_, _, _, cx| cx.emit(AddSceneEvent::Cancelled)))
             .into_any_element();
         modal_shell_with_body(
@@ -200,7 +215,7 @@ impl Render for AddSceneModal {
                 .gap_2()
                 .size_full()
                 .track_focus(&self.field_focus)
-                .child(self.name_field(cx))
+                .child(self.name_field(window, cx))
                 .on_key_down(on_key),
             Some(footer),
             Some(close),

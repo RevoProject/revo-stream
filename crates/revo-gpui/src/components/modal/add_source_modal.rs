@@ -12,11 +12,15 @@ use revo_core::models::SourceTypeItem;
 
 use crate::{
     actions::{ColorField, ComponentEvent, FontField},
+    components::editable_text::CaretField,
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
     components::naming::default_source_name,
-    components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
+
+/// Font size and left padding shared by the name and option value boxes.
+const FIELD_FONT_PX: f32 = 13.;
+const FIELD_PAD_PX: f32 = 8.;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AddSourceEvent {
@@ -43,6 +47,8 @@ pub struct AddSourceModal {
     field_focus: FocusHandle,
     field_focused: bool,
     error: Option<String>,
+    name_caret: CaretField,
+    option_carets: std::collections::BTreeMap<String, CaretField>,
 }
 
 impl EventEmitter<AddSourceEvent> for AddSourceModal {}
@@ -62,10 +68,11 @@ impl AddSourceModal {
     pub fn new(
         source_types: Vec<SourceTypeItem>,
         existing_names: Vec<String>,
+        theme: RevoTheme,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
-            theme: RevoTheme::future(),
+            theme,
             source_types,
             existing_names,
             selected_type: None,
@@ -75,6 +82,8 @@ impl AddSourceModal {
             field_focus: cx.focus_handle(),
             field_focused: false,
             error: None,
+            name_caret: CaretField::default(),
+            option_carets: Default::default(),
         }
     }
 
@@ -411,7 +420,59 @@ impl AddSourceModal {
         section
     }
 
-    fn name_field(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn name_field(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
+        self.name_caret.set_value(self.name.clone());
+        let focused = self.field_focused;
+        let theme = self.theme;
+        let value_box = div()
+            .id("add-source-field")
+            .relative()
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if focused {
+                theme.accent
+            } else {
+                theme.border_strong
+            })
+            .bg(theme.surface_elevated)
+            .text_color(if self.name.is_empty() {
+                theme.text_muted
+            } else {
+                theme.text
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.field_focused = true;
+                    this.name_caret.place_caret(
+                        window,
+                        event.position.x,
+                        &this.name,
+                        FIELD_FONT_PX,
+                        FIELD_PAD_PX,
+                    );
+                    this.field_focus.focus(window);
+                    cx.notify();
+                }),
+            );
+        let value_box = if focused {
+            value_box.child(self.name_caret.display(
+                window,
+                FIELD_FONT_PX,
+                FIELD_PAD_PX,
+                theme.text,
+                theme.accent,
+            ))
+        } else {
+            value_box.child(if self.name.is_empty() {
+                SharedString::from(self.default_name().unwrap_or_else(|| "Source name…".into()))
+            } else {
+                SharedString::from(self.name.clone())
+            })
+        };
         div()
             .flex()
             .flex_col()
@@ -422,41 +483,7 @@ impl AddSourceModal {
                     .text_size(gpui::px(12.))
                     .child("Source name"),
             )
-            .child(
-                div()
-                    .id("add-source-field")
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if self.field_focused {
-                        self.theme.accent
-                    } else {
-                        self.theme.border_strong
-                    })
-                    .bg(self.theme.surface_elevated)
-                    .text_color(if self.name.is_empty() {
-                        self.theme.text_muted
-                    } else {
-                        self.theme.text
-                    })
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            this.field_focused = true;
-                            this.field_focus.focus(window);
-                            cx.notify();
-                        }),
-                    )
-                    .child(if self.name.is_empty() {
-                        SharedString::from(
-                            self.default_name().unwrap_or_else(|| "Source name…".into()),
-                        )
-                    } else {
-                        SharedString::from(self.name.clone())
-                    }),
-            )
+            .child(value_box.child(self.name_caret.bounds_probe()))
     }
 
     fn type_tiles(&mut self, cx: &mut Context<Self>) -> gpui::Div {
@@ -536,7 +563,7 @@ impl AddSourceModal {
 }
 
 impl Render for AddSourceModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let error_note = self.error.clone().unwrap_or_default();
 
         let config = ModalConfig::standard("Add Source", ModalSize::Large);
@@ -588,7 +615,6 @@ impl Render for AddSourceModal {
             .into_any_element();
 
         let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
-            let keystroke = &event.keystroke;
             // Option fields take priority when focused; otherwise the name.
             if let Some(option_key) = this.focused_option.clone() {
                 let current = this
@@ -596,39 +622,25 @@ impl Render for AddSourceModal {
                     .get(&option_key)
                     .cloned()
                     .unwrap_or_default();
-                if let Some(next) = apply_line_keystroke(
-                    &current,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ) {
+                let changed = {
+                    let caret = this.option_carets.entry(option_key.clone()).or_default();
+                    caret.keystroke(event, &current)
+                };
+                if let Some(next) = changed {
                     this.option_values.insert(option_key, next);
                     cx.notify();
                     return;
                 }
             }
             if this.field_focused {
-                if let Some(next) = apply_line_keystroke(
-                    &this.name,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ) {
+                if let Some(next) = this.name_caret.keystroke(event, &this.name) {
                     this.name = next;
                 }
                 cx.notify();
             }
         });
 
-        let close = div()
-            .id("add-source-close")
-            .cursor_pointer()
-            .text_color(self.theme.text_muted)
-            .child("Close")
+        let close = crate::components::modal_shell::close_x_button("add-source-close", self.theme)
             .on_click(cx.listener(|_, _, _, cx| cx.emit(AddSourceEvent::Cancelled)))
             .into_any_element();
         modal_shell_with_body(
@@ -641,7 +653,7 @@ impl Render for AddSourceModal {
                 .size_full()
                 .track_focus(&self.field_focus)
                 .child(self.type_tiles(cx))
-                .child(self.name_field(cx))
+                .child(self.name_field(window, cx))
                 .on_key_down(on_key),
             Some(footer),
             Some(close),

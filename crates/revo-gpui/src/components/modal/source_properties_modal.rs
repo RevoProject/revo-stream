@@ -17,10 +17,20 @@ use revo_core::planner;
 
 use crate::{
     actions::{ColorField, ComponentEvent, DropdownField, FontField},
+    components::editable_text::{
+        caret_index_at_x, render_caret_value, CaretSession, EditModifiers,
+    },
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
-    components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+/// Value boxes measure and render their caret with these shared metrics
+/// (plan §5.1 applied to the source editor).
+const PROP_FONT_PX: f32 = 13.;
+const PROP_PAD_PX: f32 = 8.;
 
 /// Minimum height of one transform row (Svelte row spacing parity + 15%).
 const TRANSFORM_ROW_MIN_HEIGHT: f32 = 50.0;
@@ -258,6 +268,10 @@ pub struct SourcePropertiesModal {
     pub notice: Option<String>,
     focused_field: Option<usize>,
     main_focus: FocusHandle,
+    /// Caret/selection session per focused slot index (plan §14.0).
+    sessions: HashMap<usize, CaretSession>,
+    /// Per-slot bounds probes for click-to-caret mapping.
+    field_bounds: HashMap<usize, Rc<RefCell<Option<gpui::Bounds<gpui::Pixels>>>>>,
 }
 
 impl EventEmitter<SourcePropertiesEvent> for SourcePropertiesModal {}
@@ -292,6 +306,7 @@ impl SourcePropertiesModal {
         source_type: String,
         transform: Option<revo_core::service::PlacedSource>,
         canvas: Option<String>,
+        theme: RevoTheme,
         cx: &mut Context<Self>,
     ) -> Self {
         Self::build(
@@ -301,6 +316,7 @@ impl SourcePropertiesModal {
             transform,
             canvas,
             false,
+            theme,
             cx,
         )
     }
@@ -312,6 +328,7 @@ impl SourcePropertiesModal {
         source_type: String,
         transform: Option<revo_core::service::PlacedSource>,
         canvas: Option<String>,
+        theme: RevoTheme,
         cx: &mut Context<Self>,
     ) -> Self {
         Self::build(
@@ -321,6 +338,7 @@ impl SourcePropertiesModal {
             transform,
             canvas,
             true,
+            theme,
             cx,
         )
     }
@@ -332,10 +350,11 @@ impl SourcePropertiesModal {
         transform: Option<revo_core::service::PlacedSource>,
         canvas: Option<String>,
         editor: bool,
+        theme: RevoTheme,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut modal = Self {
-            theme: RevoTheme::future(),
+            theme,
             source_id,
             source_name: source_name.clone(),
             source_type,
@@ -347,11 +366,14 @@ impl SourcePropertiesModal {
             new_filter_name: String::new(),
             expanded_filter: None,
             filter_settings: None,
-            pos_x: NumberDraft::default(),
-            pos_y: NumberDraft::default(),
-            width: NumberDraft::default(),
-            height: NumberDraft::default(),
-            rotation: NumberDraft::default(),
+            // New sources without a placed transform would otherwise start
+            // empty and block Apply with "must be a whole number" (plan
+            // §14.0): seed the real 0s the boxes already displayed.
+            pos_x: NumberDraft { value: "0".into() },
+            pos_y: NumberDraft { value: "0".into() },
+            width: NumberDraft { value: "0".into() },
+            height: NumberDraft { value: "0".into() },
+            rotation: NumberDraft { value: "0".into() },
             name_draft: source_name,
             params: Vec::new(),
             seeded_params: Vec::new(),
@@ -364,6 +386,8 @@ impl SourcePropertiesModal {
             notice: None,
             focused_field: None,
             main_focus: cx.focus_handle(),
+            sessions: HashMap::new(),
+            field_bounds: HashMap::new(),
         };
         if let Some(transform) = transform {
             modal.pos_x.set(transform.x);
@@ -614,6 +638,10 @@ impl SourcePropertiesModal {
             transform,
             previous_transform: self.seeded_transform,
         });
+        // Plan §14.4: a successful editor save dismisses the modal (the
+        // workspace treats `Cancelled` as "close"); every validation error
+        // above returns earlier and keeps the draft open.
+        cx.emit(SourcePropertiesEvent::Cancelled);
         cx.notify();
     }
 
@@ -682,15 +710,16 @@ impl SourcePropertiesModal {
     }
 
     fn text_field(
-        &self,
+        &mut self,
         id: &'static str,
         focused: bool,
         display: String,
         show_swatch: bool,
         on_click_field: usize,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        div()
+        let text_field_box = div()
             .id(id)
             .cursor_pointer()
             .flex_1()
@@ -698,6 +727,7 @@ impl SourcePropertiesModal {
             .px_2()
             .py_1()
             .rounded_md()
+            .relative()
             .border_1()
             .border_color(if focused {
                 self.theme.accent
@@ -715,9 +745,8 @@ impl SourcePropertiesModal {
             .gap_2()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, window, cx| {
-                    this.focused_field = Some(on_click_field);
-                    this.main_focus.focus(window);
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.focus_slot(on_click_field, event, window);
                     cx.notify();
                 }),
             )
@@ -739,122 +768,218 @@ impl SourcePropertiesModal {
             } else {
                 None
             })
-            .child(if display.is_empty() {
-                SharedString::from("…")
-            } else {
-                SharedString::from(display)
-            })
+            .child(self.slot_display(
+                on_click_field,
+                window,
+                display.clone(),
+                Some("…").filter(|_| !focused),
+            ));
+        text_field_box.child(self.bounds_probe(on_click_field))
+    }
+
+    /// Current draft text of an editable slot (`None` for non-text slots).
+    fn slot_text(&self, index: usize) -> Option<String> {
+        if index == NAME_FIELD_SLOT {
+            return Some(self.name_draft.clone());
+        }
+        if index == FILTER_NAME_SLOT {
+            return Some(self.new_filter_name.clone());
+        }
+        if index >= FILTER_PARAM_SLOT_BASE {
+            let fd = self
+                .filter_settings
+                .as_ref()?
+                .drafts
+                .get(index - FILTER_PARAM_SLOT_BASE)?
+                .1
+                .clone();
+            return match fd {
+                ParamDraft::Text(value) => Some(value),
+                _ => None,
+            };
+        }
+        if index < TRANSFORM_FIELD_COUNT {
+            let draft = match index {
+                0 => &self.pos_x,
+                1 => &self.pos_y,
+                2 => &self.width,
+                3 => &self.height,
+                _ => &self.rotation,
+            };
+            return Some(draft.value.clone());
+        }
+        let (_, draft) = self.params.get(index - TRANSFORM_FIELD_COUNT)?;
+        match draft {
+            ParamDraft::Text(value) => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    /// Writes a slot's text back into its store (mirrors the legacy
+    /// per-slot key routing, now driven by `CaretSession`).
+    fn set_slot_text(&mut self, index: usize, value: String) {
+        if index == NAME_FIELD_SLOT {
+            self.name_draft = value;
+            return;
+        }
+        if index == FILTER_NAME_SLOT {
+            self.new_filter_name = value;
+            return;
+        }
+        if index >= FILTER_PARAM_SLOT_BASE {
+            if let Some(draft) = self.filter_settings.as_mut() {
+                if let Some((_, fd)) = draft.drafts.get_mut(index - FILTER_PARAM_SLOT_BASE) {
+                    if let ParamDraft::Text(slot) = fd {
+                        *slot = value;
+                    }
+                }
+            }
+            return;
+        }
+        if index < TRANSFORM_FIELD_COUNT {
+            let draft = match index {
+                0 => &mut self.pos_x,
+                1 => &mut self.pos_y,
+                2 => &mut self.width,
+                3 => &mut self.height,
+                _ => &mut self.rotation,
+            };
+            draft.value = value;
+            return;
+        }
+        if let Some((_, ParamDraft::Text(slot))) =
+            self.params.get_mut(index - TRANSFORM_FIELD_COUNT)
+        {
+            *slot = value;
+        }
+    }
+
+    /// Focuses a slot from a pointer press and places the caret at the
+    /// clicked character using the slot's last recorded bounds.
+    fn focus_slot(&mut self, index: usize, event: &gpui::MouseDownEvent, window: &mut Window) {
+        let was_focused = self.focused_field == Some(index);
+        self.focused_field = Some(index);
+        self.main_focus.focus(window);
+        let Some(value) = self.slot_text(index) else {
+            return;
+        };
+        let mut session = self
+            .sessions
+            .remove(&index)
+            .unwrap_or_else(|| CaretSession::new(value.clone()));
+        if !was_focused {
+            session.sync_value(value);
+        }
+        let bounds = self.field_bounds.get(&index).and_then(|c| *c.borrow());
+        let origin_x = bounds
+            .map(|b| f32::from(b.origin.x))
+            .unwrap_or(f32::MIN / 4.);
+        let local_x = f32::from(event.position.x) - origin_x - PROP_PAD_PX;
+        let caret = caret_index_at_x(window, &session.value, local_x.max(0.), PROP_FONT_PX);
+        session.set_caret(caret, false);
+        self.sessions.insert(index, session);
+    }
+
+    /// Paints one value box: caret + selection while focused, plain text
+    /// otherwise (with the caller's empty placeholder).
+    fn slot_display(
+        &mut self,
+        index: usize,
+        window: &Window,
+        fallback: String,
+        empty_hint: Option<&str>,
+    ) -> gpui::AnyElement {
+        if self.focused_field == Some(index) {
+            let mut session = self
+                .sessions
+                .remove(&index)
+                .unwrap_or_else(|| CaretSession::new(fallback.clone()));
+            session.sync_value(fallback.clone());
+            let selection_bg = gpui::Rgba {
+                a: 0.3,
+                ..self.theme.accent
+            };
+            let element = render_caret_value(
+                window,
+                &session,
+                PROP_FONT_PX,
+                PROP_PAD_PX,
+                self.theme.text,
+                self.theme.accent,
+                selection_bg,
+            );
+            self.sessions.insert(index, session);
+            element
+        } else {
+            div()
+                .child(match empty_hint {
+                    Some(hint) if fallback.is_empty() => SharedString::from(hint.to_string()),
+                    _ => SharedString::from(fallback),
+                })
+                .into_any_element()
+        }
+    }
+
+    /// Zero-paint canvas recording where a slot's box actually rendered, so
+    /// the next click can map pointer-x onto a caret index.
+    fn bounds_probe(&mut self, index: usize) -> gpui::AnyElement {
+        let cell = self
+            .field_bounds
+            .entry(index)
+            .or_insert_with(|| Rc::new(RefCell::new(None)))
+            .clone();
+        gpui::canvas(
+            move |bounds, _, _| *cell.borrow_mut() = Some(bounds),
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
     }
 
     fn on_field_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let Some(index) = self.focused_field else {
             return;
         };
-        let keystroke = &event.keystroke;
-        if index == NAME_FIELD_SLOT {
-            if let Some(next) = apply_line_keystroke(
-                &self.name_draft,
-                &keystroke.key,
-                keystroke.key_char.as_deref(),
-                keystroke.modifiers.control,
-                keystroke.modifiers.alt,
-                keystroke.modifiers.platform,
-            ) {
-                self.name_draft = next;
-                self.notice = None;
-            }
-            cx.notify();
+        let Some(value) = self.slot_text(index) else {
             return;
-        }
-        if index == FILTER_NAME_SLOT {
-            if let Some(next) = apply_line_keystroke(
-                &self.new_filter_name,
-                &keystroke.key,
-                keystroke.key_char.as_deref(),
-                keystroke.modifiers.control,
-                keystroke.modifiers.alt,
-                keystroke.modifiers.platform,
-            ) {
-                self.new_filter_name = next;
-                self.notice = None;
-            }
-            cx.notify();
-            return;
-        }
-        let next = if index >= FILTER_PARAM_SLOT_BASE {
-            let param_index = index - FILTER_PARAM_SLOT_BASE;
-            let Some(draft) = self.filter_settings.as_mut() else {
-                return;
-            };
-            let Some((_, fd)) = draft.drafts.get_mut(param_index) else {
-                return;
-            };
-            match fd {
-                ParamDraft::Text(value) => apply_line_keystroke(
-                    value,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ),
-                ParamDraft::Bool(_) | ParamDraft::List { .. } => None,
-            }
-        } else if index < TRANSFORM_FIELD_COUNT {
-            let value = match index {
-                0 => &mut self.pos_x.value,
-                1 => &mut self.pos_y.value,
-                2 => &mut self.width.value,
-                3 => &mut self.height.value,
-                _ => &mut self.rotation.value,
-            };
-            apply_line_keystroke(
-                value,
-                &keystroke.key,
-                keystroke.key_char.as_deref(),
-                keystroke.modifiers.control,
-                keystroke.modifiers.alt,
-                keystroke.modifiers.platform,
-            )
-        } else {
-            let param_index = index - TRANSFORM_FIELD_COUNT;
-            let Some((_, draft)) = self.params.get_mut(param_index) else {
-                return;
-            };
-            match draft {
-                ParamDraft::Text(value) => apply_line_keystroke(
-                    value,
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                ),
-                ParamDraft::Bool(_) | ParamDraft::List { .. } => None,
-            }
         };
-        if next.is_some() {
+        let keystroke = &event.keystroke;
+        let mods = EditModifiers {
+            control: keystroke.modifiers.control,
+            alt: keystroke.modifiers.alt,
+            platform: keystroke.modifiers.platform,
+            shift: keystroke.modifiers.shift,
+        };
+        let mut session = self
+            .sessions
+            .remove(&index)
+            .unwrap_or_else(|| CaretSession::new(value.clone()));
+        session.sync_value(value);
+        if session.apply_keystroke(&keystroke.key, keystroke.key_char.as_deref(), mods) {
+            self.set_slot_text(index, session.value.clone());
             self.notice = None;
         }
+        self.sessions.insert(index, session);
         cx.notify();
     }
 
-    fn transform_rows(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn transform_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
         let pos_row = div()
             .flex()
             .flex_row()
             .gap_2()
             .min_h(px(TRANSFORM_ROW_MIN_HEIGHT))
-            .child(self.number_field("Position X", 0, self.pos_x.value.clone(), cx))
-            .child(self.number_field("Position Y", 1, self.pos_y.value.clone(), cx));
+            .child(self.number_field("Position X", 0, self.pos_x.value.clone(), window, cx))
+            .child(self.number_field("Position Y", 1, self.pos_y.value.clone(), window, cx));
         let size_row = div()
             .flex()
             .flex_row()
             .gap_2()
             .min_h(px(TRANSFORM_ROW_MIN_HEIGHT))
-            .child(self.number_field("Width", 2, self.width.value.clone(), cx))
-            .child(self.number_field("Height", 3, self.height.value.clone(), cx))
-            .child(self.number_field("Rotation", 4, self.rotation.value.clone(), cx));
+            .child(self.number_field("Width", 2, self.width.value.clone(), window, cx))
+            .child(self.number_field("Height", 3, self.height.value.clone(), window, cx))
+            .child(self.number_field("Rotation", 4, self.rotation.value.clone(), window, cx));
         div()
             .flex()
             .flex_col()
@@ -866,6 +991,7 @@ impl SourcePropertiesModal {
     /// One typed property row: bool toggle, list cycler, or text field.
     fn param_row(
         &mut self,
+        window: &mut Window,
         spec: &SourcePropertySpec,
         draft: &mut ParamDraft,
         param_index: usize,
@@ -969,6 +1095,7 @@ impl SourcePropertiesModal {
                     value.clone(),
                     kind == "color",
                     field_index,
+                    window,
                     cx,
                 ));
                 if kind == "color" || kind == "font" {
@@ -1058,12 +1185,44 @@ impl SourcePropertiesModal {
     }
 
     fn number_field(
-        &self,
+        &mut self,
         label: &str,
         field_index: usize,
         value: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
+        let focused = self.focused_field == Some(field_index);
+        let box_ = div()
+            .id(SharedString::from(format!(
+                "source-property-field-{field_index}"
+            )))
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .relative()
+            .border_1()
+            .border_color(if focused {
+                self.theme.accent
+            } else {
+                self.theme.border_strong
+            })
+            .bg(self.theme.surface_elevated)
+            .text_color(if value.is_empty() {
+                self.theme.text_muted
+            } else {
+                self.theme.text
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.focus_slot(field_index, event, window);
+                    cx.notify();
+                }),
+            )
+            .child(self.slot_display(field_index, window, value.clone(), Some("0")))
+            .child(self.bounds_probe(field_index));
         div()
             .flex()
             .flex_col()
@@ -1076,44 +1235,10 @@ impl SourcePropertiesModal {
                     .text_size(px(11.))
                     .child(label.to_string()),
             )
-            .child(
-                div()
-                    .id(SharedString::from(format!(
-                        "source-property-field-{field_index}"
-                    )))
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if self.focused_field == Some(field_index) {
-                        self.theme.accent
-                    } else {
-                        self.theme.border_strong
-                    })
-                    .bg(self.theme.surface_elevated)
-                    .text_color(if value.is_empty() {
-                        self.theme.text_muted
-                    } else {
-                        self.theme.text
-                    })
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
-                            this.focused_field = Some(field_index);
-                            this.main_focus.focus(window);
-                            cx.notify();
-                        }),
-                    )
-                    .child(if value.is_empty() {
-                        SharedString::from("0")
-                    } else {
-                        SharedString::from(value)
-                    }),
-            )
+            .child(box_)
     }
 
-    fn property_rows(&mut self, cx: &mut Context<Self>) -> gpui::Div {
+    fn property_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
         let mut rows = div().flex().flex_col().gap_2().min_h(px(120.));
         if !self.settings_loaded {
             rows = rows.child(
@@ -1152,7 +1277,7 @@ impl SourcePropertiesModal {
                 );
                 continue;
             }
-            let row = self.param_row(&spec, &mut draft, index, cx);
+            let row = self.param_row(window, &spec, &mut draft, index, cx);
             self.params[index].1 = draft;
             rows = rows.child(row);
         }
@@ -1328,7 +1453,7 @@ impl SourcePropertiesModal {
 
     /// The working Filters tab: list with enabled toggles and remove, plus
     /// the add row (kind dropdown + name).
-    fn filters_body(&mut self, cx: &mut Context<Self>) -> gpui::Div {
+    fn filters_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
         let mut body = div().flex().flex_col().gap_2();
         let Some(filters) = self.filters.clone() else {
             return body.child(
@@ -1456,7 +1581,7 @@ impl SourcePropertiesModal {
                 );
             body = body.child(row);
             if expanded {
-                body = body.child(self.filter_settings_body(&item, cx));
+                body = body.child(self.filter_settings_body(window, &item, cx));
             }
         }
         // Add-filter row: kind cycle + name + add button.
@@ -1533,6 +1658,7 @@ impl SourcePropertiesModal {
                             .px_2()
                             .py_1()
                             .rounded_md()
+                            .relative()
                             .border_1()
                             .border_color(if self.focused_field == Some(FILTER_NAME_SLOT) {
                                 self.theme.accent
@@ -1547,17 +1673,18 @@ impl SourcePropertiesModal {
                             })
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(|this, _, window, cx| {
-                                    this.focused_field = Some(FILTER_NAME_SLOT);
-                                    this.main_focus.focus(window);
+                                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                                    this.focus_slot(FILTER_NAME_SLOT, event, window);
                                     cx.notify();
                                 }),
                             )
-                            .child(if self.new_filter_name.is_empty() {
-                                SharedString::from("Filter name…")
-                            } else {
-                                SharedString::from(self.new_filter_name.clone())
-                            }),
+                            .child(self.slot_display(
+                                FILTER_NAME_SLOT,
+                                window,
+                                self.new_filter_name.clone(),
+                                Some("Filter name…"),
+                            ))
+                            .child(self.bounds_probe(FILTER_NAME_SLOT)),
                     )
                     .child(
                         div()
@@ -1607,6 +1734,7 @@ impl SourcePropertiesModal {
     /// Edits stay in the working draft until Apply.
     fn filter_settings_body(
         &mut self,
+        window: &mut Window,
         item: &revo_core::models::SourceFilterItem,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
@@ -1650,7 +1778,7 @@ impl SourcePropertiesModal {
                 );
                 continue;
             }
-            let field = self.filter_param_field(&spec, fd, index, cx);
+            let field = self.filter_param_field(window, &spec, fd, index, cx);
             body = body.child(
                 div()
                     .flex()
@@ -1683,6 +1811,7 @@ impl SourcePropertiesModal {
     /// color/font picker triggers for the matching kinds.
     fn filter_param_field(
         &mut self,
+        window: &mut Window,
         spec: &SourcePropertySpec,
         fd: ParamDraft,
         param_index: usize,
@@ -1792,7 +1921,15 @@ impl SourcePropertiesModal {
                         .items_center()
                         .gap_2()
                         .flex_1()
-                        .child(self.text_field(id, focused, value.clone(), true, field_index, cx))
+                        .child(self.text_field(
+                            id,
+                            focused,
+                            value.clone(),
+                            true,
+                            field_index,
+                            window,
+                            cx,
+                        ))
                         .child(
                             div()
                                 .id(SharedString::from(format!(
@@ -1829,7 +1966,7 @@ impl SourcePropertiesModal {
                         );
                     row.into_any_element()
                 } else {
-                    self.text_field(id, focused, value, false, field_index, cx)
+                    self.text_field(id, focused, value, false, field_index, window, cx)
                         .into_any_element()
                 }
             }
@@ -1837,15 +1974,20 @@ impl SourcePropertiesModal {
     }
 
     /// The editable name row (editor mode).
-    fn name_row(&mut self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    fn name_row(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
         let focused = self.focused_field == Some(NAME_FIELD_SLOT);
-        div()
+        let box_ = div()
             .id("source-editor-name")
             .cursor_pointer()
             .w_full()
             .px_2()
             .py_1()
             .rounded_md()
+            .relative()
             .border_1()
             .border_color(if focused {
                 self.theme.accent
@@ -1860,22 +2002,24 @@ impl SourcePropertiesModal {
             })
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    this.focused_field = Some(NAME_FIELD_SLOT);
-                    this.main_focus.focus(window);
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.focus_slot(NAME_FIELD_SLOT, event, window);
                     cx.notify();
                 }),
             )
-            .child(if self.name_draft.is_empty() {
-                SharedString::from("Source name…")
-            } else {
-                SharedString::from(self.name_draft.clone())
-            })
+            .child(self.slot_display(
+                NAME_FIELD_SLOT,
+                window,
+                self.name_draft.clone(),
+                Some("Source name…"),
+            ))
+            .child(self.bounds_probe(NAME_FIELD_SLOT));
+        box_
     }
 }
 
 impl Render for SourcePropertiesModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let error_note = self.error.clone().unwrap_or_default();
         let notice = self.notice.clone().unwrap_or_default();
 
@@ -2077,7 +2221,7 @@ impl Render for SourcePropertiesModal {
             .track_focus(&self.main_focus)
             .child(header);
         if self.editor {
-            body = body.child(self.name_row(cx));
+            body = body.child(self.name_row(window, cx));
             match self.active_tab {
                 EditorTab::General => {
                     body = body
@@ -2087,25 +2231,22 @@ impl Render for SourcePropertiesModal {
                                 .text_size(px(11.))
                                 .child("Source properties"),
                         )
-                        .child(self.property_rows(cx));
+                        .child(self.property_rows(window, cx));
                 }
-                EditorTab::Filters => body = body.child(self.filters_body(cx)),
+                EditorTab::Filters => body = body.child(self.filters_body(window, cx)),
                 EditorTab::Other => {
-                    body = body.child(self.transform_rows(cx));
+                    body = body.child(self.transform_rows(window, cx));
                 }
             }
         } else {
-            body = body.child(self.transform_rows(cx));
+            body = body.child(self.transform_rows(window, cx));
         }
         body = body.on_key_down(on_key);
 
-        let close = div()
-            .id("source-properties-close")
-            .cursor_pointer()
-            .text_color(self.theme.text_muted)
-            .child("Close")
-            .on_click(cx.listener(|_, _, _, cx| cx.emit(SourcePropertiesEvent::Cancelled)))
-            .into_any_element();
+        let close =
+            crate::components::modal_shell::close_x_button("source-properties-close", self.theme)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(SourcePropertiesEvent::Cancelled)))
+                .into_any_element();
 
         modal_shell_with_body(&config, self.theme, body, Some(footer), Some(close))
     }
@@ -2190,5 +2331,170 @@ mod tests {
             "left"
         );
         assert_eq!(ParamDraft::Text("hex".into()).value(), "hex");
+    }
+}
+
+#[cfg(test)]
+mod source_caret_tests {
+    use super::*;
+    use gpui::TestAppContext;
+
+    fn placed() -> revo_core::service::PlacedSource {
+        revo_core::service::PlacedSource {
+            id: "src-1".into(),
+            x: 1920,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            rotation: 0,
+        }
+    }
+
+    #[gpui::test]
+    fn transform_slot_edits_at_the_caret(cx: &mut TestAppContext) {
+        let (entity, cx) = cx.add_window_view(|window, cx| {
+            let _ = window;
+            SourcePropertiesModal::new(
+                "src-1".into(),
+                "Camera".into(),
+                "display_capture".into(),
+                Some(placed()),
+                Some("1920x1080".into()),
+                RevoTheme::future(),
+                cx,
+            )
+        });
+        cx.update(|window, cx| {
+            entity.update(cx, |modal, cx| {
+                modal.focused_field = Some(2);
+                modal.main_focus.focus(window);
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes("left left x");
+        cx.run_until_parked();
+        entity.update(cx, |modal, _| {
+            assert_eq!(
+                modal.width.value, "19x20",
+                "navigation then insert must edit inside the numeric draft"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn backspace_deletes_left_of_the_caret(cx: &mut TestAppContext) {
+        let (entity, cx) = cx.add_window_view(|window, cx| {
+            let _ = window;
+            SourcePropertiesModal::new(
+                "src-1".into(),
+                "Camera".into(),
+                "display_capture".into(),
+                Some(placed()),
+                Some("1920x1080".into()),
+                RevoTheme::future(),
+                cx,
+            )
+        });
+        cx.update(|window, cx| {
+            entity.update(cx, |modal, cx| {
+                modal.focused_field = Some(3); // height "1080"
+                modal.main_focus.focus(window);
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes("home delete delete");
+        cx.run_until_parked();
+        entity.update(cx, |modal, _| {
+            assert_eq!(modal.height.value, "80");
+        });
+    }
+
+    #[gpui::test]
+    fn editor_apply_success_emits_save_then_close(cx: &mut TestAppContext) {
+        let (entity, cx) = cx.add_window_view(|window, cx| {
+            let _ = window;
+            SourcePropertiesModal::new_editor(
+                "src-1".into(),
+                "Text".into(),
+                "text_gdiplus".into(),
+                None,
+                None,
+                RevoTheme::future(),
+                cx,
+            )
+        });
+        let mut events = cx.events(&entity);
+        entity.update(cx, |modal, cx| modal.apply_full(cx));
+        cx.run_until_parked();
+        let first = events
+            .try_next()
+            .expect("first event")
+            .expect("save event emitted");
+        assert!(
+            matches!(first, SourcePropertiesEvent::AppliedFull { .. }),
+            "save event must come first: {first:?}"
+        );
+        let second = events
+            .try_next()
+            .expect("second event")
+            .expect("close event emitted");
+        assert!(
+            matches!(second, SourcePropertiesEvent::Cancelled),
+            "a successful save must dismiss the modal (plan §14.4): {second:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn fresh_editor_applies_with_seeded_zero_transform(cx: &mut TestAppContext) {
+        // Regression (plan §14.0): an unplaced new source used to fail Apply
+        // with "Position X must be a whole number" on empty drafts.
+        let (entity, cx) = cx.add_window_view(|window, cx| {
+            let _ = window;
+            SourcePropertiesModal::new_editor(
+                "src-1".into(),
+                "Text".into(),
+                "text_gdiplus".into(),
+                None,
+                None,
+                RevoTheme::future(),
+                cx,
+            )
+        });
+        entity.update(cx, |modal, cx| {
+            modal.apply_full(cx);
+            assert!(modal.error.is_none(), "unexpected error {:?}", modal.error);
+        });
+    }
+
+    #[gpui::test]
+    fn name_slot_routes_through_the_caret_session(cx: &mut TestAppContext) {
+        let (entity, cx) = cx.add_window_view(|window, cx| {
+            let _ = window;
+            SourcePropertiesModal::new_editor(
+                "src-1".into(),
+                "Text".into(),
+                "text_gdiplus".into(),
+                None,
+                None,
+                RevoTheme::future(),
+                cx,
+            )
+        });
+        cx.update(|window, cx| {
+            entity.update(cx, |modal, cx| {
+                modal.name_draft = "Title".into();
+                modal.focused_field = Some(NAME_FIELD_SLOT);
+                modal.main_focus.focus(window);
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes("home right X");
+        cx.run_until_parked();
+        entity.update(cx, |modal, _| {
+            assert_eq!(modal.name_draft, "TXitle");
+        });
     }
 }

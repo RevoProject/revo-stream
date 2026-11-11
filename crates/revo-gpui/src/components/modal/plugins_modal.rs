@@ -9,10 +9,15 @@ use gpui::{
 };
 
 use crate::{
+    components::editable_text::CaretField,
     components::modal::plugins_state::{PluginsDraft, PluginsEvent},
     components::modal_shell::{modal_shell_with_body, ModalConfig, ModalSize},
     theme::RevoTheme,
 };
+
+/// Font size and left padding the profile-name box renders at.
+const FIELD_FONT_PX: f32 = 13.;
+const FIELD_PAD_PX: f32 = 8.;
 
 /// Functional native Plugins modal.
 pub struct PluginsModal {
@@ -21,6 +26,7 @@ pub struct PluginsModal {
     name_focus: FocusHandle,
     name_focused: bool,
     commit_error: Option<String>,
+    name_caret: CaretField,
 }
 
 impl EventEmitter<PluginsEvent> for PluginsModal {}
@@ -32,13 +38,14 @@ impl Focusable for PluginsModal {
 }
 
 impl PluginsModal {
-    pub fn new(draft: PluginsDraft, cx: &mut Context<Self>) -> Self {
+    pub fn new(draft: PluginsDraft, theme: RevoTheme, cx: &mut Context<Self>) -> Self {
         Self {
             draft,
-            theme: RevoTheme::future(),
+            theme,
             name_focus: cx.focus_handle(),
             name_focused: false,
             commit_error: None,
+            name_caret: CaretField::default(),
         }
     }
 
@@ -130,8 +137,60 @@ impl PluginsModal {
             )
     }
 
-    fn name_field(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn name_field(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
         let value = self.draft.new_profile_name.clone();
+        self.name_caret.set_value(value.clone());
+        let focused = self.name_focused;
+        let theme = self.theme;
+        let value_box = div()
+            .id("plugins-name-field")
+            .relative()
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if focused {
+                theme.accent
+            } else {
+                theme.border_strong
+            })
+            .bg(theme.surface_elevated)
+            .text_color(if value.is_empty() {
+                theme.text_muted
+            } else {
+                theme.text
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.name_focused = true;
+                    this.name_caret.place_caret(
+                        window,
+                        event.position.x,
+                        &this.draft.new_profile_name,
+                        FIELD_FONT_PX,
+                        FIELD_PAD_PX,
+                    );
+                    this.name_focus.focus(window);
+                    cx.notify();
+                }),
+            );
+        let value_box = if focused {
+            value_box.child(self.name_caret.display(
+                window,
+                FIELD_FONT_PX,
+                FIELD_PAD_PX,
+                theme.text,
+                theme.accent,
+            ))
+        } else {
+            value_box.child(if value.is_empty() {
+                SharedString::from("Profile name…")
+            } else {
+                SharedString::from(value)
+            })
+        };
         div()
             .flex()
             .flex_col()
@@ -143,39 +202,7 @@ impl PluginsModal {
                     .text_size(gpui::px(12.))
                     .child("Save as new profile"),
             )
-            .child(
-                div()
-                    .id("plugins-name-field")
-                    .cursor_pointer()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if self.name_focused {
-                        self.theme.accent
-                    } else {
-                        self.theme.border_strong
-                    })
-                    .bg(self.theme.surface_elevated)
-                    .text_color(if value.is_empty() {
-                        self.theme.text_muted
-                    } else {
-                        self.theme.text
-                    })
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            this.name_focused = true;
-                            this.name_focus.focus(window);
-                            cx.notify();
-                        }),
-                    )
-                    .child(if value.is_empty() {
-                        SharedString::from("Profile name…")
-                    } else {
-                        SharedString::from(value)
-                    }),
-            )
+            .child(value_box.child(self.name_caret.bounds_probe()))
     }
 
     fn module_body(&mut self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
@@ -227,7 +254,7 @@ impl PluginsModal {
 }
 
 impl Render for PluginsModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mut rail = div().flex().flex_col().gap_1().w(gpui::px(200.));
         rail = rail.child(
             div()
@@ -288,7 +315,7 @@ impl Render for PluginsModal {
                     .gap_1()
                     .flex_1()
                     .min_w_0()
-                    .child(self.name_field(cx))
+                    .child(self.name_field(window, cx))
                     .child(
                         div()
                             .flex()
@@ -346,14 +373,13 @@ impl Render for PluginsModal {
 
         let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
             if this.name_focused {
-                let keystroke = &event.keystroke;
-                this.draft.field_keystroke(
-                    &keystroke.key,
-                    keystroke.key_char.as_deref(),
-                    keystroke.modifiers.control,
-                    keystroke.modifiers.alt,
-                    keystroke.modifiers.platform,
-                );
+                if let Some(next) = this
+                    .name_caret
+                    .keystroke(event, &this.draft.new_profile_name)
+                {
+                    this.draft.new_profile_name = next;
+                    this.commit_error = None;
+                }
                 cx.notify();
             }
         });

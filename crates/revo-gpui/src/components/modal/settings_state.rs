@@ -71,6 +71,18 @@ pub enum SettingsEvent {
     ImportObsSceneCollection {
         path: String,
     },
+    /// Extract the default theme under the selected root directory (plan §4.2).
+    ExtractDefaultTheme {
+        root_dir: String,
+    },
+    /// Export the active OBS profile to the given file path (plan §11.2).
+    ExportProfile {
+        path: String,
+    },
+    /// Import an OBS profile from the given file path (plan §11.2).
+    ImportProfile {
+        path: String,
+    },
 }
 
 pub const PREVIEW_QUALITIES: [&str; 3] = ["low", "medium", "high"];
@@ -137,7 +149,7 @@ impl SettingsDraft {
         }
     }
 
-    fn field_text(&self, field: TextField) -> String {
+    pub fn field_text(&self, field: TextField) -> String {
         match field {
             TextField::StreamUrl => self.settings.stream_url.clone(),
             TextField::StreamKey => self.settings.stream_key.clone(),

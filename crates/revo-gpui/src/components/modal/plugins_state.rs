@@ -11,8 +11,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use revo_core::models::PluginInfo;
 
-use crate::components::text_field::apply_line_keystroke;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum PluginsEvent {
     /// Save the draft module set under a profile name (creating or
@@ -104,27 +102,6 @@ impl PluginsDraft {
         self.target_profile = None;
         self.new_profile_name.clear();
         self.dirty = false;
-    }
-
-    /// Routes one keystroke into the save-as-new name field.
-    pub fn field_keystroke(
-        &mut self,
-        key: &str,
-        key_char: Option<&str>,
-        control: bool,
-        alt: bool,
-        platform: bool,
-    ) {
-        if let Some(next) = apply_line_keystroke(
-            &self.new_profile_name,
-            key,
-            key_char,
-            control,
-            alt,
-            platform,
-        ) {
-            self.new_profile_name = next;
-        }
     }
 
     /// Unsaved module changes or a pending save-as-new name.
@@ -232,8 +209,7 @@ mod tests {
     fn commit_prefers_the_typed_name_over_the_selected_tab() {
         let mut draft = sample();
         draft.select_profile("streaming");
-        draft.field_keystroke("o", Some("o"), false, false, false);
-        draft.field_keystroke("b", Some("b"), false, false, false);
+        draft.new_profile_name.push_str("ob");
         let (name, modules) = draft.commit().expect("typed name commits");
         assert_eq!(name, "ob");
         assert!(modules.contains(&"obs-websocket".to_owned()));
@@ -261,9 +237,7 @@ mod tests {
     fn commit_normalizes_whitespace_in_the_typed_name() {
         let mut draft = sample();
         draft.begin_new_profile();
-        draft.field_keystroke("m", Some("m"), false, false, false);
-        draft.field_keystroke("y", Some("y"), false, false, false);
-        draft.field_keystroke(" ", Some(" "), false, false, false);
+        draft.new_profile_name.push_str("my ");
         assert!(draft.is_dirty());
         let (name, _) = draft.commit().expect("typed name commits");
         assert_eq!(name, "my");

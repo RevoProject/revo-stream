@@ -7,9 +7,13 @@ use gpui::{
 
 use crate::{
     actions::{ColorField, ComponentEvent},
-    components::text_field::apply_line_keystroke,
+    components::editable_text::{CaretField, EditModifiers},
     theme::RevoTheme,
 };
+
+/// Font size and left padding the draft boxes render at.
+const FIELD_FONT_PX: f32 = 13.;
+const FIELD_PAD_PX: f32 = 8.;
 
 const DURATION_APPLY_MIN: i64 = 50;
 const DURATION_APPLY_MAX: i64 = 20000;
@@ -191,6 +195,7 @@ pub struct TransitionsPanel {
     /// the slot currently focused.
     field_focus: Option<FocusHandle>,
     focused_field: Option<FieldSlot>,
+    field_carets: std::collections::HashMap<FieldSlot, CaretField>,
     /// Whether the kind selector's expanding list is open.
     kind_dropdown_open: bool,
     /// The selected transition's param key receiving keystrokes.
@@ -198,7 +203,7 @@ pub struct TransitionsPanel {
 }
 
 /// Identifies which draft text field currently owns keyboard input.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum FieldSlot {
     NewName,
     SelectedName,
@@ -227,6 +232,7 @@ impl TransitionsPanel {
             theme,
             field_focus: None,
             focused_field: None,
+            field_carets: Default::default(),
             kind_dropdown_open: false,
             focused_param: None,
         }
@@ -420,67 +426,100 @@ impl TransitionsPanel {
         }
     }
 
+    /// Current draft text for one slot (shared by routing and click focus).
+    fn slot_text(&self, slot: &FieldSlot) -> String {
+        match slot {
+            FieldSlot::NewName => self.new_name.clone(),
+            FieldSlot::SelectedName => self
+                .selected_item()
+                .map(|item| item.name.clone())
+                .unwrap_or_default(),
+            FieldSlot::SelectedDuration => self
+                .selected_item()
+                .and_then(|item| item.params.get("duration_ms").cloned())
+                .unwrap_or_default(),
+            FieldSlot::SelectedParam(key) => self
+                .selected_item()
+                .and_then(|item| item.params.get(key.as_str()).cloned())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Whether a slot only accepts ASCII digits (duration/numeric params).
+    fn slot_digits_only(slot: &FieldSlot, key: &str) -> bool {
+        matches!(slot, FieldSlot::SelectedDuration)
+            || matches!(
+                key,
+                "softness_pct" | "sequence_fps" | "transition_point_ms" | "duration_ms"
+            )
+    }
+
+    /// Writes an edited value back into its draft slot.
+    fn set_slot_text(&mut self, slot: &FieldSlot, next: String) {
+        match slot {
+            FieldSlot::NewName => self.new_name = next,
+            FieldSlot::SelectedName => {
+                if let Some(id) = self.selected_id.clone() {
+                    self.set_transition_name(&id, next);
+                }
+            }
+            FieldSlot::SelectedDuration => {
+                if let Some(id) = self.selected_id.clone() {
+                    let parsed = next.trim().parse::<i64>().unwrap_or(0);
+                    self.set_transition_duration_ms(&id, parsed);
+                }
+            }
+            FieldSlot::SelectedParam(key) => {
+                if let Some(id) = self.selected_id.clone() {
+                    if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+                        item.params.insert(key.clone(), next);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Applies one keystroke to a slot's caret session with the numeric
+    /// filter the slot needs; returns the new value when it changed.
+    fn caret_keystroke(
+        &mut self,
+        slot: &FieldSlot,
+        digits_only: bool,
+        keystroke: &gpui::Keystroke,
+    ) -> Option<String> {
+        let current = self.slot_text(slot);
+        let key_char = keystroke
+            .key_char
+            .as_deref()
+            .filter(|chars| !digits_only || chars.chars().all(|c| c.is_ascii_digit()));
+        let caret = self.field_carets.entry(slot.clone()).or_default();
+        caret.set_value(current.clone());
+        let mods = EditModifiers {
+            control: keystroke.modifiers.control,
+            alt: keystroke.modifiers.alt,
+            platform: keystroke.modifiers.platform,
+            shift: keystroke.modifiers.shift,
+        };
+        if caret
+            .session
+            .apply_keystroke(&keystroke.key, key_char, mods)
+            && caret.session.value != current
+        {
+            return Some(caret.session.value.clone());
+        }
+        None
+    }
+
     /// Routes one keystroke into the focused draft field; digits-only for
     /// the duration field. Returns true when the value changed.
     pub fn apply_field_keystroke(&mut self, keystroke: &gpui::Keystroke) -> bool {
         let Some(slot) = self.focused_field.clone() else {
             return false;
         };
-        let (current, digits_only) = match &slot {
-            FieldSlot::NewName => (self.new_name.clone(), false),
-            FieldSlot::SelectedName => (
-                self.selected_item()
-                    .map(|item| item.name.clone())
-                    .unwrap_or_default(),
-                false,
-            ),
-            FieldSlot::SelectedDuration => (
-                self.selected_item()
-                    .and_then(|item| item.params.get("duration_ms").cloned())
-                    .unwrap_or_default(),
-                true,
-            ),
-            FieldSlot::SelectedParam(key) => (
-                self.selected_item()
-                    .and_then(|item| item.params.get(key.as_str()).cloned())
-                    .unwrap_or_default(),
-                false,
-            ),
-        };
-        let key_char = keystroke
-            .key_char
-            .as_deref()
-            .filter(|chars| !digits_only || chars.chars().all(|c| c.is_ascii_digit()));
-        match apply_line_keystroke(
-            &current,
-            &keystroke.key,
-            key_char,
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            keystroke.modifiers.platform,
-        ) {
-            Some(next) if next != current => {
-                match slot {
-                    FieldSlot::NewName => self.new_name = next,
-                    FieldSlot::SelectedName => {
-                        if let Some(id) = self.selected_id.clone() {
-                            self.set_transition_name(&id, next);
-                        }
-                    }
-                    FieldSlot::SelectedDuration => {
-                        if let Some(id) = self.selected_id.clone() {
-                            let parsed = next.trim().parse::<i64>().unwrap_or(0);
-                            self.set_transition_duration_ms(&id, parsed);
-                        }
-                    }
-                    FieldSlot::SelectedParam(key) => {
-                        if let Some(id) = self.selected_id.clone() {
-                            if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
-                                item.params.insert(key.clone(), next);
-                            }
-                        }
-                    }
-                }
+        let digits_only = matches!(slot, FieldSlot::SelectedDuration);
+        match self.caret_keystroke(&slot, digits_only, keystroke) {
+            Some(next) => {
+                self.set_slot_text(&slot, next);
                 true
             }
             _ => false,
@@ -493,35 +532,16 @@ impl TransitionsPanel {
         let Some(id) = self.selected_id.clone() else {
             return false;
         };
-        let numeric = matches!(
-            key,
-            "softness_pct" | "sequence_fps" | "transition_point_ms" | "duration_ms"
-        );
-        let key_char = keystroke
-            .key_char
-            .as_deref()
-            .filter(|chars| !numeric || chars.chars().all(|ch| ch.is_ascii_digit()));
-        let current = self
-            .selected_item()
-            .and_then(|item| item.params.get(key).cloned())
-            .unwrap_or_default();
-        let Some(next) = apply_line_keystroke(
-            &current,
-            &keystroke.key,
-            key_char,
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            keystroke.modifiers.platform,
-        ) else {
-            return false;
-        };
-        if next == current {
-            return false;
+        let _ = id;
+        let slot = FieldSlot::SelectedParam(key.to_string());
+        let digits_only = Self::slot_digits_only(&slot, key);
+        match self.caret_keystroke(&slot, digits_only, keystroke) {
+            Some(next) => {
+                self.set_slot_text(&slot, next);
+                true
+            }
+            _ => false,
         }
-        if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
-            item.params.insert(key.to_owned(), next);
-        }
-        true
     }
 
     fn draft_field(
@@ -530,12 +550,33 @@ impl TransitionsPanel {
         slot: &FieldSlot,
         placeholder: &str,
         value: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let focus = self.focus_handle_or_create(cx);
         let focused = self.focused_field.as_ref() == Some(slot);
-        div()
+        self.carets_for_slot(slot, &value);
+        let probe = self
+            .field_carets
+            .get(slot)
+            .map(|c| c.bounds_probe())
+            .unwrap_or_else(|| div().into_any_element());
+        let caret_box = if focused {
+            self.field_carets.get_mut(slot).map(|caret| {
+                caret.display(
+                    window,
+                    FIELD_FONT_PX,
+                    FIELD_PAD_PX,
+                    self.theme.text,
+                    self.theme.accent,
+                )
+            })
+        } else {
+            None
+        };
+        let mut box_div = div()
             .id(id)
+            .relative()
             .cursor_pointer()
             .min_w(px(120.))
             .px_2()
@@ -552,28 +593,126 @@ impl TransitionsPanel {
                 self.theme.text_muted
             } else {
                 self.theme.text
-            })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener({
-                    let slot = slot.clone();
-                    move |this, _, window, cx| {
-                        this.focused_field = Some(slot.clone());
-                        focus.focus(window);
-                        cx.notify();
-                    }
-                }),
-            )
-            .child(if value.is_empty() {
+            });
+        box_div = if let Some(caret_box) = caret_box {
+            box_div.child(caret_box)
+        } else {
+            box_div.child(if value.is_empty() {
                 SharedString::from(placeholder.to_string())
             } else {
                 SharedString::from(value)
             })
+        };
+        let slot_owned = slot.clone();
+        box_div
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.focused_field = Some(slot_owned.clone());
+                    this.field_carets.entry(slot_owned.clone()).or_default();
+                    let current = this.slot_text(&slot_owned);
+                    this.field_carets
+                        .get_mut(&slot_owned)
+                        .expect("caret")
+                        .place_caret(
+                            window,
+                            event.position.x,
+                            &current,
+                            FIELD_FONT_PX,
+                            FIELD_PAD_PX,
+                        );
+                    focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .child(probe)
+    }
+
+    /// One typed param row: caret-aware like the draft fields, with the
+    /// param-focus routing (`focused_param`) the panel already uses.
+    fn param_text_field(
+        &mut self,
+        key: String,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let slot = FieldSlot::SelectedParam(key.clone());
+        let focus = self.focus_handle_or_create(cx);
+        self.carets_for_slot(&slot, &value);
+        let probe = self
+            .field_carets
+            .get(&slot)
+            .map(|c| c.bounds_probe())
+            .unwrap_or_else(|| div().into_any_element());
+        let focused = self.focused_param.as_deref() == Some(key.as_str());
+        let caret_display =
+            if focused {
+                Some(self.field_carets.get_mut(&slot).map(|caret| {
+                    caret.display(window, 11.2, 8., self.theme.text, self.theme.accent)
+                }))
+            } else {
+                None
+            };
+        let mut box_div = div()
+            .id(SharedString::from(format!("transition-param-text-{key}")))
+            .relative()
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if focused {
+                self.theme.accent
+            } else {
+                self.theme.border_strong
+            })
+            .bg(self.theme.surface_elevated)
+            .text_color(if value.is_empty() {
+                self.theme.text_muted
+            } else {
+                self.theme.text
+            })
+            .text_size(px(11.2));
+        box_div = match caret_display.flatten() {
+            Some(element) => box_div.child(element),
+            None => box_div.child(if value.is_empty() {
+                SharedString::from("…")
+            } else {
+                SharedString::from(value)
+            }),
+        };
+        box_div
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    this.focused_param = Some(key.clone());
+                    let slot = FieldSlot::SelectedParam(key.clone());
+                    let current = this.slot_text(&slot);
+                    this.field_carets.entry(slot.clone()).or_default();
+                    this.field_carets
+                        .get_mut(&slot)
+                        .expect("caret")
+                        .place_caret(window, event.position.x, &current, 11.2, 8.);
+                    let focus = this.focus_handle_or_create(cx);
+                    focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .child(probe)
+    }
+
+    /// Ensures the slot's caret session exists and mirrors the draft value.
+    fn carets_for_slot(&mut self, slot: &FieldSlot, value: &str) {
+        self.field_carets
+            .entry(slot.clone())
+            .or_default()
+            .set_value(value.to_string());
     }
 }
 
 impl Render for TransitionsPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mut cards = div().flex().flex_col().gap_1();
         for (index, item) in self.items.clone().into_iter().enumerate() {
             let id = item.id.clone();
@@ -678,6 +817,7 @@ impl Render for TransitionsPanel {
                         &FieldSlot::NewName,
                         "Transition name…",
                         self.new_name.clone(),
+                        window,
                         cx,
                     ))
                     .child(
@@ -772,6 +912,7 @@ impl Render for TransitionsPanel {
                                 &FieldSlot::SelectedName,
                                 "Name…",
                                 item.name.clone(),
+                                window,
                                 cx,
                             ))
                             .child(self.draft_field(
@@ -779,6 +920,7 @@ impl Render for TransitionsPanel {
                                 &FieldSlot::SelectedDuration,
                                 "Duration (ms)",
                                 duration,
+                                window,
                                 cx,
                             ))
                             .child(
@@ -1041,36 +1183,8 @@ impl Render for TransitionsPanel {
                                 }))
                                 .into_any_element()
                         }
-                        _ => div()
-                            .id(SharedString::from(format!("transition-param-text-{key}")))
-                            .cursor_pointer()
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(if self.focused_param.as_deref() == Some(key.as_str()) {
-                                self.theme.accent
-                            } else {
-                                self.theme.border_strong
-                            })
-                            .bg(self.theme.surface_elevated)
-                            .text_color(if value.is_empty() {
-                                self.theme.text_muted
-                            } else {
-                                self.theme.text
-                            })
-                            .text_size(px(11.2))
-                            .child(if value.is_empty() {
-                                SharedString::from("…")
-                            } else {
-                                SharedString::from(value.clone())
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.focused_param = Some(key.clone());
-                                let focus = this.focus_handle_or_create(cx);
-                                focus.focus(window);
-                                cx.notify();
-                            }))
+                        _ => self
+                            .param_text_field(key.clone(), value.clone(), window, cx)
                             .into_any_element(),
                     };
                     rows = rows.child(

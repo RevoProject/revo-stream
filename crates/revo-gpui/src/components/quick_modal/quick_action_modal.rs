@@ -11,10 +11,14 @@ use gpui::{
 
 use crate::{
     actions::{ColorField, ComponentEvent, QuickSourceAction},
+    components::editable_text::CaretField,
     components::modal_shell::{modal_shell_with_body, ModalConfig},
-    components::text_field::apply_line_keystroke,
     theme::RevoTheme,
 };
+
+/// Font size and left padding the quick value box renders at.
+const FIELD_FONT_PX: f32 = 13.;
+const FIELD_PAD_PX: f32 = 8.;
 
 pub const QUICK_COLOR_HISTORY_LIMIT: usize = 5;
 
@@ -45,6 +49,7 @@ pub struct QuickActionModal {
     pub error: Option<String>,
     field_focus: FocusHandle,
     field_focused: bool,
+    caret: CaretField,
 }
 
 impl EventEmitter<QuickActionEvent> for QuickActionModal {}
@@ -115,10 +120,11 @@ impl QuickActionModal {
         source_id: String,
         source_name: String,
         action: QuickSourceAction,
+        theme: RevoTheme,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
-            theme: RevoTheme::future(),
+            theme,
             source_id,
             source_name,
             action,
@@ -128,6 +134,7 @@ impl QuickActionModal {
             error: None,
             field_focus: cx.focus_handle(),
             field_focused: false,
+            caret: CaretField::default(),
         }
     }
 
@@ -262,11 +269,17 @@ impl QuickActionModal {
         }
     }
 
-    fn value_field(&mut self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    fn value_field(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
         let focused = self.field_focused;
         let value = self.value.clone();
-        div()
+        self.caret.set_value(value.clone());
+        let field = div()
             .id("quick-action-field")
+            .relative()
             .cursor_pointer()
             .w_full()
             .px_2()
@@ -286,17 +299,35 @@ impl QuickActionModal {
             })
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     this.field_focused = true;
+                    this.caret.place_caret(
+                        window,
+                        event.position.x,
+                        &this.value,
+                        FIELD_FONT_PX,
+                        FIELD_PAD_PX,
+                    );
                     this.field_focus.focus(window);
                     cx.notify();
                 }),
-            )
-            .child(if value.is_empty() {
+            );
+        let field = if focused {
+            field.child(self.caret.display(
+                window,
+                FIELD_FONT_PX,
+                FIELD_PAD_PX,
+                self.theme.text,
+                self.theme.accent,
+            ))
+        } else {
+            field.child(if value.is_empty() {
                 SharedString::from(self.placeholder())
             } else {
                 SharedString::from(value)
             })
+        };
+        field.child(self.caret.bounds_probe())
     }
 
     fn placeholder(&self) -> &'static str {
@@ -311,15 +342,7 @@ impl QuickActionModal {
         if !self.field_focused {
             return;
         }
-        let keystroke = &event.keystroke;
-        if let Some(next) = apply_line_keystroke(
-            &self.value,
-            &keystroke.key,
-            keystroke.key_char.as_deref(),
-            keystroke.modifiers.control,
-            keystroke.modifiers.alt,
-            keystroke.modifiers.platform,
-        ) {
+        if let Some(next) = self.caret.keystroke(event, &self.value) {
             self.value = next;
         }
         cx.notify();
@@ -327,7 +350,7 @@ impl QuickActionModal {
 }
 
 impl Render for QuickActionModal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let config = ModalConfig {
             show_close: false,
             ..ModalConfig::quick(self.title())
@@ -419,7 +442,7 @@ impl Render for QuickActionModal {
                 }
             }
             _ => {
-                let field = self.value_field(cx);
+                let field = self.value_field(window, cx);
                 if self.action == QuickSourceAction::ChangeColor {
                     // The picker button anchors the shared color popup; the
                     // hex field stays directly editable either way.
