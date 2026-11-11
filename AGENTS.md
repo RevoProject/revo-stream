@@ -2,7 +2,7 @@
 
 ## Current State
 
-- Application version: `0.4.1`.
+- Application version: `0.5.0-pr1`.
 - Migration branch: `feature/gpui-rewrite`.
 - Current runnable application: the native GPUI shell (`crates/revo-gpui`,
   mock backend) and the legacy Tauri adapter (`src-tauri/`, real libobs

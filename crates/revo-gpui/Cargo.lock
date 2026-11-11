@@ -4424,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "revo-core"
-version = "0.4.1"
+version = "0.5.0-pr1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4432,7 +4432,7 @@ dependencies = [
 
 [[package]]
 name = "revo-gpui"
-version = "0.4.1"
+version = "0.5.0-pr1"
 dependencies = [
  "anyhow",
  "base64",
