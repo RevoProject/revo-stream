@@ -208,16 +208,37 @@ impl Render for ScenesPanel {
                         ),
                     })
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(format!(
-                                "{}{}{}",
-                                scene.name,
-                                if scene.active { " [active]" } else { "" },
-                                if scene.locked { " [locked]" } else { "" }
-                            ))),
+                        // Plan §15.2: state shown as icons — an accent live
+                        // dot for the active scene and a closed padlock for
+                        // locked ones — instead of the "[active]"/"[locked]"
+                        // text suffixes.
+                        div().flex_1().min_w_0().child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .child(SharedString::from(scene.name.clone())),
+                                )
+                                .when(scene.active, |row| {
+                                    row.child(crate::components::icon::icon(
+                                        self.theme.accent,
+                                        "record",
+                                        10.,
+                                    ))
+                                })
+                                .when(scene.locked, |row| {
+                                    row.child(crate::components::icon::icon(
+                                        self.theme.text_muted,
+                                        "lock",
+                                        11.,
+                                    ))
+                                }),
+                        ),
                     ),
             );
         }

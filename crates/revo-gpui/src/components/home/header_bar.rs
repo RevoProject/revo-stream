@@ -212,16 +212,29 @@ impl Render for HeaderBar {
                     .items_center()
                     .gap_2()
                     .child(
-                        // Brand mark (same asset as the boot splash), tinted
-                        // like the Svelte header brand.
-                        svg()
-                            .path("brand/mark.svg")
-                            .w(px(20.))
-                            .h(px(20.))
-                            .flex_none()
-                            .text_color(self.theme.accent),
+                        // Plan §24: the brand (mark + wordmark) is clickable
+                        // and asks before opening the official website.
+                        div()
+                            .id("header-brand")
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(ComponentEvent::OpenOfficialWebsite);
+                            }))
+                            .child(
+                                // Brand mark (same asset as the boot splash),
+                                // tinted like the Svelte header brand.
+                                svg()
+                                    .path("brand/mark.svg")
+                                    .w(px(20.))
+                                    .h(px(20.))
+                                    .flex_none()
+                                    .text_color(self.theme.accent),
+                            )
+                            .child(div().text_color(self.theme.text_strong).child("RevoStream")),
                     )
-                    .child(div().text_color(self.theme.text_strong).child("RevoStream"))
                     .child(self.state.version.clone())
                     .child(undo)
                     .child(redo)

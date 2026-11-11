@@ -1,6 +1,6 @@
 use gpui::{
-    div, prelude::*, px, Context, IntoElement, MouseButton, MouseDownEvent, Render, SharedString,
-    Window,
+    div, prelude::*, px, ClickEvent, Context, IntoElement, MouseButton, MouseDownEvent, Render,
+    SharedString, Window,
 };
 
 use crate::{
@@ -236,7 +236,13 @@ impl Render for SourcesPanel {
                         self.theme.border
                     })
                     .rounded_lg()
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    // Plan §15.1: single click selects, double click opens
+                    // the source editor (Svelte parity).
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        if event.click_count() >= 2 {
+                            cx.emit(ComponentEvent::EditSource(id.clone()));
+                            return;
+                        }
                         if let Some(event) = this.select(&id) {
                             cx.emit(event);
                             cx.notify();

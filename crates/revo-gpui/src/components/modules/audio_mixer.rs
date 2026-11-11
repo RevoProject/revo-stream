@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use gpui::{div, prelude::*, px, Context, IntoElement, MouseButton, Render, SharedString, Window};
+use gpui::{
+    div, prelude::*, px, ClickEvent, Context, IntoElement, MouseButton, MouseDownEvent, Render,
+    SharedString, Window,
+};
 
 use crate::theme::RevoTheme;
 
@@ -80,6 +83,8 @@ pub enum MixerEvent {
     },
     ContextMenuRequested {
         id: String,
+        /// Click point the menu anchors to (plan §17.1).
+        position: (f32, f32),
     },
     OpenFilters {
         id: String,
@@ -264,9 +269,12 @@ impl AudioMixerPanel {
         })
     }
 
-    pub fn open_context_menu(&mut self, id: &str) -> Option<MixerEvent> {
+    pub fn open_context_menu(&mut self, id: &str, position: (f32, f32)) -> Option<MixerEvent> {
         self.channel(id)?;
-        Some(MixerEvent::ContextMenuRequested { id: id.to_owned() })
+        Some(MixerEvent::ContextMenuRequested {
+            id: id.to_owned(),
+            position,
+        })
     }
 
     pub fn channel(&self, id: &str) -> Option<&AudioChannel> {
@@ -324,8 +332,10 @@ impl Render for AudioMixerPanel {
                     MouseButton::Right,
                     cx.listener({
                         let id = id.clone();
-                        move |this, _, _, cx| {
-                            if let Some(event) = this.open_context_menu(&id) {
+                        move |this, event: &MouseDownEvent, _, cx| {
+                            let position =
+                                (f32::from(event.position.x), f32::from(event.position.y));
+                            if let Some(event) = this.open_context_menu(&id, position) {
                                 cx.emit(event);
                             }
                             cx.notify();
@@ -420,8 +430,13 @@ impl Render for AudioMixerPanel {
                                         ))
                                         .on_click(cx.listener({
                                             let id = id.clone();
-                                            move |this, _, _, cx| {
-                                                if let Some(event) = this.open_context_menu(&id) {
+                                            move |this, event: &ClickEvent, _, cx| {
+                                                let position = event.position();
+                                                let point =
+                                                    (f32::from(position.x), f32::from(position.y));
+                                                if let Some(event) =
+                                                    this.open_context_menu(&id, point)
+                                                {
                                                     cx.emit(event);
                                                 }
                                                 cx.notify();
@@ -721,12 +736,13 @@ mod tests {
     fn context_menu_open_is_typed_per_channel() {
         let mut panel = panel();
         assert_eq!(
-            panel.open_context_menu("camera"),
+            panel.open_context_menu("camera", (12.0, 30.0)),
             Some(MixerEvent::ContextMenuRequested {
                 id: "camera".into(),
+                position: (12.0, 30.0),
             })
         );
-        assert_eq!(panel.open_context_menu("missing"), None);
+        assert_eq!(panel.open_context_menu("missing", (0.0, 0.0)), None);
     }
 
     #[test]

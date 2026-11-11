@@ -107,6 +107,27 @@ pub enum ActiveModal {
         source_id: String,
         action: QuickSourceAction,
     },
+    /// Lifecycle confirmation dialog awaiting Accept/Cancel (plan §12).
+    Confirm,
+}
+
+/// One gated lifecycle action: the backend command plus the originating
+/// event (for the optimistic header flip on Accept) and the dialog copy.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingConfirm {
+    /// Backend command dispatched on Accept; `None` for UI-only actions
+    /// (the official-website confirmation, plan §24).
+    pub command: Option<BackendCommand>,
+    pub event: ComponentEvent,
+    pub title: SharedString,
+    pub message: SharedString,
+    pub accept_label: SharedString,
+    /// Optional non-default cancel label ("No" instead of "Cancel", §24).
+    pub cancel_label: Option<SharedString>,
+    /// History entry computed at gate time from the pre-dispatch snapshot;
+    /// recorded on Accept so undo/redo keeps working behind the dialog
+    /// (plan §15.4).
+    pub history: Option<crate::history::HistoryEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -126,6 +147,11 @@ pub struct WorkspaceState {
     /// Persisted settings as most recently reported by the backend snapshot;
     /// seeds the settings draft when the modal opens.
     pub settings: Option<AppSettings>,
+    /// A lifecycle action held behind the confirmation dialog (plan §12).
+    pub pending_confirm: Option<PendingConfirm>,
+    /// The engine-published Settings option catalog (plan §6–8), kept on
+    /// the workspace so a newly opened Settings modal seeds its dropdowns.
+    pub select_options: Option<revo_core::service::SnapshotSelectOptions>,
     /// Discovered libobs modules from the backend snapshot; seeds the
     /// plugins modal.
     pub plugins: Vec<revo_core::models::PluginInfo>,
@@ -160,6 +186,8 @@ impl Default for WorkspaceState {
             requested_window: None,
             requested_menu: None,
             settings: None,
+            pending_confirm: None,
+            select_options: None,
             plugins: Vec::new(),
             plugin_profiles: Vec::new(),
             plugin_profile_states: Vec::new(),
@@ -208,10 +236,134 @@ fn snapshot_source_items(snapshot: &BackendSnapshot) -> Vec<SourceItem> {
 }
 
 impl WorkspaceState {
+    /// Reads a `ui_profile` boolean ("true"/"false" strings or a JSON bool).
+    pub fn ui_flag(&self, key: &str) -> bool {
+        self.settings
+            .as_ref()
+            .and_then(|s| s.ui_profile.as_ref())
+            .and_then(|p| p.get(key))
+            .map(|value| match value.as_bool() {
+                Some(flag) => flag,
+                None => value
+                    .as_str()
+                    .map(|text| text.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false),
+            })
+            .unwrap_or(false)
+    }
+
+    /// Plan §12: a lifecycle event gated by its Settings > General toggle
+    /// turns into a confirmation request instead of dispatching.
+    pub fn confirm_request(&self, event: &ComponentEvent) -> Option<PendingConfirm> {
+        let (command, title, message, accept_label) = match event {
+            ComponentEvent::StartStreaming => {
+                if !self.ui_flag("confirm_start_stream") {
+                    return None;
+                }
+                (
+                    BackendCommand::StartStreaming,
+                    "Start streaming?",
+                    "Start streaming to the configured service?".into(),
+                    "Start streaming",
+                )
+            }
+            ComponentEvent::StopStreaming => {
+                if !self.ui_flag("confirm_stop_stream") {
+                    return None;
+                }
+                (
+                    BackendCommand::StopStreaming,
+                    "Stop streaming?",
+                    "Stop the current broadcast stream?".into(),
+                    "Stop streaming",
+                )
+            }
+            ComponentEvent::StartRecording => {
+                if !self.ui_flag("confirm_start_record") {
+                    return None;
+                }
+                let target = self
+                    .settings
+                    .as_ref()
+                    .map(|s| s.record_path.clone())
+                    .unwrap_or_else(|| "the default output folder".into());
+                (
+                    BackendCommand::StartRecording,
+                    "Start recording?",
+                    format!("Record to {target}?").into(),
+                    "Start recording",
+                )
+            }
+            ComponentEvent::StopRecording => {
+                if !self.ui_flag("confirm_stop_record") {
+                    return None;
+                }
+                (
+                    BackendCommand::StopRecording,
+                    "Stop recording?",
+                    "Stop the current recording?".into(),
+                    "Stop recording",
+                )
+            }
+            ComponentEvent::RemoveScene(name) => {
+                if !self.ui_flag("confirm_delete") {
+                    return None;
+                }
+                (
+                    BackendCommand::RemoveScene(name.clone()),
+                    "Delete scene?",
+                    format!("Delete scene \"{name}\"? The change stays undoable from History.")
+                        .into(),
+                    "Delete scene",
+                )
+            }
+            ComponentEvent::RemoveSource(id) => {
+                if !self.ui_flag("confirm_delete") {
+                    return None;
+                }
+                (
+                    BackendCommand::RemoveSource(id.clone()),
+                    "Delete source?",
+                    format!("Delete source \"{id}\"? The change stays undoable from History.")
+                        .into(),
+                    "Delete source",
+                )
+            }
+            _ => return None,
+        };
+        Some(PendingConfirm {
+            command: Some(command),
+            event: event.clone(),
+            title: title.into(),
+            message,
+            accept_label: accept_label.into(),
+            cancel_label: None,
+            history: None,
+        })
+    }
+
     pub fn route(&mut self, event: ComponentEvent) -> Option<BackendCommand> {
         let command = match event {
             ComponentEvent::OpenSettings => {
                 self.active_modal = ActiveModal::Settings;
+                return None;
+            }
+            ComponentEvent::OpenOfficialWebsite => {
+                // Plan §24: clicking the brand asks first; the browser only
+                // opens on an explicit Yes.
+                if self.pending_confirm.is_some() {
+                    return None;
+                }
+                self.pending_confirm = Some(PendingConfirm {
+                    command: None,
+                    event: event.clone(),
+                    title: "Open official website?".into(),
+                    message: format!("Open {OFFICIAL_WEBSITE_URL} in your browser?").into(),
+                    accept_label: "Yes".into(),
+                    cancel_label: Some("No".into()),
+                    history: None,
+                });
+                self.active_modal = ActiveModal::Confirm;
                 return None;
             }
             ComponentEvent::OpenHistory => {
@@ -363,6 +515,7 @@ impl WorkspaceState {
         self.enabled_plugin_modules = snapshot.enabled_plugin_modules.clone();
         self.available_source_types = snapshot.available_source_types.clone();
         self.source_transforms = snapshot.source_transforms.clone();
+        self.select_options = snapshot.select_options.clone();
     }
 
     pub fn route_mixer(&mut self, event: MixerEvent) -> Option<BackendCommand> {
@@ -379,7 +532,7 @@ impl WorkspaceState {
             MixerEvent::LockToggled { id, locked } => {
                 BackendCommand::SetSourceVolumeLocked { id, locked }
             }
-            MixerEvent::ContextMenuRequested { id } => {
+            MixerEvent::ContextMenuRequested { id, position: _ } => {
                 self.status = format!("Mixer context menu for {id}");
                 return None;
             }
@@ -499,6 +652,10 @@ struct PreviewContainerSizes {
     studio_preview: MeasuredContainer,
     studio_program: MeasuredContainer,
 }
+
+/// Official product page opened after the brand click is confirmed
+/// (plan §24).
+pub const OFFICIAL_WEBSITE_URL: &str = "https://github.com/revoproject/revo-stream";
 
 pub struct Workspace {
     pub header: Entity<HeaderBar>,
@@ -1051,6 +1208,12 @@ impl Workspace {
             cx.notify();
         });
         self.state.apply_snapshot(&snapshot);
+        // Keep an open Settings modal on the live catalog (plan §6–8).
+        if let Some(modal) = self.settings_modal.clone() {
+            modal.update(cx, |modal, cx| {
+                modal.set_select_options(snapshot.select_options.clone(), cx);
+            });
+        }
         self.warm_source_settings(&snapshot, cx);
         self.resolve_pending_properties(&snapshot, cx);
         self.apply_theme_style(&snapshot, cx);
@@ -1149,27 +1312,53 @@ impl Workspace {
         } else {
             RevoTheme::future()
         };
-        self.theme = theme.clone();
-        self.header.update(cx, |header, cx| {
-            header.theme = theme.clone();
-            cx.notify();
-        });
-        self.scenes.update(cx, |panel, cx| {
-            panel.theme = theme.clone();
-            cx.notify();
-        });
-        self.sources.update(cx, |panel, cx| {
-            panel.theme = theme.clone();
-            cx.notify();
-        });
-        self.tools_mixer.update(cx, |panel, cx| {
-            panel.theme = theme.clone();
-            cx.notify();
-        });
-        self.tools_transitions.update(cx, |panel, cx| {
-            panel.theme = theme.clone();
-            cx.notify();
-        });
+        self.apply_theme_to_views(theme, cx);
+    }
+
+    /// Re-seeds the shared palette on every view that renders with it
+    /// (plan §4.1): the workspace `self.theme` is the single source of
+    /// truth, so panels, popups and any open modal switch palettes together
+    /// instead of keeping the palette they were constructed with.
+    fn apply_theme_to_views(&mut self, theme: RevoTheme, cx: &mut Context<'_, Self>) {
+        self.theme = theme;
+        macro_rules! seed {
+            ($entity:expr) => {
+                $entity.update(cx, |view, cx| {
+                    view.theme = theme;
+                    cx.notify();
+                });
+            };
+        }
+        seed!(&self.header);
+        seed!(&self.scenes);
+        seed!(&self.sources);
+        seed!(&self.tools_mixer);
+        seed!(&self.tools_transitions);
+        seed!(&self.mixer_menu);
+        seed!(&self.mixer_advanced);
+        seed!(&self.planner);
+        seed!(&self.context_menu);
+        seed!(&self.color_picker);
+        seed!(&self.font_picker);
+        seed!(&self.dropdown_picker);
+        if let Some(modal) = &self.settings_modal {
+            seed!(modal);
+        }
+        if let Some(modal) = &self.plugins_modal {
+            seed!(modal);
+        }
+        if let Some(modal) = &self.add_scene_modal {
+            seed!(modal);
+        }
+        if let Some(modal) = &self.add_source_modal {
+            seed!(modal);
+        }
+        if let Some(modal) = &self.quick_action_modal {
+            seed!(modal);
+        }
+        if let Some(modal) = &self.source_properties_modal {
+            seed!(modal);
+        }
         cx.notify();
     }
 
@@ -1402,8 +1591,15 @@ impl Workspace {
             };
             let alive = workspace
                 .update(cx, |workspace, cx| {
-                    workspace.preview_frame = program;
-                    workspace.studio_preview_frame = studio_preview;
+                    // Plan §16: keep the last good frame when a capture
+                    // misses; assigning None on every failed tick produced
+                    // the per-refresh blink.
+                    if program.is_some() {
+                        workspace.preview_frame = program;
+                    }
+                    if studio_preview.is_some() {
+                        workspace.studio_preview_frame = studio_preview;
+                    }
                     cx.notify();
                 })
                 .is_ok();
@@ -1460,9 +1656,9 @@ impl Workspace {
 
     fn handle_mixer_event(&mut self, event: MixerEvent, cx: &mut Context<'_, Self>) {
         match event {
-            MixerEvent::ContextMenuRequested { id } => {
+            MixerEvent::ContextMenuRequested { id, position } => {
                 self.mixer_menu.update(cx, |menu, cx| {
-                    menu.open_menu(&id);
+                    menu.open_menu(&id, position);
                     cx.notify();
                 });
             }
@@ -1520,6 +1716,18 @@ impl Workspace {
     }
 
     fn route_event(&mut self, event: ComponentEvent, cx: &mut Context<'_, Self>) {
+        // Plan §12: gated lifecycle events open the confirmation dialog
+        // BEFORE the optimistic header flip — nothing may look "live" while
+        // the dialog waits. Accepting dispatches the held command.
+        if let Some(mut pending) = self.state.confirm_request(&event) {
+            // History must be computed from the pre-dispatch snapshot, like
+            // the ungated path does further below.
+            pending.history = self.history_entry_for(&event, cx);
+            self.state.pending_confirm = Some(pending);
+            self.state.active_modal = ActiveModal::Confirm;
+            cx.notify();
+            return;
+        }
         self.update_header_flags(&event, cx);
         // Popup pickers open before the state router: they carry no modal or
         // backend state, and their replies target the host component
@@ -1575,6 +1783,11 @@ impl Workspace {
                 if let Some((label, commands)) = self.state.history.undo() {
                     self.state.status = format!("Undo: {label}");
                     self.dispatch(commands, cx);
+                    // Plan §15.3: undo may rename/rebuild sources; drop the
+                    // warmed property caches so panels re-seed from fresh
+                    // engine state instead of stale drafts.
+                    self.source_settings_cache.clear();
+                    self.settings_warmed.clear();
                 } else {
                     self.state.status = "Nothing to undo".into();
                     cx.notify();
@@ -1585,6 +1798,8 @@ impl Workspace {
                 if let Some((label, commands)) = self.state.history.redo() {
                     self.state.status = format!("Redo: {label}");
                     self.dispatch(commands, cx);
+                    self.source_settings_cache.clear();
+                    self.settings_warmed.clear();
                 } else {
                     self.state.status = "Nothing to redo".into();
                     cx.notify();
@@ -1915,7 +2130,15 @@ impl Workspace {
             .clone()
             .unwrap_or_else(revo_core::settings::default_settings);
         let obs_status = self.obs_status_text();
-        let entity = cx.new(|cx| SettingsModal::with_status(settings, obs_status, cx));
+        let catalog = self.state.select_options.clone();
+        let theme = self.theme;
+        let entity = cx.new(|cx| {
+            let mut modal = SettingsModal::with_status(settings, obs_status, theme, cx);
+            // Seed the engine catalog so encoders/devices/resolutions render
+            // as real dropdowns from the first frame (plan §6–8).
+            modal.set_select_options(catalog, cx);
+            modal
+        });
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             SettingsEvent::Saved(settings) => {
                 this.state.settings = Some(settings.clone());
@@ -1924,6 +2147,11 @@ impl Workspace {
                 }) {
                     this.state.status = format!("Backend error: {error}");
                 }
+                // Re-read the live catalogs (modules/settings may have
+                // changed) before pulling the next snapshot.
+                let _ = this
+                    .backend
+                    .try_dispatch(BackendCommand::RefreshSelectOptions);
                 this.close_settings_modal(cx);
                 this.refresh_snapshot(cx);
             }
@@ -1960,6 +2188,38 @@ impl Workspace {
                     this.state.status = format!("Backend error: {error}");
                 }
             }
+            SettingsEvent::ExtractDefaultTheme { root_dir } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ExtractDefaultTheme {
+                        root_dir: root_dir.clone(),
+                    })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                } else {
+                    this.state.status = format!("Default theme extracted under {root_dir}");
+                }
+            }
+            SettingsEvent::ExportProfile { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ExportProfile { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                } else {
+                    this.state.status = format!("Profile exported to {path}");
+                }
+            }
+            SettingsEvent::ImportProfile { path } => {
+                if let Err(error) = this
+                    .backend
+                    .try_dispatch(BackendCommand::ImportProfile { path: path.clone() })
+                {
+                    this.state.status = format!("Backend error: {error}");
+                } else {
+                    this.state.status = format!("Profile imported from {path}");
+                }
+            }
         });
         self._subscriptions.push(subscription);
         self.settings_modal = Some(entity);
@@ -1989,7 +2249,8 @@ impl Workspace {
             self.state.active_plugin_profile.clone(),
             self.state.enabled_plugin_modules.clone(),
         );
-        let entity = cx.new(|cx| PluginsModal::new(draft, cx));
+        let theme = self.theme;
+        let entity = cx.new(|cx| PluginsModal::new(draft, theme, cx));
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             PluginsEvent::Saved {
                 profile_name,
@@ -2031,7 +2292,8 @@ impl Workspace {
             .iter()
             .map(|scene| scene.name.clone())
             .collect();
-        let entity = cx.new(|cx| AddSceneModal::new(existing_names, cx));
+        let theme = self.theme;
+        let entity = cx.new(|cx| AddSceneModal::new(existing_names, theme, cx));
         let subscription = cx.subscribe(&entity, |this, _, event, cx| match event {
             AddSceneEvent::Created { name } => {
                 this.state.status = format!("Scene '{name}' created");
@@ -2076,10 +2338,12 @@ impl Workspace {
             .iter()
             .map(|source| source.name.clone())
             .collect();
+        let theme = self.theme;
         let entity = cx.new(|cx| {
             AddSourceModal::new(
                 self.state.available_source_types.clone(),
                 existing_names,
+                theme,
                 cx,
             )
         });
@@ -2221,6 +2485,7 @@ impl Workspace {
             .settings
             .as_ref()
             .and_then(|settings| settings.scene_resolution.clone());
+        let theme = self.theme;
         let entity = cx.new(|cx| {
             if editor {
                 SourcePropertiesModal::new_editor(
@@ -2229,6 +2494,7 @@ impl Workspace {
                     item.source_type.clone(),
                     transform,
                     canvas,
+                    theme,
                     cx,
                 )
             } else {
@@ -2238,6 +2504,7 @@ impl Workspace {
                     item.source_type.clone(),
                     transform,
                     canvas,
+                    theme,
                     cx,
                 )
             }
@@ -2488,8 +2755,9 @@ impl Workspace {
             cx.notify();
             return;
         };
-        let entity =
-            cx.new(|cx| QuickActionModal::new(item.id.clone(), item.name.clone(), action, cx));
+        let theme = self.theme;
+        let entity = cx
+            .new(|cx| QuickActionModal::new(item.id.clone(), item.name.clone(), action, theme, cx));
         if action == QuickSourceAction::SelectDevice {
             // Device drafts start from the backend catalog plus the source's
             // current selection (Svelte openQuickDeviceModal parity).
@@ -2727,6 +2995,12 @@ impl Workspace {
             ActiveModal::AddScene => self.close_add_scene_modal(cx),
             ActiveModal::AddSource => self.close_add_source_modal(cx),
             ActiveModal::SourceProperties(_) => self.close_source_properties_modal(cx),
+            ActiveModal::Confirm => {
+                // Dismissal = cancel: drop the held command.
+                self.state.pending_confirm = None;
+                self.state.close_modal();
+                cx.notify();
+            }
             ActiveModal::QuickAction { .. } => self.close_quick_action_modal(cx),
             ActiveModal::AudioMixer | ActiveModal::Transitions => {
                 // The panel entities persist; the modal overlay just closes.
@@ -2746,6 +3020,45 @@ impl Workspace {
                 cx.notify();
             }
         }
+    }
+
+    /// Accept on the confirmation dialog: dispatch the held command and run
+    /// the same optimistic header flip the ungated path performs (plan §12).
+    /// Opens a URL in the user's browser without ever waiting on the
+    /// child process (foreground-executor rule, plan §24).
+    fn open_external(&mut self, url: &str) {
+        let spawned = if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", url])
+                .spawn()
+        } else if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(url).spawn()
+        } else {
+            std::process::Command::new("xdg-open").arg(url).spawn()
+        };
+        self.state.status = match spawned {
+            Ok(_) => format!("Opened {url} in the browser"),
+            Err(_) => "No browser launcher is available on this system".into(),
+        };
+    }
+
+    fn accept_pending_confirm(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(pending) = self.state.pending_confirm.take() else {
+            return;
+        };
+        self.state.close_modal();
+        let event = pending.event.clone();
+        if let Some(command) = pending.command.clone() {
+            self.dispatch([command], cx);
+        }
+        if matches!(event, ComponentEvent::OpenOfficialWebsite) {
+            self.open_external(OFFICIAL_WEBSITE_URL);
+        }
+        if let Some(entry) = pending.history {
+            self.state.history.record(entry);
+        }
+        self.update_header_flags(&event, cx);
+        cx.notify();
     }
 
     /// Immediate local header feedback for lifecycle events; the following
@@ -2845,32 +3158,9 @@ impl Workspace {
                         this.route_event(ComponentEvent::OpenGraphicPlanner, cx);
                     })),
             )
-            .child(
-                div()
-                    .id("open-preview-window")
-                    .cursor_pointer()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .bg(self.theme.surface_active)
-                    .child("Preview window")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.route_event(ComponentEvent::OpenPreviewWindow, cx);
-                    })),
-            )
-            .child(
-                div()
-                    .id("open-debug-console-window")
-                    .cursor_pointer()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .bg(self.theme.surface_active)
-                    .child("Debug console window")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.route_event(ComponentEvent::OpenDebugConsoleWindow, cx);
-                    })),
-            )
+            // Plan §22: the Preview and Debug Console window entries are
+            // removed from the Tools menu; the auxiliary window code stays
+            // reachable for the adapter/parity path.
             .child(
                 div()
                     .id("open-browser-interaction-window")
@@ -3278,6 +3568,9 @@ impl Workspace {
             ActiveModal::None => None,
             ActiveModal::Settings => None,
             ActiveModal::Plugins => None,
+            // The confirmation dialog owns a dedicated layer (custom
+            // Accept/Cancel footer), not the generic content modal.
+            ActiveModal::Confirm => None,
             ActiveModal::History => {
                 // Interactive undo/redo history: one readable row per entry
                 // with a divider between the stacks; clicking an entry
@@ -3607,15 +3900,20 @@ impl Render for Workspace {
                         .top_4()
                         .right_4()
                         .cursor_pointer()
-                        .px_3()
-                        .py_2()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .w(px(30.))
+                        .h(px(30.))
                         .rounded_md()
                         .bg(self.theme.surface_active)
-                        .text_color(self.theme.text)
-                        .child("Close")
+                        // Icon close (plan §2.3): hover turns the control
+                        // danger-red so it reads as dismissal.
+                        .hover(|style| style.bg(self.theme.danger))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_active_modal(cx);
-                        })),
+                        }))
+                        .child(crate::components::icon::icon(self.theme.text, "close", 14.)),
                 );
             }
         }
@@ -3813,8 +4111,109 @@ impl Render for Workspace {
                             .bottom_0()
                             .left_0()
                             .bg(self.theme.overlay)
+                            // Same exclusivity as the other modal layers: the
+                            // panels behind an open Settings modal must never
+                            // receive clicks.
+                            .occlude()
                             .child(entity),
                     );
+                }
+            }
+            ActiveModal::Confirm => {
+                // Plan §12: hold the lifecycle command until an explicit
+                // Accept; backdrop/Cancel/Esc all drop it.
+                if let Some(pending) = self.state.pending_confirm.clone() {
+                    let theme = self.theme;
+                    let footer = div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap_2()
+                        .p_3()
+                        .child(
+                            div()
+                                .id("confirm-modal-cancel")
+                                .cursor_pointer()
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .bg(theme.surface_active)
+                                .text_color(theme.text)
+                                .hover(|style| style.bg(theme.surface_selected))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.close_active_modal(cx);
+                                }))
+                                .child(
+                                    pending
+                                        .cancel_label
+                                        .clone()
+                                        .unwrap_or_else(|| "Cancel".into()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("confirm-modal-accept")
+                                .cursor_pointer()
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .bg(theme.accent)
+                                .text_color(theme.text_strong)
+                                .hover(|style| style.bg(theme.accent_hover))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.accept_pending_confirm(cx);
+                                }))
+                                .child(pending.accept_label.clone()),
+                        )
+                        .into_any_element();
+                    let card = modal_card(
+                        &ModalConfig {
+                            show_close: false,
+                            ..ModalConfig::confirmation(
+                                pending.title.clone(),
+                                pending.accept_label.clone(),
+                            )
+                        },
+                        theme,
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(pending.message.clone()),
+                        Some(footer),
+                        None,
+                    );
+                    root = root
+                        .child(
+                            div()
+                                .id("confirm-modal-backdrop")
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .bottom_0()
+                                .left_0()
+                                .bg(self.theme.overlay)
+                                .occlude()
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.close_active_modal(cx);
+                                    }),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("confirm-modal-layer")
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .bottom_0()
+                                .left_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(card),
+                        );
                 }
             }
             _ => {}
@@ -3914,6 +4313,7 @@ pub fn run_native_app() {
 mod tests {
     use super::*;
     use crate::services::MockBackendRuntime;
+    use gpui::TestAppContext;
     use revo_core::service::{BackendService, PlacedSource, SourceSnapshotItem};
 
     #[test]
@@ -4434,5 +4834,200 @@ mod tests {
         assert!(snapshot_scene_items(&snapshot).iter().all(|scene| {
             (snapshot.selected_scene.as_deref() == Some(scene.name.as_str())) == scene.active
         }));
+    }
+
+    #[test]
+    fn confirm_toggles_gate_lifecycle_requests() {
+        use serde_json::json;
+        let mut state = WorkspaceState::default();
+        // Unset toggles never gate (legacy direct dispatch).
+        assert!(state
+            .confirm_request(&ComponentEvent::StartStreaming)
+            .is_none());
+        state.settings = Some(revo_core::settings::default_settings());
+        state.settings.as_mut().unwrap().ui_profile = Some(json!({
+            "confirm_start_stream": "true",
+            "confirm_stop_record": true,
+        }));
+        let pending = state
+            .confirm_request(&ComponentEvent::StartStreaming)
+            .expect("string toggle gates");
+        assert_eq!(pending.command, Some(BackendCommand::StartStreaming));
+        assert_eq!(pending.event, ComponentEvent::StartStreaming);
+        // JSON bool form gates too; untouched lifecycle keeps dispatching.
+        assert!(state
+            .confirm_request(&ComponentEvent::StopRecording)
+            .is_some());
+        assert!(state
+            .confirm_request(&ComponentEvent::StartRecording)
+            .is_none());
+        // Non-lifecycle events are never gated.
+        assert!(state
+            .confirm_request(&ComponentEvent::OpenSettings)
+            .is_none());
+        // Deletes stay ungated until confirm_delete is on (plan §15.4).
+        assert!(state
+            .confirm_request(&ComponentEvent::RemoveScene("A".into()))
+            .is_none());
+        state.settings.as_mut().unwrap().ui_profile = Some(json!({
+            "confirm_start_stream": "true",
+            "confirm_stop_record": true,
+            "confirm_delete": "true",
+        }));
+        let delete = state
+            .confirm_request(&ComponentEvent::RemoveScene("Studio".into()))
+            .expect("delete gated");
+        assert_eq!(
+            delete.command,
+            Some(BackendCommand::RemoveScene("Studio".into()))
+        );
+        assert!(delete.message.contains("Studio"));
+        assert!(state
+            .confirm_request(&ComponentEvent::RemoveSource("mic".into()))
+            .is_some());
+    }
+
+    #[gpui::test]
+    fn gated_start_streaming_holds_dispatch_until_accept(cx: &mut TestAppContext) {
+        use serde_json::json;
+        let (workspace, cx) = cx.add_window_view(|_window, cx| Workspace::new(cx));
+        workspace.update(cx, |w, _| {
+            w.state.settings = Some(revo_core::settings::default_settings());
+            w.state.settings.as_mut().unwrap().ui_profile =
+                Some(json!({ "confirm_start_stream": "true" }));
+        });
+        // Gated: no command reaches the backend, the dialog opens instead.
+        workspace.update(cx, |w, cx| {
+            w.route_event(ComponentEvent::StartStreaming, cx);
+        });
+        workspace.update(cx, |w, _| {
+            assert_eq!(w.state.active_modal, ActiveModal::Confirm);
+            assert!(w.state.pending_confirm.is_some());
+            assert_eq!(w.state.last_command, None);
+        });
+        // Accept dispatches the held command exactly once and closes.
+        workspace.update(cx, |w, cx| w.accept_pending_confirm(cx));
+        workspace.update(cx, |w, _| {
+            assert_eq!(w.state.active_modal, ActiveModal::None);
+            assert!(w.state.pending_confirm.is_none());
+            assert_eq!(w.state.last_command, Some(BackendCommand::StartStreaming));
+        });
+    }
+
+    #[gpui::test]
+    fn undo_restores_removed_scene_in_scenes_panel(cx: &mut TestAppContext) {
+        // Plan §15.3: undo must re-dispatch and re-seed the panels from the
+        // snapshot, not just update the status line.
+        let (workspace, cx) = cx.add_window_view(|_window, cx| Workspace::new(cx));
+        cx.run_until_parked();
+        workspace.update(cx, |w, cx| {
+            w.route_event(ComponentEvent::RemoveScene("Main Camera".into()), cx)
+        });
+        cx.run_until_parked();
+        workspace.update(cx, |w, cx| {
+            let names: Vec<String> = w
+                .scenes
+                .read(cx)
+                .scenes
+                .iter()
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(
+                !names.iter().any(|n| n == "Main Camera"),
+                "scene should be gone after remove: {names:?}"
+            );
+        });
+        workspace.update(cx, |w, cx| w.route_event(ComponentEvent::Undo, cx));
+        cx.run_until_parked();
+        workspace.update(cx, |w, cx| {
+            let names: Vec<String> = w
+                .scenes
+                .read(cx)
+                .scenes
+                .iter()
+                .map(|s| s.name.clone())
+                .collect();
+            assert!(
+                names.iter().any(|n| n == "Main Camera"),
+                "undo must restore the scene in the panel: {names:?}"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn cancelling_the_confirm_dialog_drops_the_pending_command(cx: &mut TestAppContext) {
+        use serde_json::json;
+        let (workspace, cx) = cx.add_window_view(|_window, cx| Workspace::new(cx));
+        workspace.update(cx, |w, _| {
+            w.state.settings = Some(revo_core::settings::default_settings());
+            w.state.settings.as_mut().unwrap().ui_profile =
+                Some(json!({ "confirm_start_record": "true" }));
+        });
+        workspace.update(cx, |w, cx| {
+            w.route_event(ComponentEvent::StartRecording, cx);
+        });
+        workspace.update(cx, |w, cx| w.close_active_modal(cx));
+        workspace.update(cx, |w, _| {
+            assert_eq!(w.state.active_modal, ActiveModal::None);
+            assert!(w.state.pending_confirm.is_none());
+            assert_eq!(w.state.last_command, None);
+        });
+    }
+
+    #[test]
+    fn brand_click_asks_before_opening_the_website() {
+        // Plan §24: no browser access without an explicit Yes.
+        let mut state = WorkspaceState::default();
+        state.route(ComponentEvent::OpenOfficialWebsite);
+        assert_eq!(state.last_command, None);
+        let pending = state.pending_confirm.clone().expect("confirm opens");
+        assert_eq!(pending.command, None);
+        assert_eq!(pending.accept_label.as_ref(), "Yes");
+        assert_eq!(
+            pending.cancel_label.as_deref().map(|l| l.as_ref()),
+            Some("No")
+        );
+        assert!(pending.message.contains(OFFICIAL_WEBSITE_URL));
+        assert_eq!(state.active_modal, ActiveModal::Confirm);
+        // A second click while the dialog is up must not stack dialogs.
+        state.route(ComponentEvent::OpenOfficialWebsite);
+        assert_eq!(
+            state.pending_confirm.as_ref().map(|p| p.title.clone()),
+            Some(pending.title)
+        );
+    }
+
+    #[gpui::test]
+    fn classic_style_opens_modals_on_the_workspace_palette(cx: &mut TestAppContext) {
+        // Plan §4.1: every modal must render with the app theme, not a
+        // palette hard-coded in its constructor.
+        use serde_json::json;
+        let (workspace, cx) = cx.add_window_view(|_window, cx| Workspace::new(cx));
+        let classic_snapshot = {
+            let mut snapshot = revo_core::service::BackendSnapshot::default();
+            snapshot.settings = Some({
+                let mut settings = revo_core::settings::default_settings();
+                settings.ui_profile = Some(json!({ "interface_style": "classic" }));
+                settings
+            });
+            snapshot
+        };
+        workspace.update(cx, |w, cx| w.apply_theme_style(&classic_snapshot, cx));
+        workspace.update(cx, |w, _| assert_eq!(w.theme, RevoTheme::classic()));
+        // A modal opened afterwards inherits the classic palette.
+        workspace.update(cx, |w, cx| w.open_settings_modal(cx));
+        workspace.update(cx, |w, cx| {
+            let modal = w.settings_modal.clone().expect("settings modal");
+            assert_eq!(modal.read(cx).theme, RevoTheme::classic());
+        });
+        // A live switch back to future re-seeds the open modal too.
+        let mut future_snapshot = classic_snapshot.clone();
+        future_snapshot.settings.as_mut().unwrap().ui_profile =
+            Some(json!({ "interface_style": "future" }));
+        workspace.update(cx, |w, cx| w.apply_theme_style(&future_snapshot, cx));
+        workspace.update(cx, |w, cx| {
+            let modal = w.settings_modal.clone().expect("settings modal");
+            assert_eq!(modal.read(cx).theme, RevoTheme::future());
+        });
     }
 }

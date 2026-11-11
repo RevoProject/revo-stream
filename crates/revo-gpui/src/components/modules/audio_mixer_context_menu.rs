@@ -1,8 +1,13 @@
-use gpui::{div, prelude::*, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
 
 use crate::theme::RevoTheme;
 
 use super::audio_mixer::MixerEvent;
+
+/// Menu size assumptions for the viewport clamp (plan §17.1).
+const MARGIN: f32 = 8.0;
+const MENU_WIDTH: f32 = 210.0;
+const MENU_HEIGHT: f32 = 96.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContextMenuEntry {
@@ -28,6 +33,8 @@ pub struct AudioMixerContextMenu {
     pub source_id: Option<String>,
     pub selected_index: Option<usize>,
     pub theme: RevoTheme,
+    /// Anchor point (window pixels) the menu opens at (plan §17.1).
+    pub position: (f32, f32),
 }
 
 impl Default for AudioMixerContextMenu {
@@ -37,6 +44,7 @@ impl Default for AudioMixerContextMenu {
             source_id: None,
             selected_index: None,
             theme: RevoTheme::future(),
+            position: (0.0, 0.0),
         }
     }
 }
@@ -44,10 +52,11 @@ impl Default for AudioMixerContextMenu {
 impl gpui::EventEmitter<MixerEvent> for AudioMixerContextMenu {}
 
 impl AudioMixerContextMenu {
-    pub fn open_menu(&mut self, source_id: impl Into<String>) {
+    pub fn open_menu(&mut self, source_id: impl Into<String>, position: (f32, f32)) {
         self.open = true;
         self.source_id = Some(source_id.into());
         self.selected_index = Some(0);
+        self.position = position;
     }
 
     pub fn close(&mut self) {
@@ -95,15 +104,26 @@ impl AudioMixerContextMenu {
 }
 
 impl Render for AudioMixerContextMenu {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         if !self.open {
             return div();
         }
         if self.source_id.is_none() {
             return div();
         }
+        // Plan §17.1: anchor below-right of the click, clamped so the menu
+        // never leaves the viewport (same pattern as the scenes context).
+        let viewport = window.viewport_size();
+        let x = (self.position.0 + 6.0)
+            .min(f32::from(viewport.width) - MENU_WIDTH - MARGIN)
+            .max(MARGIN);
+        let y = (self.position.1 + 8.0)
+            .min(f32::from(viewport.height) - MENU_HEIGHT - MARGIN)
+            .max(MARGIN);
         let mut menu = div()
             .absolute()
+            .left(px(x))
+            .top(px(y))
             .flex()
             .flex_col()
             .gap_1()
@@ -174,9 +194,10 @@ mod tests {
     #[test]
     fn open_menu_tracks_source_and_selection() {
         let mut menu = menu();
-        menu.open_menu("camera");
+        menu.open_menu("camera", (40.0, 60.0));
         assert!(menu.open);
         assert_eq!(menu.source_id.as_deref(), Some("camera"));
+        assert_eq!(menu.position, (40.0, 60.0));
         assert_eq!(menu.selected_index, Some(0));
 
         menu.move_selection(1);
@@ -190,7 +211,7 @@ mod tests {
     #[test]
     fn choose_emits_typed_mixer_actions_and_closes() {
         let mut menu = menu();
-        menu.open_menu("camera");
+        menu.open_menu("camera", (0.0, 0.0));
         assert_eq!(
             menu.choose(ContextMenuEntry::AudioFilters),
             Some(MixerEvent::OpenFilters {
@@ -199,7 +220,7 @@ mod tests {
         );
         assert!(!menu.open);
 
-        menu.open_menu("camera");
+        menu.open_menu("camera", (0.0, 0.0));
         assert_eq!(
             menu.choose(ContextMenuEntry::AdvancedProperties),
             Some(MixerEvent::OpenAdvanced {
