@@ -20,10 +20,7 @@ use crate::obs_service::{ObsBackendRuntime, PREVIEW_CAPTURE_INTERVAL_MS};
 
 /// Serves one connected UI client until it disconnects. Returns when the
 /// client goes away or asks for [`UiToEngine::Shutdown`].
-pub fn serve_connection<S: EngineStream + ?Sized>(
-    stream: &mut S,
-    backend: &mut ObsBackendRuntime,
-) {
+pub fn serve_connection<S: EngineStream + ?Sized>(stream: &mut S, backend: &mut ObsBackendRuntime) {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(PREVIEW_CAPTURE_INTERVAL_MS)));
     // First push: the UI boots its workspace on this snapshot before any
     // command arrives (parity with the in-process boot refresh).
@@ -359,8 +356,8 @@ fn send<S: EngineStream + ?Sized>(stream: &mut S, message: &EngineToUi) -> std::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
     use revo_core::transport::test_pair;
+    use std::io::{Read, Write};
 
     type Stream = Box<dyn EngineStream + Send>;
 

@@ -84,6 +84,9 @@ pub enum ComponentEvent {
     },
     RemoveSource(String),
     EditSource(String),
+    /// Header brand click: the workspace asks before opening the official
+    /// website in the browser (plan §24).
+    OpenOfficialWebsite,
     QuickSourceAction {
         id: String,
         action: QuickSourceAction,

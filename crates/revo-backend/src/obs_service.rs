@@ -83,6 +83,9 @@ pub struct ObsBackendRuntime {
     plugin_modules: HashMap<String, bool>,
     plugin_profiles: Vec<PluginProfileState>,
     active_plugin_profile: Option<String>,
+    /// Live Settings option catalog (encoders/formats/devices) refreshed on
+    /// `StartObs`; surfaced verbatim through every snapshot (plan §6–8).
+    select_options: Option<revo_core::service::SnapshotSelectOptions>,
 }
 
 impl ObsBackendRuntime {
@@ -107,7 +110,28 @@ impl ObsBackendRuntime {
             plugin_profiles: Vec::new(),
             active_plugin_profile:
                 crate::settings::plugins_profiles::plugin_profile_active_name_internal().ok(),
+            select_options: None,
         }
+    }
+
+    /// Recomputes the Settings catalogs from libobs + the audio system and
+    /// caches them on the adapter. Called after successful OBS startup;
+    /// failures fall back to the static defaults so the dropdowns are never
+    /// empty. Device enumeration runs `pactl` once here (not per snapshot).
+    pub(crate) fn refresh_select_options(&mut self) {
+        let defaults = crate::settings::encoder_options::defaults_obs_settings_select_options();
+        let merged = crate::settings::encoder_options::get_settings_select_options(defaults)
+            .unwrap_or_else(|_| {
+                crate::settings::encoder_options::defaults_obs_settings_select_options()
+            });
+        let output_devices =
+            crate::devices::audio::list_pulse_devices("output").unwrap_or_default();
+        let input_devices = crate::devices::audio::list_pulse_devices("input").unwrap_or_default();
+        self.select_options = Some(revo_core::service::SnapshotSelectOptions::from_parts(
+            &merged,
+            &output_devices,
+            &input_devices,
+        ));
     }
 
     /// Rebuilds the session module map so every discovered module maps to
@@ -375,6 +399,7 @@ impl BackendRuntime for ObsBackendRuntime {
             },
             active_plugin_profile: self.active_plugin_profile.clone(),
             enabled_plugin_modules: self.enabled_modules_snapshot(),
+            select_options: self.select_options.clone(),
         })
     }
 
@@ -385,6 +410,9 @@ impl BackendRuntime for ObsBackendRuntime {
             self.last_error = Some(message.clone());
         } else {
             self.last_error = None;
+            // The catalogs describe loaded modules; drop them with the
+            // runtime so a later snapshot never serves a stale list.
+            self.select_options = None;
         }
         Ok(())
     }
@@ -418,14 +446,31 @@ impl ObsBackendRuntime {
                 self.realtime_refresh = enabled;
                 Ok(format!("realtime refresh: {enabled}"))
             }
-            BackendCommand::StartObs => crate::runtime::init::start_with_platform(
-                &mut self.runtime,
-                &*self.platform,
-                self.root_dir.clone(),
-            ),
+            BackendCommand::RefreshSelectOptions => {
+                if !self.runtime.initialized {
+                    return Err("OBS not initialized".into());
+                }
+                self.refresh_select_options();
+                Ok("select options refreshed".into())
+            }
+            BackendCommand::StartObs => {
+                let started = crate::runtime::init::start_with_platform(
+                    &mut self.runtime,
+                    &*self.platform,
+                    self.root_dir.clone(),
+                );
+                if started.is_ok() {
+                    // Publish the live Settings catalogs once libobs is up
+                    // (plan §6–8): encoders come from the loaded modules and
+                    // the audio catalog from pulse/alsa.
+                    self.refresh_select_options();
+                }
+                started
+            }
             BackendCommand::StopObs => {
                 self.muted_sources.clear();
                 self.source_volumes.clear();
+                self.select_options = None;
                 crate::runtime::init::shutdown_with_platform(&mut self.runtime, &*self.platform)
             }
             BackendCommand::StartRecording => {
@@ -641,6 +686,39 @@ impl ObsBackendRuntime {
                 let json = std::fs::read_to_string(&path)
                     .map_err(|e| format!("failed to read '{path}': {e}"))?;
                 crate::scenes::collection_io::import_scene_collection(&mut self.runtime, json)
+            }
+            BackendCommand::ExtractDefaultTheme { root_dir } => {
+                let root = if root_dir.trim().is_empty() {
+                    crate::settings::core::resolve_root_dir()
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    root_dir
+                };
+                crate::settings::themes::themes_extract_default(
+                    Some(root),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            BackendCommand::ExportProfile { path } => {
+                crate::settings::profile_obs::export_profile_obs_to_file(path)
+            }
+            BackendCommand::ImportProfile { path } => {
+                let json = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("failed to read '{path}': {e}"))?;
+                crate::settings::profile_obs::import_profile_obs(json)
             }
         }
     }

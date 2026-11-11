@@ -149,16 +149,14 @@ pub fn resolve_record_path(output_path: &str) -> Result<std::path::PathBuf, Stri
         base_path = base.join(base_path);
     }
 
-    let unix_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    // Default recording file name (plan §23): RevoRecord_<YYYYMMDD>_<HHMM>.<ext>
+    let stamp = crate::utils::time::local_record_stamp();
 
     let looks_like_dir =
         raw_input.ends_with('/') || raw_input.ends_with('\\') || base_path.is_dir();
 
     let mut path = if looks_like_dir {
-        base_path.join(format!("record_{unix_ts}.mp4"))
+        base_path.join(format!("RevoRecord_{stamp}.mp4"))
     } else {
         let parent = base_path
             .parent()
@@ -174,7 +172,7 @@ pub fn resolve_record_path(output_path: &str) -> Result<std::path::PathBuf, Stri
             .and_then(|e| e.to_str())
             .filter(|e| !e.trim().is_empty())
             .unwrap_or("mp4");
-        parent.join(format!("{stem}_{unix_ts}.{ext}"))
+        parent.join(format!("{stem}_{stamp}.{ext}"))
     };
 
     if let Some(parent) = path.parent() {
@@ -207,4 +205,47 @@ pub fn resolve_record_path(output_path: &str) -> Result<std::path::PathBuf, Stri
     }
 
     Ok(path)
+}
+
+#[cfg(test)]
+mod record_name_tests {
+    use super::resolve_record_path;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "revo-record-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        dir
+    }
+
+    #[test]
+    fn default_record_name_uses_revo_record_stamp() {
+        let dir = temp_dir("default");
+        let path = resolve_record_path(&format!("{}/", dir.display())).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("RevoRecord_"), "unexpected name {name}");
+        assert!(name.ends_with(".mp4"), "unexpected extension {name}");
+        let core = &name["RevoRecord_".len()..name.len() - ".mp4".len()];
+        let (date, time) = core.split_once('_').unwrap_or_default();
+        assert_eq!(date.len(), 8, "date part {date}");
+        assert!(date.chars().all(|c| c.is_ascii_digit()));
+        assert_eq!(time.len(), 4, "time part {time}");
+        assert!(time.chars().all(|c| c.is_ascii_digit()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn custom_record_stem_keeps_its_name() {
+        let dir = temp_dir("custom");
+        let path = resolve_record_path(&format!("{}/clip.mkv", dir.display())).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("clip_"), "unexpected name {name}");
+        assert!(name.ends_with(".mkv"), "unexpected extension {name}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

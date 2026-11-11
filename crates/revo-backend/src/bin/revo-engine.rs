@@ -20,9 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-use revo_core::transport::{
-    write_endpoint_file, EngineEndpoint, EngineListener,
-};
+use revo_core::transport::{write_endpoint_file, EngineEndpoint, EngineListener};
 
 fn parse_arguments(arguments: impl Iterator<Item = String>) -> (Option<String>, Option<PathBuf>) {
     let mut socket: Option<String> = None;

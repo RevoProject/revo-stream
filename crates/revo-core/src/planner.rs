@@ -65,6 +65,40 @@ pub fn parse_resolution(raw: &str) -> Option<(u32, u32)> {
     (width > 0 && height > 0).then_some((width, height))
 }
 
+/// Selectable base/output resolutions with human labels (plan §8.1),
+/// shared by the settings dropdown and the engine catalog.
+pub const RESOLUTION_PRESETS: &[(&str, &str)] = &[
+    ("640x360", "nHD (360p)"),
+    ("854x480", "SD (480p)"),
+    ("1280x720", "HD (720p)"),
+    ("1920x1080", "Full HD (1080p)"),
+    ("2560x1440", "QHD (1440p)"),
+    ("3840x2160", "UHD 4K (2160p)"),
+];
+
+/// Preset options as (value, label) pairs for select widgets.
+pub fn resolution_preset_options() -> Vec<(String, String)> {
+    RESOLUTION_PRESETS
+        .iter()
+        .map(|(value, label)| ((*value).to_string(), (*label).to_string()))
+        .collect()
+}
+
+#[cfg(test)]
+mod preset_tests {
+    use super::{parse_resolution, RESOLUTION_PRESETS};
+
+    #[test]
+    fn presets_parse_and_default_is_listed() {
+        for (value, _label) in RESOLUTION_PRESETS {
+            assert!(parse_resolution(value).is_some(), "preset {value}");
+        }
+        assert!(RESOLUTION_PRESETS
+            .iter()
+            .any(|(value, _)| *value == "1920x1080"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

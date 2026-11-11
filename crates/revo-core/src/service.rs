@@ -26,6 +26,10 @@ pub enum BackendCommand {
     Redo,
     SetStudioMode(bool),
     SetRealtimeRefresh(bool),
+    /// Re-read the live Settings catalogs (encoders/devices) from libobs and
+    /// the audio system; the engine pushes a fresh snapshot afterwards so
+    /// open dropdowns upgrade without a restart (plan §6–8).
+    RefreshSelectOptions,
     StartObs,
     StopObs,
     StartRecording,
@@ -121,6 +125,19 @@ pub enum BackendCommand {
     ImportObsSceneCollection {
         path: String,
     },
+    /// Extract the default theme under `<root_dir>/themes/default_local`
+    /// (revo-backend `settings::themes::themes_extract_default`, plan §4.2).
+    ExtractDefaultTheme {
+        root_dir: String,
+    },
+    /// Export the active OBS profile to a JSON file at `path` (plan §11.2).
+    ExportProfile {
+        path: String,
+    },
+    /// Import an OBS profile from a JSON file at `path` (plan §11.2).
+    ImportProfile {
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,6 +159,84 @@ pub struct SourceSnapshotItem {
     pub source_type: String,
     pub visible: bool,
     pub audio_capable: bool,
+}
+
+/// One labelled selectable value shared by every `BackendSnapshot` option
+/// catalog (encoders, formats, devices, resolutions, FPS). Mirrors
+/// `models::SelectOption` with the full derive set needed for snapshot
+/// transport (plan §6–8).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SnapshotOption {
+    pub value: String,
+    pub label: String,
+}
+
+impl From<&crate::models::SelectOption> for SnapshotOption {
+    fn from(option: &crate::models::SelectOption) -> Self {
+        Self {
+            value: option.value.clone(),
+            label: option.label.clone(),
+        }
+    }
+}
+
+/// The full Settings option catalog published by the engine: encoder ids
+/// with libobs display names, container formats, sample rates, resolutions
+/// and FPS values, plus the selectable audio devices.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct SnapshotSelectOptions {
+    pub streaming_audio_encoders: Vec<SnapshotOption>,
+    pub streaming_video_encoders: Vec<SnapshotOption>,
+    pub recording_audio_encoders: Vec<SnapshotOption>,
+    pub recording_video_encoders: Vec<SnapshotOption>,
+    pub recording_formats: Vec<SnapshotOption>,
+    pub audio_sample_rates: Vec<SnapshotOption>,
+    pub audio_channels: Vec<SnapshotOption>,
+    pub video_resolutions: Vec<SnapshotOption>,
+    pub video_downscale_filters: Vec<SnapshotOption>,
+    pub video_common_fps: Vec<SnapshotOption>,
+    pub audio_output_devices: Vec<SnapshotOption>,
+    pub audio_input_devices: Vec<SnapshotOption>,
+}
+
+impl SnapshotSelectOptions {
+    /// Maps the engine-side `ObsSettingsSelectOptions` payload plus the live
+    /// audio device lists into the transport shape.
+    pub fn from_parts(
+        options: &crate::models::ObsSettingsSelectOptions,
+        output_devices: &[crate::models::AudioDevice],
+        input_devices: &[crate::models::AudioDevice],
+    ) -> Self {
+        let map = |list: &Vec<crate::models::SelectOption>| {
+            list.iter().map(SnapshotOption::from).collect::<Vec<_>>()
+        };
+        Self {
+            streaming_audio_encoders: map(&options.streaming_audio_encoders),
+            streaming_video_encoders: map(&options.streaming_video_encoders),
+            recording_audio_encoders: map(&options.recording_audio_encoders),
+            recording_video_encoders: map(&options.recording_video_encoders),
+            recording_formats: map(&options.recording_formats),
+            audio_sample_rates: map(&options.audio_sample_rates),
+            audio_channels: map(&options.audio_channels),
+            video_resolutions: map(&options.video_resolutions),
+            video_downscale_filters: map(&options.video_downscale_filters),
+            video_common_fps: map(&options.video_common_fps),
+            audio_output_devices: output_devices
+                .iter()
+                .map(|device| SnapshotOption {
+                    value: device.id.clone(),
+                    label: device.name.clone(),
+                })
+                .collect(),
+            audio_input_devices: input_devices
+                .iter()
+                .map(|device| SnapshotOption {
+                    value: device.id.clone(),
+                    label: device.name.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -184,6 +279,10 @@ pub struct BackendSnapshot {
     /// Source types the engine can create (add-source modal tiles); empty
     /// while libobs is not running.
     pub available_source_types: Vec<crate::models::SourceTypeItem>,
+    /// Settings option catalog (encoders/formats/devices/resolutions/FPS)
+    /// published by the engine; `None` until the engine supplies one
+    /// (plan §6–8). The UI falls back to its static const lists then.
+    pub select_options: Option<SnapshotSelectOptions>,
 }
 
 impl Default for BackendSnapshot {
@@ -218,6 +317,7 @@ impl Default for BackendSnapshot {
             enabled_plugin_modules: Vec::new(),
             plugin_profile_states: Vec::new(),
             available_source_types: Vec::new(),
+            select_options: None,
         }
     }
 }

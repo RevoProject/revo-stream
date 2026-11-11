@@ -112,6 +112,7 @@ impl Default for MockBackendRuntime {
                         audio_capable: true,
                     },
                 ],
+                select_options: Some(mock_select_options()),
                 ..BackendSnapshot::default()
             },
             plugin_modules: HashMap::from([("default".to_string(), Vec::new())]),
@@ -159,6 +160,13 @@ impl BackendRuntime for MockBackendRuntime {
             }
             BackendCommand::SetStudioMode(enabled) => self.snapshot.studio_mode = enabled,
             BackendCommand::SetRealtimeRefresh(enabled) => self.snapshot.realtime_refresh = enabled,
+            BackendCommand::RefreshSelectOptions => {
+                // The mock catalog ships with the runtime; a refresh simply
+                // re-publishes it (and must never blank it).
+                if self.snapshot.select_options.is_none() {
+                    self.snapshot.select_options = Some(mock_select_options());
+                }
+            }
             BackendCommand::StartObs => self.snapshot.obs_running = true,
             BackendCommand::StopObs => {
                 self.snapshot.obs_running = false;
@@ -374,6 +382,9 @@ impl BackendRuntime for MockBackendRuntime {
             BackendCommand::ImportRevoSceneCollection { .. } => {}
             BackendCommand::ExportObsSceneCollection { .. } => {}
             BackendCommand::ImportObsSceneCollection { .. } => {}
+            BackendCommand::ExtractDefaultTheme { .. } => {}
+            BackendCommand::ExportProfile { .. } => {}
+            BackendCommand::ImportProfile { .. } => {}
         }
         Ok(())
     }
@@ -582,6 +593,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_snapshot_publishes_the_settings_catalog() {
+        let snapshot = MockBackendRuntime::default()
+            .snapshot()
+            .expect("mock snapshot");
+        let options = snapshot
+            .select_options
+            .expect("the mock ships a catalog (plan §6–8)");
+        assert!(!options.recording_video_encoders.is_empty());
+        assert!(options
+            .video_resolutions
+            .iter()
+            .any(|option| option.value == "1920x1080"));
+        assert!(!options.audio_output_devices.is_empty());
+        assert!(!options.audio_input_devices.is_empty());
+    }
+
+    #[test]
     fn source_settings_serves_typed_defaults_for_known_sources() {
         let runtime = MockBackendRuntime::default();
         let settings = runtime
@@ -740,5 +768,84 @@ mod tests {
             Some("/dev/video0"),
             "the quick device picker prefills from a stored device"
         );
+    }
+}
+
+/// Static Settings catalog mirroring the ids/labels libobs publishes once
+/// the common modules are loaded (plan §6–8). The real adapter refreshes
+/// the same shape from `obs_enum_encoder_types` + pulse devices after
+/// `StartObs`; the mock ships it immediately so dropdowns exercise the
+/// dynamic path without a provisioned host.
+fn mock_select_options() -> revo_core::service::SnapshotSelectOptions {
+    use revo_core::service::{SnapshotOption, SnapshotSelectOptions};
+    let opt = |value: &str, label: &str| SnapshotOption {
+        value: value.to_string(),
+        label: label.to_string(),
+    };
+    SnapshotSelectOptions {
+        streaming_audio_encoders: vec![opt("aac", "AAC"), opt("opus", "Opus")],
+        streaming_video_encoders: vec![
+            opt("x264", "x264"),
+            opt("h264_nvenc", "NVIDIA NVENC H.264"),
+        ],
+        recording_audio_encoders: vec![
+            opt("aac", "AAC (advanced encoder)"),
+            opt("mp4_aac", "AAC (mp4/mov only)"),
+            opt("mkv_opus", "Opus (mkv only)"),
+        ],
+        recording_video_encoders: vec![
+            opt("x264", "x264"),
+            opt("h264_nvenc", "NVIDIA NVENC H.264"),
+            opt("h264_vulkan", "H.264 (Vulkan)"),
+        ],
+        recording_formats: vec![
+            opt("mp4", "mp4"),
+            opt("mkv", "matroska, mkv (streaming only)"),
+            opt("mov", "QuickTime, mov"),
+            opt("flv", "Flash Video, flv"),
+        ],
+        audio_sample_rates: vec![opt("44100", "44.1 kHz"), opt("48000", "48 kHz")],
+        audio_channels: vec![
+            opt("mono", "Mono"),
+            opt("stereo", "Stereo"),
+            opt("2.1", "2.1 Surround"),
+            opt("4.0", "Quadraphonic"),
+            opt("5.1", "5.1 Surround"),
+            opt("7.1", "7.1 Surround"),
+        ],
+        video_resolutions: revo_core::planner::resolution_preset_options()
+            .into_iter()
+            .map(|(value, label)| SnapshotOption { value, label })
+            .collect(),
+        video_downscale_filters: vec![
+            opt("disable", "Disable (fastest)"),
+            opt("point", "Point (nearest-neighbor)"),
+            opt("bicubic", "Bicubic (better, slower)"),
+            opt("bilinear", "Bilinear (good)"),
+            opt("lanczos", "Lanczos (best, slower)"),
+        ],
+        video_common_fps: vec![
+            opt("20", "20"),
+            opt("23.967", "23.967"),
+            opt("24", "24"),
+            opt("25", "25"),
+            opt("29.97", "29.97"),
+            opt("30", "30"),
+            opt("48", "48"),
+            opt("50", "50"),
+            opt("59.94", "59.94"),
+            opt("60", "60"),
+        ],
+        audio_output_devices: vec![
+            opt(
+                "alsa_output.pci-0000_00_1f.3.analog-stereo",
+                "Built-in Audio Analog Stereo",
+            ),
+            opt("null.output", "Dummy output"),
+        ],
+        audio_input_devices: vec![opt(
+            "alsa_input.usb-Camera_Microphone-00.mono",
+            "Camera Microphone Mono",
+        )],
     }
 }

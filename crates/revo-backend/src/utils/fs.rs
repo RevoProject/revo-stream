@@ -128,9 +128,7 @@ pub fn init_standalone_app_paths() -> Result<(), String> {
     let exe_dir = exe.parent().ok_or("executable has no parent directory")?;
     let data_dir = user_data_dir_from(std::env::var_os("REVO_DATA_DIR"), standalone_home())
         .ok_or("no per-user data directory is available")?;
-    set_startup_cwd(
-        std::env::current_dir().unwrap_or_else(|_| exe_dir.to_path_buf()),
-    );
+    set_startup_cwd(std::env::current_dir().unwrap_or_else(|_| exe_dir.to_path_buf()));
     set_app_paths(
         std::env::var_os("REVO_ROOT")
             .map(PathBuf::from)
@@ -205,8 +203,8 @@ mod tests {
     #[test]
     fn standalone_data_dir_falls_back_to_the_platform_standard() {
         let home = PathBuf::from("/home/user");
-        let resolved = user_data_dir_from(None, Some(home.clone()))
-            .expect("a home directory resolves");
+        let resolved =
+            user_data_dir_from(None, Some(home.clone())).expect("a home directory resolves");
         #[cfg(target_os = "macos")]
         let expected = home.join("Library").join("Application Support");
         #[cfg(target_os = "windows")]
