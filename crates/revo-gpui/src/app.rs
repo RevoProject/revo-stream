@@ -2009,9 +2009,20 @@ impl Workspace {
                 }
             }
             DropdownField::TransitionKind { transition_id } => {
-                self.tools_transitions.update(cx, |panel, cx| {
-                    panel.set_transition_kind_value(&transition_id, &value, cx);
-                });
+                if transition_id == "__new__" {
+                    if let Some(kind) =
+                        crate::components::modules::transitions::TransitionKind::from_value(&value)
+                    {
+                        self.tools_transitions.update(cx, |panel, cx| {
+                            panel.set_new_kind(kind);
+                            cx.notify();
+                        });
+                    }
+                } else {
+                    self.tools_transitions.update(cx, |panel, cx| {
+                        panel.set_transition_kind_value(&transition_id, &value, cx);
+                    });
+                }
             }
             DropdownField::TransitionParam { transition_id, key } => {
                 self.tools_transitions.update(cx, |panel, cx| {

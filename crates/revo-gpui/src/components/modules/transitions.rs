@@ -221,10 +221,12 @@ impl gpui::EventEmitter<ComponentEvent> for TransitionsPanel {}
 impl TransitionsPanel {
     pub fn new(items: Vec<TransitionItem>, theme: RevoTheme) -> Self {
         let next_id = (items.len() + 1) as u64;
+        let active_id = items.first().map(|item| item.id.clone());
+        let selected_id = active_id.clone();
         Self {
             items,
-            selected_id: None,
-            active_id: None,
+            selected_id,
+            active_id,
             new_name: String::new(),
             new_kind: TransitionKind::Fade,
             snapshot: None,
@@ -374,6 +376,7 @@ impl TransitionsPanel {
             self.items[0].id.clone()
         };
         self.active_id = Some(active_id.clone());
+        self.selected_id = Some(active_id.clone());
         let active = self
             .items
             .iter()
@@ -788,9 +791,10 @@ impl Render for TransitionsPanel {
             );
         }
 
-        // Svelte-parity "Add transition" section: name field, kind selector,
-        // and a create button appending a draft transition to the list.
+        // Plan §18.2: one "Add transition" action with a typed kind choice
+        // (dropdown, no extra Slide/Swipe duplicate button).
         let new_kind_label = self.new_kind.label().to_string();
+        let new_kind_value = self.new_kind.value().to_string();
         let add_section = div()
             .flex()
             .flex_col()
@@ -812,6 +816,7 @@ impl Render for TransitionsPanel {
                     .flex_row()
                     .gap_2()
                     .flex_wrap()
+                    .items_center()
                     .child(self.draft_field(
                         "transition-new-name",
                         &FieldSlot::NewName,
@@ -829,11 +834,38 @@ impl Render for TransitionsPanel {
                             .rounded_md()
                             .bg(self.theme.surface_active)
                             .text_color(self.theme.text)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.cycle_new_kind();
-                                cx.notify();
-                            }))
-                            .child(SharedString::from(new_kind_label)),
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(SharedString::from(new_kind_label))
+                            .child(crate::components::icon::icon(
+                                self.theme.text_muted,
+                                "chevron-down",
+                                12.,
+                            ))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    let options = TransitionKind::all()
+                                        .into_iter()
+                                        .map(|kind| {
+                                            (kind.value().to_string(), kind.label().to_string())
+                                        })
+                                        .collect();
+                                    cx.emit(ComponentEvent::OpenDropdown {
+                                        field: crate::actions::DropdownField::TransitionKind {
+                                            transition_id: "__new__".into(),
+                                        },
+                                        options,
+                                        current: new_kind_value.clone(),
+                                        position: (
+                                            f32::from(event.position.x),
+                                            f32::from(event.position.y),
+                                        ),
+                                    });
+                                }),
+                            ),
                     )
                     .child(
                         div()
@@ -858,12 +890,12 @@ impl Render for TransitionsPanel {
                                 }
                                 cx.notify();
                             }))
-                            .child("Add transition"),
+                            .child("Add"),
                     ),
             );
 
-        // Selected-transition editor: rename, switch kind, set as the active
-        // program transition, or remove the draft entirely.
+        // Plan §18.1: "Edit transition" above "Add transition"; the active
+        // transition is selected by default so editing is highlighted on open.
         let selected_section = self
             .selected_id
             .clone()
@@ -887,18 +919,23 @@ impl Render for TransitionsPanel {
                     .rounded_md()
                     .bg(self.theme.surface_elevated)
                     .border_1()
-                    .border_color(self.theme.border)
+                    .border_color(if active {
+                        self.theme.border_selected
+                    } else {
+                        self.theme.border
+                    })
                     .child(
                         div()
                             .text_color(self.theme.text_secondary)
                             .text_size(px(11.))
                             .child(SharedString::from(format!(
-                                "Editing: {}",
+                                "Edit transition: {}{}",
                                 if item.name.is_empty() {
                                     "Transition".to_string()
                                 } else {
                                     item.name.clone()
-                                }
+                                },
+                                if active { " (active)" } else { "" }
                             ))),
                     )
                     .child(
@@ -1224,6 +1261,8 @@ impl Render for TransitionsPanel {
             .track_focus(&focus)
             .on_key_down(on_key)
             .child(div().child("Transitions"))
+            .children(selected_section)
+            .child(add_section)
             .child(cards)
             .child(if self.items.is_empty() {
                 div()
@@ -1232,8 +1271,6 @@ impl Render for TransitionsPanel {
             } else {
                 div()
             })
-            .child(add_section)
-            .children(selected_section)
             .children(kind_list)
             .children(params_block)
             .child(
@@ -1436,7 +1473,7 @@ mod tests {
                 params: Default::default(),
             })
         );
-        assert!(panel.selected_item().is_none());
+        assert_eq!(panel.selected_id.as_deref(), Some("t2"));
         assert!(!panel.is_dirty());
     }
 
