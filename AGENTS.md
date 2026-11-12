@@ -155,6 +155,8 @@ are absent from the final architecture.
   Windows, macOS, release workflow) plus a separate legacy Tauri script list;
   verify entries against the filesystem before relying on them because
   migration cleanup may make it stale.
+- `CONTRIBUTING.md`: contributor policy for licensing, closed-source code,
+  AI-assisted contributions, validation, and pull requests.
 
 ## Development Commands
 

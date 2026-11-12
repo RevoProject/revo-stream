@@ -175,6 +175,9 @@ contributions are welcome:
 PRs for libobs bindings, GPUI views, and performance optimizations are
 especially welcome.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the licensing policy, AI-assisted
+contribution rules, validation requirements, and the pull request checklist.
+
 ## License
 
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
