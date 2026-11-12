@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "📖 Build and development docs"
+    url: "https://github.com/RevoProject/revo-stream/tree/feature/gpui-rewrite/docs"
+    about: "Build instructions, script reference, and the GPUI-first workflow."
+  - name: "🔐 Report a security vulnerability"
+    url: "https://github.com/RevoProject/revo-stream/security/advisories/new"
+    about: "Report vulnerabilities privately instead of opening a public issue."
