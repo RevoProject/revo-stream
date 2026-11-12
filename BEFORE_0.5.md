@@ -1192,3 +1192,17 @@ odtworzony patchem, testy przechodzą).
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-gpui 175/175.
+
+## 2026-11-11 — kontynuacja #4 (goal)
+
+- [x] §18.1 Edit transition nad Add transition + domyślne podświetlenie aktywnej —
+      `TransitionsPanel::new` wybiera aktywną/przód jako edytowaną; render:
+      sekcja „Edit transition: … (active)" nad „Add transition", lista kart poniżej.
+      `apply()` zachowuje wybór na aktywnej pozycji.
+- [x] §18.2 Jeden przycisk „Add" z wyborem typu (dropdown) — usunięty duplikujący
+      flow cykliczny; typ nowej tranzycji wybierany przez wspólny dropdown
+      (`DropdownField::TransitionKind` dla `__new__` obsłużony w `app.rs`).
+- [ ] §18.3 Redesign modalu (grid/grupowanie/podgląd 16:9) — niezaimplementowane.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed; revo-gpui 175/175
+(test transitions zaktualizowany pod utrzymanie selekcji po Apply).
