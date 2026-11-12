@@ -8,27 +8,28 @@
 //! routing each one through [`crate::services::EngineClient`] on the
 //! backend worker thread.
 
-use revo_core::ipc::DebugLogEntry;
+use revo_core::ipc::{DebugLogEntry, PreviewFrame};
 use revo_core::service::{BackendError, BackendService};
 
 pub use crate::services::engine::{EngineClient, UI_PREVIEW_INTERVAL_MS};
 
-/// Captures a preview frame as a PNG data-URI string.
+/// Captures one preview frame as raw RGBA.
 ///
 /// Without a `source_id` the current scene composite is captured (the
 /// workspace preview loop); with one, the matching source is captured
 /// individually (the preview auxiliary window). Runs through
 /// [`revo_core::service::BackendService::call`] on the backend worker
 /// thread: the engine round-trip blocks only the worker, never the GPUI
-/// foreground executor.
-pub fn capture_preview_png(
+/// foreground executor. The engine answers with a binary RGBA frame, so no
+/// PNG encode or base64 expansion happens on either side.
+pub fn capture_preview_frame(
     backend: &super::AnyBackend,
     source_id: Option<&str>,
-) -> Result<String, BackendError> {
+) -> Result<PreviewFrame, BackendError> {
     let source_id = source_id.map(str::to_owned);
     match backend {
         super::AnyBackend::Obs(service) => service.call(move |client: &mut EngineClient| {
-            client.capture_preview_png(source_id.as_deref())
+            client.capture_preview_frame(source_id.as_deref())
         }),
         super::AnyBackend::Mock(_) => Err(BackendError::Runtime(
             "preview capture requires the obs backend".into(),
@@ -36,8 +37,6 @@ pub fn capture_preview_png(
     }
 }
 
-/// Decodes a `data:image/png;base64,...` frame into raw PNG bytes so it can
-/// be handed to GPUI as an in-memory image without touching the filesystem.
 /// Fetches the engine process's libobs debug-log history over IPC so the
 /// debug console shows revo-lib entries (the registry lives in the engine,
 /// not in the UI process). Runs on the backend worker thread.
@@ -58,16 +57,13 @@ pub fn source_settings(
     service.call(move |client: &mut EngineClient| client.source_settings(&id))
 }
 
-/// Captures one source-or-scene PNG frame over IPC and decodes it into
-/// raw PNG bytes; scene thumbnails use this slow path (worker thread).
-pub fn capture_source_png(
+/// Captures one source-or-scene frame over IPC as raw RGBA; scene thumbnails
+/// use this path (worker thread).
+pub fn capture_source_frame(
     backend: &super::AnyBackend,
     source_name: &str,
-) -> Result<Vec<u8>, BackendError> {
-    let source_name = source_name.to_owned();
-    let data_uri = capture_preview_png(backend, Some(&source_name))?;
-    crate::services::decode_png_data_uri(&data_uri)
-        .ok_or_else(|| BackendError::Runtime("failed to decode thumbnail PNG".into()))
+) -> Result<PreviewFrame, BackendError> {
+    capture_preview_frame(backend, Some(source_name))
 }
 
 /// Clears the engine process's libobs debug-log registry over IPC.
@@ -122,6 +118,10 @@ pub fn clear_debug_logs(service: &BackendService<EngineClient>) -> Result<(), Ba
     service.call(|client: &mut EngineClient| client.debug_log_clear())
 }
 
+/// Decodes a `data:image/png;base64,...` reply into raw PNG bytes so the
+/// browser-interaction window can hand it to GPUI as an in-memory image
+/// without touching the filesystem. Interaction frames stay PNG: they come
+/// from a CDP screencast, not from libobs, and are not on the preview path.
 pub fn decode_png_data_uri(data_uri: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
     const PREFIX: &str = "data:image/png;base64,";

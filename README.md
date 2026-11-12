@@ -71,7 +71,7 @@ risks, and test strategy.
       frontend, and Tauri configuration
 - [ ] Remove WebKitGTK/libsoup and other webview-only dependencies after
       installed-package inspection
-- [ ] Replace base64 PNG preview frames with a raw-RGBA/native image path
+- [x] Replace base64 PNG preview frames with a raw-RGBA/native image path
 - [ ] Verify the macOS libobs hooks on real hardware
 - [ ] Validate installed artifacts on clean Linux, Windows, and macOS machines
 - [ ] Decide and implement the browser-dock strategy

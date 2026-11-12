@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, px, rgb, Context, Image as GpuiImage, IntoElement, MouseButton,
-    MouseDownEvent, Render, SharedString, Window,
+    div, prelude::*, px, rgb, Context, IntoElement, MouseButton, MouseDownEvent, Render,
+    RenderImage, SharedString, Window,
 };
 
 use crate::{
@@ -25,7 +25,7 @@ pub struct ScenesPanel {
     pub rename_draft: Option<(String, String)>,
     /// Tiny per-scene preview frames (Svelte `.scene-thumb` parity); filled
     /// by the workspace's slow round-robin capture loop.
-    pub thumbnails: HashMap<String, Arc<GpuiImage>>,
+    pub thumbnails: HashMap<String, Arc<RenderImage>>,
     /// Round-robin cursor for the thumbnail refresh cycle.
     pub thumbnail_cursor: usize,
     pub theme: RevoTheme,
@@ -81,7 +81,7 @@ impl ScenesPanel {
     }
 
     /// Stores one decoded scene thumbnail.
-    pub fn set_thumbnail(&mut self, scene: &str, image: Arc<GpuiImage>) {
+    pub fn set_thumbnail(&mut self, scene: &str, image: Arc<RenderImage>) {
         self.thumbnails.insert(scene.to_owned(), image);
     }
 
@@ -280,14 +280,13 @@ impl Render for ScenesPanel {
 
 #[cfg(test)]
 mod tests {
-    /// A valid 1x1 transparent PNG used as a thumbnail fixture.
-    const TEST_PNG: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
-        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ];
+    /// A 1x1 transparent BGRA thumbnail fixture (the layout gpui's
+    /// [`RenderImage`] frames use).
+    fn test_thumbnail() -> Arc<RenderImage> {
+        Arc::new(RenderImage::new(vec![image::Frame::new(
+            image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0])),
+        )]))
+    }
 
     use super::*;
 
@@ -423,13 +422,7 @@ mod tests {
         assert_eq!(panel.next_thumbnail_target().as_deref(), Some("B"));
         // The cycle wraps.
         assert_eq!(panel.next_thumbnail_target().as_deref(), Some("A"));
-        panel.set_thumbnail(
-            "A",
-            std::sync::Arc::new(gpui::Image::from_bytes(
-                gpui::ImageFormat::Png,
-                TEST_PNG.to_vec(),
-            )),
-        );
+        panel.set_thumbnail("A", test_thumbnail());
         assert!(panel.thumbnails.contains_key("A"));
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use base64::Engine as _;
 
 #[cfg(not(target_os = "windows"))]
@@ -143,14 +145,14 @@ pub fn get_source_size(
 /// Outcome of the lock-scoped capture phase of `take_screenshot`.
 pub enum ScreenshotCapture {
     /// Serve a retained frame immediately (frozen preview or stale fallback).
-    Serve(String),
-    /// Fresh capture: encode outside the lock, then publish.
-    Encode(CapturedScreenshot),
+    Serve(Arc<CapturedPreviewFrame>),
+    /// Fresh capture: validate and publish outside the lock, then return.
+    Fresh(CapturedScreenshot),
 }
 
 /// State carried from the lock-scoped capture phase to the publish phase.
 pub struct CapturedScreenshot {
-    pub frame: CapturedPreviewFrame,
+    pub frame: Arc<CapturedPreviewFrame>,
     pub capture_seq: u64,
     pub capture_generation: u64,
     pub capture_scene_output: bool,
@@ -250,9 +252,9 @@ pub fn capture_screenshot(
         let (canvas_w, canvas_h) = live_resolution.unwrap_or((640, 360));
         match (width, height) {
             // The frontend asks for its display box; render the canvas scaled
-            // into that box while keeping the canvas aspect ratio, so the PNG
-            // never exceeds the requested preview size (and never upscales
-            // past the real canvas resolution).
+            // into that box while keeping the canvas aspect ratio, so the
+            // frame never exceeds the requested preview size (and never
+            // upscales past the real canvas resolution).
             (Some(w), Some(h)) => {
                 let box_w = w.max(160).min(3840) as f32;
                 let box_h = h.max(90).min(2160) as f32;
@@ -316,27 +318,29 @@ pub fn capture_screenshot(
         }
     };
 
-    Ok(ScreenshotCapture::Encode(CapturedScreenshot {
-        frame: captured,
+    Ok(ScreenshotCapture::Fresh(CapturedScreenshot {
+        frame: Arc::new(captured),
         capture_seq,
         capture_generation,
         capture_scene_output,
     }))
 }
 
-/// Encode phase of `take_screenshot`: PNG-encode + base64 the captured frame
-/// while the runtime lock is released, updating encode stats exactly as
-/// before the inversion.
-pub fn encode_screenshot(frame: CapturedPreviewFrame) -> Result<String, String> {
-    let encode_started = std::time::Instant::now();
-    let encoded = encode_preview_frame(frame);
-    let encode_us = encode_started.elapsed().as_micros() as u64;
+/// Validation phase of `take_screenshot`: raw RGBA frames need no encoding, so
+/// this only rejects malformed dimensions (a zero-sized texture) and records the
+/// timing counters that used to measure PNG+base64 work. Runs with the runtime
+/// lock released. Consumes nothing.
+pub fn validate_screenshot(frame: &CapturedPreviewFrame) -> Result<(), String> {
+    let validate_started = std::time::Instant::now();
+    let result = frame.validate();
+    let validate_us = validate_started.elapsed().as_micros() as u64;
 
-    // Retain the frame for the freeze path and transient-failure fallback.
+    // Mirrors the encode counters the PNG path used to record, so the debug
+    // preview stats keep the same meaning (validation failure = encode failure).
     crate::with_preview_stats(|stats| {
-        stats.encode_us_max = stats.encode_us_max.max(encode_us);
-        match &encoded {
-            Ok(_) => {
+        stats.encode_us_max = stats.encode_us_max.max(validate_us);
+        match &result {
+            Ok(()) => {
                 stats.encoded_ok += 1;
                 stats.last_error.clear();
             }
@@ -346,30 +350,31 @@ pub fn encode_screenshot(frame: CapturedPreviewFrame) -> Result<String, String> 
             }
         }
     });
-    encoded
+    result
 }
 
 /// Publish phase of `take_screenshot`: runs with the runtime lock
-/// re-acquired by the command wrapper. Returns whether the frame was
-/// invalidated by a scene change (the command must then return an error).
+/// re-acquired by the command wrapper. Retains the raw frame for the freeze and
+/// stale-fallback paths. Returns whether the frame was invalidated by a scene
+/// change (the command must then return an error).
 pub fn publish_screenshot(
     runtime: &mut crate::ObsRuntime,
     capture_seq: u64,
     capture_generation: u64,
     capture_scene_output: bool,
-    encoded: &Result<String, String>,
+    frame: Option<&Arc<CapturedPreviewFrame>>,
 ) -> bool {
     let mut generation_invalidated = false;
-    if encoded.is_err() {
+    if frame.is_none() {
         runtime.last_preview_error_at = Some(std::time::Instant::now());
     }
-    if let Ok(frame) = encoded {
+    if let Some(frame) = frame {
         if capture_scene_output && capture_generation != runtime.scene_generation {
             generation_invalidated = true;
             crate::with_preview_stats(|stats| stats.stale_discards += 1);
             crate::logging::trace::step("preview-loop", "request:generation-discarded");
         } else if capture_seq >= runtime.last_preview_frame_seq {
-            runtime.last_preview_frame = Some(frame.clone());
+            runtime.last_preview_frame = Some(Arc::clone(frame));
             runtime.last_preview_frame_generation = capture_generation;
             runtime.last_preview_frame_at = Some(std::time::Instant::now());
             runtime.last_preview_frame_seq = capture_seq;
@@ -426,15 +431,16 @@ pub fn capture_source_thumbnail(
     }
 }
 
-/// PNG-encode + base64 a captured frame into a data URI. Pure function — no
-/// OBS state, no locks. Consumes the frame.
-pub fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, String> {
+/// PNG-encode + base64 a captured frame into a data URI. Used by the legacy
+/// Tauri adapter, whose commands return data URIs; the native UI consumes raw
+/// RGBA. Pure function — no OBS state, no locks.
+pub fn encode_screenshot(frame: &CapturedPreviewFrame) -> Result<String, String> {
     let CapturedPreviewFrame {
         width,
         height,
         pixels,
     } = frame;
-    let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, pixels)
+    let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(*width, *height, pixels.clone())
         .ok_or_else(|| "failed to build image buffer".to_string())?;
 
     let mut png_bytes = Vec::new();
@@ -442,8 +448,8 @@ pub fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, Strin
     image::ImageEncoder::write_image(
         encoder,
         image.as_raw(),
-        width,
-        height,
+        *width,
+        *height,
         image::ColorType::Rgba8.into(),
     )
     .map_err(|e| format!("failed to encode screenshot: {e}"))?;
@@ -453,11 +459,58 @@ pub fn encode_preview_frame(frame: CapturedPreviewFrame) -> Result<String, Strin
 }
 
 /// Raw RGBA frame read back from the preview texrender. GPU-side work and the
-/// pixel copy run while the runtime lock is held; encoding happens later.
+/// pixel copy run while the runtime lock is held; validation and publishing
+/// happen later, so no expensive work is done under the lock.
 pub struct CapturedPreviewFrame {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
+}
+
+impl CapturedPreviewFrame {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    /// Consume the frame into its raw parts (the wire encoder uses this).
+    pub fn into_parts(self) -> (u32, u32, Vec<u8>) {
+        (self.width, self.height, self.pixels)
+    }
+
+    /// Reject zero-sized or truncated frames, which have no representable
+    /// texture.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.width == 0 || self.height == 0 {
+            return Err(format!(
+                "captured frame has no pixels ({}x{})",
+                self.width, self.height
+            ));
+        }
+        let expected = self.width as usize * self.height as usize * 4;
+        if self.pixels.len() != expected {
+            return Err(format!(
+                "captured frame payload is {} bytes, expected {expected}",
+                self.pixels.len()
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn from_parts(width: u32, height: u32, pixels: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -465,19 +518,19 @@ mod preview_tests {
     use base64::Engine as _;
     use image::GenericImageView;
 
-    use super::{encode_preview_frame, CapturedPreviewFrame};
+    use super::{encode_screenshot, CapturedPreviewFrame};
 
     #[test]
     fn encoded_preview_frame_is_a_png_data_uri() {
         // 2x2 solid red frame.
-        let frame = CapturedPreviewFrame {
-            width: 2,
-            height: 2,
-            pixels: vec![
+        let frame = CapturedPreviewFrame::from_parts(
+            2,
+            2,
+            vec![
                 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
             ],
-        };
-        let uri = encode_preview_frame(frame).expect("encoding must succeed");
+        );
+        let uri = encode_screenshot(&frame).expect("encoding must succeed");
         assert!(uri.starts_with("data:image/png;base64,"));
 
         // The payload must decode back to the same pixels.
@@ -495,12 +548,23 @@ mod preview_tests {
 
     #[test]
     fn zero_sized_frame_fails_gracefully() {
-        let frame = CapturedPreviewFrame {
-            width: 0,
-            height: 0,
-            pixels: vec![],
-        };
-        assert!(encode_preview_frame(frame).is_err());
+        let frame = CapturedPreviewFrame::from_parts(0, 0, vec![]);
+        assert!(frame.validate().is_err());
+        assert!(encode_screenshot(&frame).is_err());
+    }
+
+    #[test]
+    fn frame_payload_length_must_match_dimensions() {
+        let frame = CapturedPreviewFrame::from_parts(2, 2, vec![0; 4]);
+        assert!(frame.validate().is_err());
+    }
+
+    #[test]
+    fn raw_frame_parts_round_trip() {
+        let frame = CapturedPreviewFrame::from_parts(2, 1, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        let (width, height, pixels) = frame.into_parts();
+        assert_eq!((width, height), (2, 1));
+        assert_eq!(pixels, vec![1, 2, 3, 4, 5, 6, 7, 8]);
     }
 }
 

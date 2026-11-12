@@ -10,11 +10,11 @@ use revo_core::models::AppSettings;
 use revo_core::service::{BackendCommand, BackendError, BackendSnapshot, MoveDirection};
 
 #[cfg(feature = "obs-backend")]
-use gpui::{Image as GpuiImage, ImageFormat};
+use gpui::RenderImage;
 
-#[cfg(feature = "obs-backend")]
-use crate::services::capture_preview_png;
 use crate::services::AnyBackend;
+#[cfg(feature = "obs-backend")]
+use crate::services::{capture_preview_frame, preview_frame_image};
 
 use crate::{
     actions::{
@@ -706,10 +706,10 @@ pub struct Workspace {
     backend: AnyBackend,
     theme: RevoTheme,
     #[cfg(feature = "obs-backend")]
-    preview_frame: Option<std::sync::Arc<GpuiImage>>,
+    preview_frame: Option<std::sync::Arc<RenderImage>>,
     /// Studio-mode Preview column frame (the preview scene, not program).
     #[cfg(feature = "obs-backend")]
-    studio_preview_frame: Option<std::sync::Arc<GpuiImage>>,
+    studio_preview_frame: Option<std::sync::Arc<RenderImage>>,
     /// Measured preview container bounds for the aspect-correct frames.
     #[cfg(feature = "obs-backend")]
     preview_container_sizes: PreviewContainerSizes,
@@ -1566,26 +1566,18 @@ impl Workspace {
             let backend_for_program = backend.clone();
             let program = cx
                 .background_executor()
-                .spawn(async move { capture_preview_png(&backend_for_program, None) })
+                .spawn(async move { capture_preview_frame(&backend_for_program, None) })
                 .await;
-            let program = program
-                .ok()
-                .and_then(|data_uri| crate::services::decode_png_data_uri(&data_uri))
-                .map(|bytes| std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes)));
+            let program = program.ok().and_then(preview_frame_image);
             let studio_preview = match &preview_scene {
                 Some(scene) => {
                     let scene = scene.clone();
                     let backend = backend.clone();
                     let frame = cx
                         .background_executor()
-                        .spawn(async move { capture_preview_png(&backend, Some(&scene)) })
+                        .spawn(async move { capture_preview_frame(&backend, Some(&scene)) })
                         .await;
-                    frame
-                        .ok()
-                        .and_then(|data_uri| crate::services::decode_png_data_uri(&data_uri))
-                        .map(|bytes| {
-                            std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes))
-                        })
+                    frame.ok().and_then(preview_frame_image)
                 }
                 None => None,
             };
@@ -1622,13 +1614,14 @@ impl Workspace {
                 let png = cx
                     .background_executor()
                     .spawn(async move {
-                        crate::services::obs::capture_source_png(&backend, &scene_name).ok()
+                        crate::services::obs::capture_source_frame(&backend, &scene_name)
+                            .ok()
+                            .and_then(preview_frame_image)
                     })
                     .await;
-                let Some(png) = png else {
+                let Some(image) = png else {
                     continue;
                 };
-                let image = std::sync::Arc::new(GpuiImage::from_bytes(ImageFormat::Png, png));
                 let _ = workspace.update(cx, |workspace, cx| {
                     workspace.scenes.update(cx, |panel, cx| {
                         panel.set_thumbnail(&scene, image);
@@ -3265,7 +3258,7 @@ impl Workspace {
     fn capture_frame(
         &self,
         id: impl Into<SharedString>,
-        frame: Option<&std::sync::Arc<GpuiImage>>,
+        frame: Option<&std::sync::Arc<RenderImage>>,
         waiting_label: &str,
         container: &MeasuredContainer,
         ratio: f32,
@@ -3340,7 +3333,7 @@ impl Workspace {
     fn preview_column(
         &self,
         label: &'static str,
-        frame: Option<&std::sync::Arc<GpuiImage>>,
+        frame: Option<&std::sync::Arc<RenderImage>>,
         waiting: bool,
         container: &MeasuredContainer,
         ratio: f32,

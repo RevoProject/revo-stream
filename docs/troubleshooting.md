@@ -32,7 +32,8 @@
 - Diagnostics workflow: `macos-diagnostics.yml`.
 
 ## UI: slow preview / low quality
-**Known:** preview is currently base64 PNG.
+**Known:** preview frames are raw RGBA binary IPC frames uploaded as native
+GPUI textures; only browser-interaction frames still travel as PNG data URIs.
 **Check:**
 - Preview quality setting.
 - Real engine vs mock.

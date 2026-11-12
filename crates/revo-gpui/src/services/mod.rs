@@ -12,11 +12,32 @@ pub use engine::EngineClient;
 pub use mock::MockBackendRuntime;
 #[cfg(feature = "obs-backend")]
 pub use obs::{
-    capture_preview_png, decode_png_data_uri, interact_close_session, interact_dispatch_key,
-    interact_dispatch_mouse, interact_frame_png, interact_reapply, open_interaction_session,
-    UI_PREVIEW_INTERVAL_MS,
+    capture_preview_frame, capture_source_frame, decode_png_data_uri, interact_close_session,
+    interact_dispatch_key, interact_dispatch_mouse, interact_frame_png, interact_reapply,
+    open_interaction_session, UI_PREVIEW_INTERVAL_MS,
 };
 pub use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
+
+/// Uploads one raw RGBA frame as a GPUI texture.
+///
+/// Engine captures are already RGBA8 row-major, but [`gpui::RenderImage`]
+/// frames hold BGRA (the same conversion gpui applies to every decoded
+/// bitmap), so the red and blue channels are swapped here once, off the
+/// foreground executor. Frames whose dimensions disagree with their payload
+/// are rejected rather than uploaded as garbage.
+pub fn preview_frame_image(
+    frame: revo_core::ipc::PreviewFrame,
+) -> Option<std::sync::Arc<gpui::RenderImage>> {
+    let width = frame.width;
+    let height = frame.height;
+    let mut buffer = image::RgbaImage::from_raw(width, height, frame.rgba)?;
+    for pixel in buffer.pixels_mut() {
+        pixel.0.swap(0, 2);
+    }
+    Some(std::sync::Arc::new(gpui::RenderImage::new(vec![
+        image::Frame::new(buffer),
+    ])))
+}
 
 /// One forwarded mouse interaction for a browser source, mirroring the
 /// Svelte `obs_interact_mouse` invoke payload fields exactly.

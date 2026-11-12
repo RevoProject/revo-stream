@@ -110,14 +110,15 @@ fn apply_request<S: EngineStream + ?Sized>(
             request_id,
             source_id,
         } => {
-            let data_uri = backend.capture_preview_png(source_id.as_deref()).ok();
-            let _ = send(
-                stream,
-                &EngineToUi::PreviewFrameData {
-                    request_id,
-                    data_uri,
-                },
-            );
+            let frame = backend.capture_preview_frame(source_id.as_deref()).ok();
+            match frame {
+                Some(frame) => {
+                    let _ = send_preview_frame(stream, request_id, &frame);
+                }
+                None => {
+                    let _ = send(stream, &EngineToUi::PreviewUnavailable { request_id });
+                }
+            }
             true
         }
         UiToEngine::InteractOpen {
@@ -342,14 +343,37 @@ fn push_preview_frame<S: EngineStream + ?Sized>(stream: &mut S, backend: &mut Ob
     if !backend.runtime.initialized {
         return;
     }
-    if let Ok(data_uri) = backend.capture_preview_png(None) {
-        let _ = send(stream, &EngineToUi::PreviewFrame { data_uri });
+    // Push frames carry request id 0; the UI correlates none.
+    if let Ok(frame) = backend.capture_preview_frame(None) {
+        let _ = send_preview_frame(stream, 0, &frame);
     }
 }
 
 fn send<S: EngineStream + ?Sized>(stream: &mut S, message: &EngineToUi) -> std::io::Result<()> {
     let frame = encode_frame(message)?;
     stream.write_all(&frame)?;
+    stream.flush()
+}
+
+/// Writes one raw RGBA frame as a binary preview frame
+/// (`RVPF` magic + header + pixels) instead of a JSON control frame, so no
+/// capture is ever PNG-encoded or base64-expanded on this side. The 4-byte
+/// magic prefix keeps the two frame kinds distinguishable without a framing
+/// header; `request_id` 0 marks engine pushes.
+fn send_preview_frame<S: EngineStream + ?Sized>(
+    stream: &mut S,
+    request_id: u64,
+    frame: &crate::runtime::preview::CapturedPreviewFrame,
+) -> std::io::Result<()> {
+    // The wire buffer needs its own copy: the retained `Arc` frame stays
+    // available for the freeze and stale-fallback paths.
+    let encoded = revo_core::ipc::encode_preview_frame(&revo_core::ipc::PreviewFrame {
+        request_id,
+        width: frame.width(),
+        height: frame.height(),
+        rgba: frame.pixels().to_vec(),
+    });
+    stream.write_all(&encoded)?;
     stream.flush()
 }
 
@@ -402,7 +426,7 @@ mod tests {
         ));
 
         // Correlated preview request; the engine is offline so the reply
-        // carries no frame but must carry this request's id.
+        // reports unavailability with this request's id.
         send_message(
             &mut client,
             &UiToEngine::PreviewFrameOnce {
@@ -413,10 +437,7 @@ mod tests {
         .expect("preview request");
         assert!(matches!(
             read_message(&mut client).expect("preview reply"),
-            EngineToUi::PreviewFrameData {
-                request_id: 41,
-                data_uri: None,
-            }
+            EngineToUi::PreviewUnavailable { request_id: 41 }
         ));
 
         // Shutdown stops the serve loop.
@@ -479,5 +500,43 @@ mod tests {
         framed.extend_from_slice(&payload);
         let (message, _) = decode_frame::<EngineToUi>(&framed)?;
         Ok(message)
+    }
+
+    #[test]
+    fn preview_frames_travel_as_binary_frames_not_json() {
+        // 2x2 solid red frame.
+        let frame = crate::runtime::preview::CapturedPreviewFrame::from_parts(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+            ],
+        );
+        let (mut client, mut server) = socket_pair();
+
+        send_preview_frame(&mut client, 7, &frame).expect("frame write");
+
+        server
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("timeout");
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let read = server.read(&mut chunk).expect("frame read");
+            if read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+            if revo_core::ipc::is_preview_frame(&buffer) {
+                break;
+            }
+        }
+
+        let (decoded, consumed) =
+            revo_core::ipc::decode_preview_frame(&buffer).expect("binary frame decodes");
+        assert_eq!(consumed, buffer.len(), "whole frame read");
+        assert_eq!(decoded.request_id, 7);
+        assert_eq!((decoded.width, decoded.height), (2, 2));
+        assert_eq!(decoded.rgba, vec![255u8, 0, 0, 255].repeat(4));
     }
 }

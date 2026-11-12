@@ -52,8 +52,8 @@
   Interaction windows. Default builds run `MockBackendRuntime`;
   `--features obs-backend` selects the engine-backed `AnyBackend::Obs`, which
   reaches libobs through `services/engine.rs::EngineClient` and the separate
-  `revo-engine` process. Preview frames arrive as PNG data URIs in a bounded
-  newest-wins slot; native raw-RGBA delivery is still a migration item. The
+  `revo-engine` process. Preview frames arrive as raw RGBA in a bounded
+  newest-wins slot and upload as `gpui::RenderImage` textures. The
   settings modal persists through `SaveSettings` with a typed draft state
   machine (dirty tracking, URL/resolution validation, option cycling).
 - The GPUI packaging layout is what the release workflow builds:
@@ -73,8 +73,16 @@
   published through `--endpoint-file` on Windows, and the engine derives its own
   resource/data paths (`utils::fs::init_standalone_app_paths`) because no GUI
   adapter injects them.
+- Preview frames travel as binary raw-RGBA IPC frames (`revo_core::ipc`
+  `PreviewFrame`, `RVPF` magic + header + pixels) and are uploaded as
+  `gpui::RenderImage` textures; no capture is PNG-encoded or base64-expanded on
+  the engine or UI side. The retained-frame freeze/stale fallback stores the raw
+  frame behind an `Arc`, and the engine now publishes frames on that path too.
+  Browser-interaction frames remain PNG data URIs (they come from a CDP
+  screencast, not libobs). The Tauri parity adapter keeps returning data URIs
+  and reuses the same capture/validation/publish phases.
 - Remaining cutover blockers: remove the Tauri/Svelte compatibility path,
-  replace base64 PNG preview with raw RGBA/native textures, verify the macOS
+  verify the macOS
   libobs hooks on hardware, validate installed artifacts, and decide the
   browser-dock, WebRTC/native-video, and tray strategy. The Linux release job
   still `cargo check`s the Tauri adapter as the parity reference.

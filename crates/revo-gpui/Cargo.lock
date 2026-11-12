@@ -4437,6 +4437,7 @@ dependencies = [
  "anyhow",
  "base64",
  "gpui",
+ "image",
  "libc",
  "revo-core",
  "serde_json",

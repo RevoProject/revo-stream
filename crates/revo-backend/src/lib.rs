@@ -21,7 +21,7 @@ pub use models::*;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use revo_lib::obs;
 use serde_json::Value as JsonValue;
@@ -50,10 +50,11 @@ pub struct ObsRuntime {
     pub preview_freeze_reason: Option<String>,
     pub preview_freeze_requests: u64,
     pub preview_freeze_since: Option<std::time::Instant>,
-    /// Last successfully captured preview frame (data URI). Returned when a
-    /// fresh capture fails, so the UI keeps a good frame instead of an error
-    /// or a wrongly-rendered main/output texture.
-    pub last_preview_frame: Option<String>,
+    /// Last successfully captured preview frame. Returned when a fresh capture
+    /// fails, so the UI keeps a good frame instead of an error or a
+    /// wrongly-rendered main/output texture. Held as an `Arc` so the retained
+    /// copy and the frame on its way to the UI share one pixel buffer.
+    pub last_preview_frame: Option<Arc<runtime::preview::CapturedPreviewFrame>>,
     pub last_preview_frame_generation: u64,
     pub last_preview_frame_at: Option<std::time::Instant>,
     pub last_preview_error_at: Option<std::time::Instant>,

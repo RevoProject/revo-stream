@@ -963,15 +963,21 @@ fn obs_take_screenshot(
         source_id,
         lock_started.elapsed().as_micros() as u64,
     )? {
-        runtime::preview::ScreenshotCapture::Serve(frame) => return Ok(frame),
-        runtime::preview::ScreenshotCapture::Encode(captured) => captured,
+        runtime::preview::ScreenshotCapture::Serve(frame) => {
+            // Frozen or stale retained frame: still returned as a data URI
+            // because this is the legacy webview contract.
+            return runtime::preview::encode_screenshot(&frame);
+        }
+        runtime::preview::ScreenshotCapture::Fresh(captured) => captured,
     };
 
-    // PNG encode + base64 are pure CPU work (~15ms at 1080p). Run them with
-    // the runtime lock released so other Tauri commands are not starved by
-    // the preview loop.
+    // Validation + PNG encode + base64 are pure CPU work (~15ms at 1080p). Run
+    // them with the runtime lock released so other Tauri commands are not
+    // starved by the preview loop. The native UI skips this step entirely and
+    // consumes the raw RGBA frame.
     drop(runtime);
-    let encoded = runtime::preview::encode_screenshot(captured.frame);
+    let encoded = runtime::preview::validate_screenshot(&captured.frame)
+        .and_then(|()| runtime::preview::encode_screenshot(&captured.frame));
 
     let mut generation_invalidated = false;
     if let Ok(mut runtime) = crate::logging::mutex_probe::probe_lock(&state.runtime, "runtime.preview_retain") {
@@ -980,7 +986,7 @@ fn obs_take_screenshot(
             captured.capture_seq,
             captured.capture_generation,
             captured.capture_scene_output,
-            &encoded,
+            encoded.as_ref().ok().map(|_| &captured.frame),
         );
     }
     crate::logging::trace::step("preview-loop", "request:done");
@@ -1028,7 +1034,7 @@ fn obs_take_source_thumbnail(
         .map_err(|_| "state poisoned".to_string())?;
     let captured = runtime::preview::capture_source_thumbnail(&mut runtime, &source_name, width, height);
     drop(runtime);
-    runtime::preview::encode_preview_frame(captured?)
+    runtime::preview::encode_screenshot(&captured?)
 }
 
 /// Freeze/unfreeze scene-level preview rendering. While frozen,

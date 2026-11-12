@@ -12,6 +12,7 @@
 
 use base64::Engine as _;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use revo_core::models::{PluginProfile, PluginProfileState};
 use revo_core::service::{
@@ -20,7 +21,7 @@ use revo_core::service::{
 };
 
 use crate::runtime::lifecycle::ObsPlatform;
-use crate::runtime::preview::ScreenshotCapture;
+use crate::runtime::preview::{CapturedScreenshot, ScreenshotCapture};
 use crate::runtime::{recording, streaming};
 use crate::scenes::scene_ops;
 use crate::sources::source_ops;
@@ -168,14 +169,20 @@ impl ObsBackendRuntime {
         enabled
     }
 
-    /// Captures a preview frame as a `data:image/png;base64,...` URI.
+    /// Captures one preview frame as raw RGBA.
     ///
     /// Without a `source_id` the current scene composite is captured (the
     /// workspace preview loop); with one, the matching source is captured
-    /// individually (the preview auxiliary window). Runs on the owner's
-    /// worker (libobs capture with the runtime lock held) — never on a GUI
-    /// main thread.
-    pub fn capture_preview_png(&mut self, source_id: Option<&str>) -> Result<String, BackendError> {
+    /// individually (the preview auxiliary window). The lock-scoped capture
+    /// returns an `Arc`, validation and publishing run with the lock released
+    /// and re-acquired, and the returned frame is the one the engine writes to
+    /// its binary preview wire frame — no PNG encode, no base64 expansion.
+    /// Runs on the owner's worker (libobs capture with the runtime lock held)
+    /// — never on a GUI main thread.
+    pub fn capture_preview_frame(
+        &mut self,
+        source_id: Option<&str>,
+    ) -> Result<Arc<crate::runtime::preview::CapturedPreviewFrame>, BackendError> {
         let capture = crate::runtime::preview::capture_screenshot(
             &mut self.runtime,
             None,
@@ -184,13 +191,34 @@ impl ObsBackendRuntime {
             0,
         )
         .map_err(BackendError::Runtime)?;
-        match capture {
-            ScreenshotCapture::Serve(frame) => Ok(frame),
-            ScreenshotCapture::Encode(captured) => {
-                crate::runtime::preview::encode_screenshot(captured.frame)
-                    .map_err(BackendError::Runtime)
-            }
+        let captured = match capture {
+            ScreenshotCapture::Serve(frame) => return Ok(frame),
+            ScreenshotCapture::Fresh(captured) => captured,
+        };
+        let CapturedScreenshot {
+            frame,
+            capture_seq,
+            capture_generation,
+            capture_scene_output,
+        } = captured;
+
+        // Validation is cheap but deliberately outside the lock, mirroring the
+        // encode phase this replaced.
+        crate::runtime::preview::validate_screenshot(&frame).map_err(BackendError::Runtime)?;
+
+        let invalidated = crate::runtime::preview::publish_screenshot(
+            &mut self.runtime,
+            capture_seq,
+            capture_generation,
+            capture_scene_output,
+            Some(&frame),
+        );
+        if invalidated {
+            return Err(BackendError::Runtime(
+                "preview frame invalidated by scene change".into(),
+            ));
         }
+        Ok(frame)
     }
 
     /// Opens a persistent headless-Chromium CDP session for one browser

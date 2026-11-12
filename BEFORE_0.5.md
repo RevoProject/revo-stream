@@ -1206,3 +1206,34 @@ revo-gpui 175/175.
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed; revo-gpui 175/175
 (test transitions zaktualizowany pod utrzymanie selekcji po Apply).
+
+## 2026-11-12 — surowe RGBA zamiast base64 PNG (goal)
+
+- [x] `revo-core::ipc`: binarne ramki preview — `PreviewFrame{request_id,width,
+      height,rgba}`, `PREVIEW_FRAME_MAGIC` (`RVPF`) + 24 B nagłówek + piksele,
+      `encode_preview_frame`/`decode_preview_frame`/`is_preview_frame`,
+      limit 64 MiB; `EngineToUi::PreviewFrame{data_uri}` i
+      `PreviewFrameData` zastąpione korelacyjnym `PreviewUnavailable{request_id}`
+      (udaną odpowiedź niesie ramka binarna). Testy: round-trip, identyfikacja
+      dwóch typów ramek, odrzucone uszkodzone ramki.
+- [x] `revo-backend`: `CapturedPreviewFrame` ma akcesory i `validate()`,
+      `ScreenshotCapture::Serve(Arc<…>)` / `Fresh`, `encode_screenshot(&frame)`
+      (tylko Tauri), `validate_screenshot`, `publish_screenshot(...,
+      Option<&Arc<…>>)`; `ObsRuntime.last_preview_frame` trzyma `Arc` surowej
+      ramki. `obs_service::capture_preview_frame` zwraca `Arc<CapturedPreviewFrame>`
+      i publikuje ramkę (wcześniej silnik w ogóle nie publikował, więc fallback
+      zamrożenia na ścieżce engine nie działał).
+- [x] `revo-backend::engine`: `send_preview_frame` zapisuje ramkę binarną (bez
+      PNG/base64), `push_preview_frame` i `PreviewFrameOnce` korzystają z niej.
+- [x] `revo-gpui`: klient czyta ramki po magicu (`EngineMessage::{Control,Preview}`,
+      slot newest-wins), `capture_preview_frame` zwraca `PreviewFrame`;
+      `services::preview_frame_image` uploaduje RGBA→BGRA jako
+      `gpui::RenderImage`; `app.rs`, `windows/preview.rs` i kafelki scen trzymają
+      `Arc<RenderImage>`. Interakcja przeglądarki nadal PNG data URI (CDP).
+- [x] Tauri (parity) nadal zwraca data URI, ale używa tych samych faz
+      capture/validate/publish.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-core 56/56, revo-gpui 175/175 (mock) i 182/182 (`--features obs-backend`).
+`revo-backend`/`src-tauri` nie kompilują się lokalnie (brak glib/gio/webkit);
+zmiany w tych klatkach sprawdza CI.

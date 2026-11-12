@@ -27,7 +27,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use revo_core::ipc::{decode_frame, encode_frame, DebugLogEntry, EngineToUi, UiToEngine};
+use revo_core::ipc::{
+    decode_frame, encode_frame, is_preview_frame, DebugLogEntry, EngineToUi, PreviewFrame,
+    UiToEngine, MAX_FRAME_BYTES, MAX_PREVIEW_FRAME_BYTES, PREVIEW_FRAME_HEADER_BYTES,
+};
 use revo_core::models::SourceSettingsData;
 use revo_core::service::{BackendCommand, BackendError, BackendRuntime, BackendSnapshot};
 use revo_core::transport::{connect, read_endpoint_file, EngineEndpoint, EngineStream};
@@ -44,6 +47,15 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 const SETTLE_WINDOW: Duration = Duration::from_millis(30);
 /// Connect window when spawning the engine process.
 const SPAWN_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What one read produced. Preview captures arrive as binary frames
+/// (`revo_core::ipc::encode_preview_frame`), everything else as JSON control
+/// frames, so the reader must tell the two apart before committing to a payload
+/// length.
+enum EngineMessage {
+    Control(EngineToUi),
+    Preview(PreviewFrame),
+}
 
 /// What the read loop is waiting for.
 #[derive(Clone, Copy, PartialEq)]
@@ -64,13 +76,27 @@ impl DrainTarget {
             _ => false,
         }
     }
+
+    /// Whether a preview frame answers this drain. Push frames carry request
+    /// id 0 and only satisfy [`DrainTarget::SceneFrame`].
+    fn matches_frame(self, frame: &PreviewFrame) -> bool {
+        match self {
+            Self::SceneFrame => true,
+            Self::Reply(expected) => frame.request_id == expected,
+            Self::Snapshot => false,
+        }
+    }
 }
 
 /// What one drain collected for its caller.
 #[derive(Default)]
 struct Inbox {
     snapshot: Option<BackendSnapshot>,
+    /// Correlated browser-interaction reply payload.
     reply_data_uri: Option<String>,
+    /// Correlated preview capture (raw RGBA) — binary frames never travel as
+    /// JSON, so this slot is separate from `reply_data_uri`.
+    reply_frame: Option<PreviewFrame>,
     reply_log_entries: Option<Vec<DebugLogEntry>>,
     reply_source_settings: Option<SourceSettingsData>,
     reply_source_filters: Vec<revo_core::models::SourceFilterItem>,
@@ -106,7 +132,7 @@ struct Connection {
     child: Mutex<Option<Child>>,
     next_request_id: AtomicU64,
     /// Newest engine-pushed scene frame, newest-wins.
-    preview_frame: Mutex<Option<String>>,
+    preview_frame: Mutex<Option<PreviewFrame>>,
 }
 
 impl Connection {
@@ -114,7 +140,7 @@ impl Connection {
         self.next_request_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn take_preview_frame(&self) -> Option<String> {
+    fn take_preview_frame(&self) -> Option<PreviewFrame> {
         self.preview_frame
             .lock()
             .expect("engine preview slot mutex poisoned")
@@ -147,8 +173,9 @@ impl Connection {
 
     /// Reads one full frame; `Ok(None)` when the read window elapsed. Marks
     /// the connection dead on EOF so every later request reports
-    /// [`BackendError::Disconnected`].
-    fn read_message(&self, timeout: Duration) -> std::io::Result<Option<EngineToUi>> {
+    /// [`BackendError::Disconnected`]. Peeks the first four bytes so a binary
+    /// preview frame is not mistaken for a JSON length prefix.
+    fn read_message(&self, timeout: Duration) -> std::io::Result<Option<EngineMessage>> {
         let mut guard = self.stream.lock().expect("engine stream mutex poisoned");
         let Some(stream) = guard.as_mut() else {
             return Err(std::io::Error::new(
@@ -176,7 +203,21 @@ impl Connection {
                 ));
             }
         }
+        if is_preview_frame(&header) {
+            let frame = read_preview_frame(stream, &header);
+            if frame.is_err() {
+                *guard = None;
+            }
+            return frame.map(|frame| Some(EngineMessage::Preview(frame)));
+        }
         let payload_len = u32::from_le_bytes(header) as usize;
+        if payload_len > MAX_FRAME_BYTES as usize {
+            *guard = None;
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "engine control frame too large",
+            ));
+        }
         let mut payload = vec![0u8; payload_len];
         if stream.read_exact(&mut payload).is_err() {
             *guard = None;
@@ -188,7 +229,7 @@ impl Connection {
         let mut framed = header.to_vec();
         framed.extend_from_slice(&payload);
         match decode_frame::<EngineToUi>(&framed) {
-            Ok((message, _)) => Ok(Some(message)),
+            Ok((message, _)) => Ok(Some(EngineMessage::Control(message))),
             Err(_) => {
                 *guard = None;
                 Err(std::io::Error::new(
@@ -239,30 +280,32 @@ impl Connection {
         }
     }
 
-    fn absorb(&self, message: EngineToUi, target: DrainTarget, inbox: &mut Inbox) {
-        match message {
-            EngineToUi::Snapshot(snapshot) => inbox.snapshot = Some(snapshot),
-            EngineToUi::PreviewFrame { data_uri } => {
-                if target == DrainTarget::SceneFrame {
-                    // This call is actively asking for a scene frame;
-                    // consume the push directly instead of parking it.
+    fn absorb(&self, message: EngineMessage, target: DrainTarget, inbox: &mut Inbox) {
+        let message = match message {
+            EngineMessage::Preview(frame) => {
+                if target.matches_frame(&frame) {
+                    // This call is actively asking for a scene frame; consume the
+                    // push directly instead of parking it.
                     inbox.reply_seen = true;
-                    inbox.reply_data_uri = Some(data_uri);
+                    inbox.reply_frame = Some(frame);
                 } else {
                     // Newest-wins slot for a later capture call.
                     *self
                         .preview_frame
                         .lock()
-                        .expect("engine preview slot mutex poisoned") = Some(data_uri);
+                        .expect("engine preview slot mutex poisoned") = Some(frame);
                 }
+                return;
             }
-            EngineToUi::PreviewFrameData {
-                request_id,
-                data_uri,
-            } => {
+            EngineMessage::Control(message) => message,
+        };
+        match message {
+            EngineToUi::Snapshot(snapshot) => inbox.snapshot = Some(snapshot),
+            EngineToUi::PreviewUnavailable { request_id } => {
                 if target.matches_id(request_id) || target == DrainTarget::SceneFrame {
+                    // Correlated "no frame" reply: the drain is done, the
+                    // caller reports a capture failure.
                     inbox.reply_seen = true;
-                    inbox.reply_data_uri = data_uri;
                 }
             }
             EngineToUi::InteractReply {
@@ -349,6 +392,40 @@ impl Connection {
     }
 }
 
+/// Reads the rest of a binary preview frame whose four-byte magic prefix was
+/// already consumed: request id, dimensions, payload length, then the pixels.
+/// The payload length is bounded before the allocation so a corrupt stream
+/// cannot make the UI allocate gigabytes.
+fn read_preview_frame<S: EngineStream + ?Sized>(
+    stream: &mut S,
+    magic: &[u8; 4],
+) -> std::io::Result<PreviewFrame> {
+    debug_assert!(is_preview_frame(magic));
+    let mut rest = [0u8; PREVIEW_FRAME_HEADER_BYTES - 4];
+    stream.read_exact(&mut rest)?;
+    let request_id = u64::from_le_bytes(rest[0..8].try_into().expect("8-byte slice"));
+    let width = u32::from_le_bytes(rest[8..12].try_into().expect("4-byte slice"));
+    let height = u32::from_le_bytes(rest[12..16].try_into().expect("4-byte slice"));
+    let rgba_len = u32::from_le_bytes(rest[16..20].try_into().expect("4-byte slice")) as usize;
+    if rgba_len > MAX_PREVIEW_FRAME_BYTES as usize {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            format!("preview frame payload exceeds {MAX_PREVIEW_FRAME_BYTES} bytes"),
+        ));
+    }
+    let mut rgba = vec![0u8; rgba_len];
+    stream.read_exact(&mut rgba)?;
+    let frame = PreviewFrame {
+        request_id,
+        width,
+        height,
+        rgba,
+    };
+    frame
+        .validate()
+        .map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))?;
+    Ok(frame)
+}
 impl Drop for Connection {
     fn drop(&mut self) {
         // Best-effort orderly exit; the engine also exits on client EOF.
@@ -435,13 +512,18 @@ impl EngineClient {
         }
     }
 
-    /// Captures one preview frame as a data URI. Without a `source_id` the
+    /// Captures one preview frame as raw RGBA. Without a `source_id` the
     /// newest engine-pushed scene frame is drained first (bounded, newest
-    /// wins); only an empty slot issues a correlated capture request.
-    pub fn capture_preview_png(&mut self, source_id: Option<&str>) -> Result<String, BackendError> {
+    /// wins); only an empty slot issues a correlated capture request. The
+    /// engine answers with a binary frame, so no PNG encode or base64
+    /// expansion happens anywhere on this path.
+    pub fn capture_preview_frame(
+        &mut self,
+        source_id: Option<&str>,
+    ) -> Result<PreviewFrame, BackendError> {
         if source_id.is_none() {
-            if let Some(data_uri) = self.connection.take_preview_frame() {
-                return Ok(data_uri);
+            if let Some(frame) = self.connection.take_preview_frame() {
+                return Ok(frame);
             }
         }
         let request_id = self.connection.next_request_id();
@@ -460,7 +542,7 @@ impl EngineClient {
             return Err(BackendError::Runtime(error));
         }
         inbox
-            .reply_data_uri
+            .reply_frame
             .ok_or_else(|| BackendError::Runtime("no frame captured".into()))
     }
 
@@ -824,6 +906,13 @@ mod tests {
             self.stream.flush().expect("stub flush");
         }
 
+        /// Sends one binary preview frame the way the real engine does.
+        fn send_preview(&mut self, frame: &PreviewFrame) {
+            let encoded = revo_core::ipc::encode_preview_frame(frame);
+            self.stream.write_all(&encoded).expect("stub preview send");
+            self.stream.flush().expect("stub preview flush");
+        }
+
         fn push_snapshot(&mut self, running: bool) {
             self.send(&EngineToUi::Snapshot(BackendSnapshot {
                 obs_running: running,
@@ -883,9 +972,7 @@ mod tests {
         std::thread::spawn(move || {
             let _ = stub.read_request().expect("snapshot request");
             // A stale engine-pushed preview frame arrives before the reply.
-            stub.send(&EngineToUi::PreviewFrame {
-                data_uri: "data:image/png;base64,ZmFrZQ==".into(),
-            });
+            stub.send_preview(&preview_frame(1, 1, vec![1, 2, 3, 4]));
             stub.push_snapshot(true);
         });
         let snapshot = client.snapshot().expect("snapshot reply");
@@ -896,21 +983,19 @@ mod tests {
     fn preview_capture_prefers_the_pushed_slot() {
         let (client, mut stub) = client_and_stub();
         // The engine pushes a frame unprompted (its own cadence).
-        stub.send(&EngineToUi::PreviewFrame {
-            data_uri: "data:image/png;base64,c2xvdA==".into(),
-        });
+        stub.send_preview(&preview_frame(2, 2, vec![9; 16]));
         let mut client = client;
         let frame = client
-            .capture_preview_png(None)
+            .capture_preview_frame(None)
             .expect("pushed frame drained");
-        assert_eq!(frame, "data:image/png;base64,c2xvdA==");
+        assert_eq!((frame.width, frame.height), (2, 2));
+        assert_eq!(frame.rgba, vec![9; 16]);
         // The slot is consumed (newest wins); the next push is picked up the
         // same way, and the second call never issued a request.
-        stub.send(&EngineToUi::PreviewFrame {
-            data_uri: "data:image/png;base64,cHVzaGVk".into(),
-        });
-        let frame = client.capture_preview_png(None).expect("pushed again");
-        assert_eq!(frame, "data:image/png;base64,cHVzaGVk");
+        stub.send_preview(&preview_frame(1, 1, vec![7, 7, 7, 7]));
+        let frame = client.capture_preview_frame(None).expect("pushed again");
+        assert_eq!((frame.width, frame.height), (1, 1));
+        assert_eq!(frame.rgba, vec![7, 7, 7, 7]);
     }
 
     #[test]
@@ -923,22 +1008,41 @@ mod tests {
                 UiToEngine::PreviewFrameOnce { request_id, .. } => request_id,
                 other => panic!("expected PreviewFrameOnce, got {other:?}"),
             };
-            // A stale reply carrying a different request id must be
-            // ignored...
-            stub.send(&EngineToUi::PreviewFrameData {
-                request_id: request_id.wrapping_add(100),
-                data_uri: Some("data:image/png;base64,c3RhbGU=".into()),
-            });
-            // ...and the correlated one wins (source offline: no frame).
-            stub.send(&EngineToUi::PreviewFrameData {
-                request_id,
-                data_uri: None,
-            });
+            // A stale frame carrying a different request id must be ignored...
+            stub.send_preview(
+                &preview_frame(1, 1, vec![1, 1, 1, 1])
+                    .with_request_id(request_id.wrapping_add(100)),
+            );
+            // ...and the correlated one wins.
+            stub.send_preview(&preview_frame(2, 2, vec![5; 16]).with_request_id(request_id));
+        });
+        let frame = client
+            .capture_preview_frame(Some("camera"))
+            .expect("correlated frame");
+        assert_eq!((frame.width, frame.height), (2, 2));
+    }
+
+    #[test]
+    fn preview_capture_reports_unavailable_replies() {
+        let (mut client, stub) = client_and_stub();
+        std::thread::spawn(move || {
+            let mut stub = stub;
+            let request = stub.read_request().expect("capture request");
+            let request_id = match request {
+                UiToEngine::PreviewFrameOnce { request_id, .. } => request_id,
+                other => panic!("expected PreviewFrameOnce, got {other:?}"),
+            };
+            stub.send(&EngineToUi::PreviewUnavailable { request_id });
         });
         let error = client
-            .capture_preview_png(Some("camera"))
+            .capture_preview_frame(Some("camera"))
             .expect_err("missing frame errors");
         assert!(error.to_string().contains("no frame captured"));
+    }
+
+    /// Builds a raw RGBA frame with the given dimensions (4 bytes per pixel).
+    fn preview_frame(width: u32, height: u32, rgba: Vec<u8>) -> PreviewFrame {
+        PreviewFrame::new(width, height, rgba)
     }
 
     #[test]

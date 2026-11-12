@@ -1,7 +1,7 @@
 //! Native port of the Tauri preview auxiliary window
 //! (`src/routes/preview/+page.svelte`): a self-contained window polling the
-//! libobs preview (or one source's output) as PNG frames on the background
-//! executor.
+//! libobs preview (or one source's output) as raw RGBA frames on the
+//! background executor.
 //!
 //! Mock mode placeholder: the mock backend has no libobs surface to capture,
 //! so the poll loop is not started and the surface shows the documented
@@ -11,14 +11,13 @@ use std::sync::Arc;
 #[cfg(feature = "obs-backend")]
 use std::time::Duration;
 
-#[cfg(feature = "obs-backend")]
-use gpui::ImageFormat;
 use gpui::{
-    div, prelude::*, Context, Image as GpuiImage, IntoElement, Render, SharedString, Task, Window,
+    div, prelude::*, Context, IntoElement, Render, RenderImage, SharedString, Task, Window,
 };
 
 #[cfg(feature = "obs-backend")]
-use crate::services::capture_preview_png;
+use crate::services::capture_preview_frame;
+use crate::services::preview_frame_image;
 use crate::services::{AnyBackend, BackendError};
 use crate::theme::RevoTheme;
 
@@ -62,8 +61,7 @@ pub fn initial_status(backend: &AnyBackend) -> String {
 
 pub struct PreviewWindow {
     pub source_id: Option<String>,
-    pub frame_uri: Option<String>,
-    pub frame_image: Option<Arc<GpuiImage>>,
+    pub frame_image: Option<Arc<RenderImage>>,
     pub frame_state: PreviewFrameState,
     pub status: String,
     pub theme: RevoTheme,
@@ -77,7 +75,6 @@ impl PreviewWindow {
         let theme = RevoTheme::future();
         let mut window = Self {
             source_id,
-            frame_uri: None,
             frame_image: None,
             frame_state: PreviewFrameState::Waiting,
             status: initial_status(&backend),
@@ -103,7 +100,7 @@ impl PreviewWindow {
                 let source_id = source_id.clone();
                 let captured = cx
                     .background_executor()
-                    .spawn(async move { capture_preview_png(&backend, source_id.as_deref()) })
+                    .spawn(async move { capture_preview_frame(&backend, source_id.as_deref()) })
                     .await;
                 let alive = window
                     .update(cx, |window, cx| window.apply_capture(captured, cx))
@@ -129,17 +126,12 @@ impl PreviewWindow {
     /// shows the error underneath).
     pub fn apply_capture(
         &mut self,
-        captured: Result<String, BackendError>,
+        captured: Result<revo_core::ipc::PreviewFrame, BackendError>,
         cx: &mut Context<'_, Self>,
     ) {
         match captured {
-            Ok(data_uri) => {
-                self.frame_uri = Some(data_uri.clone());
-                #[cfg(feature = "obs-backend")]
-                {
-                    self.frame_image = crate::services::decode_png_data_uri(&data_uri)
-                        .map(|bytes| Arc::new(GpuiImage::from_bytes(ImageFormat::Png, bytes)));
-                }
+            Ok(frame) => {
+                self.frame_image = preview_frame_image(frame);
                 self.frame_state = advance_frame_state(Ok(()));
                 self.status = "Live preview".into();
             }
