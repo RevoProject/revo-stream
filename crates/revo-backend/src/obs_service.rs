@@ -689,9 +689,9 @@ impl ObsBackendRuntime {
             }
             BackendCommand::ExtractDefaultTheme { root_dir } => {
                 let root = if root_dir.trim().is_empty() {
-                    crate::settings::core::resolve_root_dir()
-                        .to_string_lossy()
-                        .to_string()
+                    crate::settings::core::resolve_root_dir(None)
+                        .map(|path| path.to_string_lossy().to_string())
+                        .map_err(|error| error)?
                 } else {
                     root_dir
                 };
