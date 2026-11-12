@@ -2,18 +2,37 @@
 
 ## Current State
 
-- Application version: `0.4.1`.
+- Application version: `0.5.0-pre-1` (documentation target; `package.json` and
+  the four Rust manifests must be bumped to match).
 - Migration branch: `feature/gpui-rewrite`.
-- Current runnable application: the native GPUI shell (`crates/revo-gpui`,
-  mock backend) and the legacy Tauri adapter (`src-tauri/`, real libobs
-  backend, main window without UI).
+- `revo-lib` is pinned to the revision
+  `66325a65d1e0a0db9a0f3eedc585af554f2440e3` in both `crates/revo-backend` and
+  `src-tauri`; keep the manifests and lockfiles in sync when bumping it.
+  `libobs-rs` remains a transitive dependency whose commit is pinned by the
+  lockfiles.
+- Primary application: `crates/revo-gpui/` — the native GPUI shell. It runs on
+  `MockBackendRuntime` by default and on the real backend with
+  `--features obs-backend -- --obs`.
+- Real backend path: the UI process contains no libobs code. `AnyBackend::Obs`
+  is a `BackendService<EngineClient>` that spawns or connects to the dedicated
+  `revo-engine` process (`crates/revo-backend/src/bin/revo-engine.rs`), which
+  owns `ObsBackendRuntime`/`ObsRuntime`. Commands, snapshots, preview frames,
+  browser interaction, logs, source/filter settings, fonts, and devices travel
+  over `revo_core::ipc` using the platform transport in
+  `revo_core::transport`.
+- Legacy compatibility target: `src-tauri/` remains buildable as the parity
+  reference (Tauri commands, `TauriObsPlatform`, webview auxiliary windows) but
+  has no interactive UI. `src/routes/+page.svelte` is a placeholder notice.
 - Extracted backend: `crates/revo-backend/` owns `ObsRuntime`, `SceneState`,
   `ObsState`, preview stats, and the runtime/scenes/sources/settings/devices/
-  logging/permissions/utils modules with zero Tauri dependencies. `src-tauri`
-  is now a thin adapter: Tauri commands, `TauriObsPlatform`, and the webview
-  auxiliary-window UI. The remaining src-tauri removal blockers are: wiring
-  the real backend behind `BackendService` for GPUI, native preview/audio,
-  auxiliary-window replacement, and the GPUI packaging layout.
+  logging/permissions/utils modules with zero Tauri dependencies. It also hosts
+  the IPC server (`engine.rs`), the typed `ObsBackendRuntime` adapter
+  (`obs_service.rs`), and the standalone `revo-engine` binary. `src-tauri/`
+  is now a thin compatibility adapter: Tauri commands, `TauriObsPlatform`, and
+  the webview auxiliary-window UI. The real backend is already wired behind
+  `BackendService` for GPUI through `EngineClient`; remaining cutover blockers
+  are final Tauri/Svelte removal, macOS on-hardware verification,
+  installed-artifact validation, and the open browser/video/tray decisions.
 - Extracted core slices: framework-neutral source, planner, media-option,
   settings, scene, theme, and plugin models and pure helpers in
   `crates/revo-core/`, consumed through path dependencies.
@@ -25,21 +44,19 @@
   capability policy remain in `revo-backend`. `revo-core` also provides a
   bounded, typed `BackendService` worker thread with request/reply operations,
   snapshots, nonblocking GPUI dispatch, and lifecycle tests.
-- `crates/revo-gpui/` now has a runnable native shell composing the
-  Header, preview/demo, Scenes, Sources, and Tools views, responsive layouts,
-  and modal routing, plus native Modules: Audio Mixer (with context menu and
-  advanced-properties modal), Transitions, and the Graphic Planner driven by
-  `revo-core::planner` geometry. With the default `MockBackendRuntime` it runs
-  on mock data. With `--features obs-backend` (and the `--obs` CLI flag) it
-  runs the real libobs backend: `services/obs.rs::ObsBackendRuntime` maps
-  every `BackendCommand` to `revo-backend` operations, `BackendSnapshot`
-  drives the panels (scenes, sources, outputs, mixer levels, errors), the
-  preview loop captures PNG frames on the background executor, and `--obs`
-  selects the backend at startup. The feature path was parse-checked only;
-  full compile requires a provisioned host (libobs/libssl dev packages). The
-  macOS libobs hooks dispatch through a GPUI foreground-executor trampoline
-  (`GpuiObsPlatform`); on-hardware verification is still pending. The GPUI
-  packaging layout is defined and is what the release workflow now builds:
+- `crates/revo-gpui/` is the primary application: Header, preview/program,
+  Scenes, Sources, Tools, responsive layouts, modal routing, Audio Mixer (with
+  context menu and advanced-properties modal), Transitions, the Graphic Planner
+  driven by `revo-core::planner` geometry, settings/source/filter/plugin/
+  history workflows, and auxiliary Preview, Debug Console, and Browser
+  Interaction windows. Default builds run `MockBackendRuntime`;
+  `--features obs-backend` selects the engine-backed `AnyBackend::Obs`, which
+  reaches libobs through `services/engine.rs::EngineClient` and the separate
+  `revo-engine` process. Preview frames arrive as PNG data URIs in a bounded
+  newest-wins slot; native raw-RGBA delivery is still a migration item. The
+  settings modal persists through `SaveSettings` with a typed draft state
+  machine (dirty tracking, URL/resolution validation, option cycling).
+- The GPUI packaging layout is what the release workflow builds:
   `scripts/linux/package-gpui.sh` stages the UI binary, the `revo-engine`
   binary, launcher, desktop entry, icons and OBS runtime (`prepare-runtime.sh`
   layout) into a portable tree and emits `tar.gz` + `.run`;
@@ -55,23 +72,27 @@
   (`revo_core::transport`): a Unix socket on Unix, a loopback TCP endpoint
   published through `--endpoint-file` on Windows, and the engine derives its own
   resource/data paths (`utils::fs::init_standalone_app_paths`) because no GUI
-  adapter injects them. The remaining src-tauri removal blockers are macOS
-  on-hardware verification and installed-artifact validation. The GPUI shell
-  has not replaced the Tauri application yet; the Linux release job still
-  `cargo check`s the adapter as the parity reference. The settings modal is now
-  functional: a typed draft state machine (dirty tracking, URL/resolution
-  validation, option cycling) persists through the `SaveSettings` backend
-  command, with a shared single-line keystroke text-field helper.
+  adapter injects them.
+- Remaining cutover blockers: remove the Tauri/Svelte compatibility path,
+  replace base64 PNG preview with raw RGBA/native textures, verify the macOS
+  libobs hooks on hardware, validate installed artifacts, and decide the
+  browser-dock, WebRTC/native-video, and tray strategy. The Linux release job
+  still `cargo check`s the Tauri adapter as the parity reference.
 - The migrated Svelte component families (`Home`, `Modal`, `QuickModal`,
   `Modules`) and all auxiliary routes are removed. `src/routes/+page.svelte`
   is a placeholder notice; the legacy Tauri adapter has no interactive UI.
-  The Tauri Rust backend remains as the parity reference for `ObsRuntime`
-  migration.
-- Target application: one native Rust process rendered by GPUI, with no
-  webview or JavaScript/Rust IPC boundary.
-- Migration specification and dependency analysis: `MIGRATIONS.md`.
-- Supported production platform is Linux. Windows and macOS remain
-  experimental and have active release/runtime tooling.
+  The Tauri Rust backend remains as the behavioral parity reference for the
+  remaining cutover.
+- Target application: a native Rust GPUI UI process plus the dedicated
+  `revo-engine` libobs process, with no webview and no JavaScript/Rust IPC
+  boundary. The engine boundary is typed Rust IPC by design.
+- Migration specification and dependency analysis: `MIGRATIONS.md`. Its
+  original single-process target is superseded by the engine-process split
+  described here and implemented in the code.
+- Supported production platform is Linux. Windows is partially supported: the
+  GPUI interface runs, but core functionality (libobs engine, capture,
+  recording, and streaming) may not work. macOS remains experimental. Both have
+  active release/runtime tooling.
 
 The GPUI application has not replaced the Tauri application yet. Keep the
 Tauri/Svelte path buildable as the parity reference until the corresponding
@@ -92,9 +113,9 @@ are absent from the final architecture.
   `MIGRATIONS.md`.
 - Keep backend/business logic independent of both Tauri and GPUI. GUI adapters
   should call typed services rather than expose string-based in-process IPC.
-- Move libobs ownership toward a dedicated service thread before allowing GPUI
-  executor tasks to access runtime operations. Do not broaden the existing raw
-  pointer `Send`/`Sync` assumptions.
+- Keep libobs ownership isolated in the dedicated `revo-engine` process. Do not
+  add libobs code to the GPUI UI process or broaden the existing raw pointer
+  `Send`/`Sync` assumptions.
 - Keep high-frequency preview and audio delivery bounded to the newest value.
   Never block the GPUI foreground executor with libobs work, image encoding,
   filesystem traversal, dialogs, CDP waits, or process waits.
@@ -107,41 +128,40 @@ are absent from the final architecture.
 
 ## Repository Layout
 
-- `src/`: legacy Svelte UI and route entry points retained for parity.
+- `src/`: legacy Svelte entry points and remaining parity components.
 - `static/`: legacy semantic theme and component CSS retained as the visual
   source of truth during migration.
-- `src-tauri/src/`: thin Tauri adapter — commands, `TauriObsPlatform`, and the
-  webview auxiliary-window UI. The libobs backend lives in
-  `crates/revo-backend/`.
-- `crates/revo-core/`: framework-neutral Rust domain models and, incrementally,
-  backend services shared by the compatibility and GPUI applications.
-- `crates/revo-gpui/`: native GPUI application shell and migrating views.
-- `src-tauri/Cargo.toml`: current Rust manifest. Tauri dependencies remain
-  until final cutover.
+- `crates/revo-core/`: framework-neutral Rust domain models, settings, planner,
+  plugins, typed IPC/transport, and the bounded `BackendService` worker.
+- `crates/revo-backend/`: framework-neutral libobs backend, IPC server,
+  `ObsBackendRuntime`, and the `revo-engine` binary.
+- `crates/revo-gpui/`: primary native GPUI application and engine client.
+- `src-tauri/src/`: legacy Tauri compatibility adapter — commands,
+  `TauriObsPlatform`, and webview auxiliary windows.
+- `src-tauri/Cargo.toml`: legacy compatibility manifest; not the primary
+  application manifest. Tauri dependencies remain until final cutover.
 - `src-tauri/resources/revo-root/`: generated/staged OBS runtime resources;
   ignored by Git.
+- There is no root Cargo workspace manifest yet: each crate has its own
+  manifest and lockfile, and commands build/test them by manifest path.
 - `scripts/linux/`, `scripts/macos/`, `scripts/windows/`: platform runtime,
   packaging, verification, and release scripts.
 - `scripts/nix/`: Nix development, build, run, repair, and packaging scripts.
 - `MIGRATIONS.md`: authoritative migration architecture, dependency mapping,
   phases, visual targets, risks, and test strategy.
-- `docs/building.md`: current Tauri-era platform build instructions.
-- `docs/scripts.md`: script reference; verify entries against the filesystem
-  before relying on them because migration cleanup may make it stale.
+- `docs/building.md`: GPUI-first platform build instructions, with the legacy
+  Tauri/Svelte path documented separately at the end.
+- `docs/scripts.md`: GPUI-first script reference (core gate, NixOS, Linux,
+  Windows, macOS, release workflow) plus a separate legacy Tauri script list;
+  verify entries against the filesystem before relying on them because
+  migration cleanup may make it stale.
 
 ## Development Commands
 
-The commands below operate on the current compatibility application.
+The native GPUI application is the primary target. The legacy Tauri/Svelte
+commands are kept for parity checks until final cutover.
 
-### Frontend
-
-- `pnpm install --frozen-lockfile`: install pinned frontend/Tauri CLI
-  dependencies.
-- `pnpm check`: run SvelteKit synchronization and Svelte type checking.
-- `pnpm build`: create the current static frontend build.
-- `pnpm dev`: run only the Vite development server.
-
-### Desktop application
+### Native GPUI
 
 - `bash scripts/core/verify.sh`: run the standard validation pipeline for
   `revo-core`/`revo-gpui` (formatting, tests, checks, compatibility metadata)
@@ -154,15 +174,30 @@ The commands below operate on the current compatibility application.
   GPUI application.
 - `cargo run --manifest-path crates/revo-gpui/Cargo.toml`: run the native GPUI
   mock-data shell.
+- `cargo build --manifest-path crates/revo-backend/Cargo.toml --bin revo-engine`:
+  build the libobs engine process (requires libobs/libssl development
+  packages).
+- `cargo run --manifest-path crates/revo-gpui/Cargo.toml --features obs-backend -- --obs`:
+  run the GPUI application against the real engine instead of mock data.
+- `REVO_ENGINE_SOCK=<endpoint>`: connect to an externally started engine
+  (`unix:<path>` or `tcp:127.0.0.1:<port>`) instead of spawning one.
+
+### Legacy Tauri/Svelte compatibility
+
+- `pnpm install --frozen-lockfile`: install pinned frontend/Tauri CLI
+  dependencies.
+- `pnpm check`: run SvelteKit synchronization and Svelte type checking.
+- `pnpm build`: create the legacy static frontend build.
+- `pnpm dev`: run only the Vite development server.
 - `./run.sh`: run `pnpm tauri dev` with libobs paths and the conditional Linux
   EGL/DMABUF workaround.
 - `./run-cef.sh`: run the optional `cef` feature after validating
   `CEF_ROOT` or `CEF_INCLUDE_DIR`/`CEF_LIB_DIR`. The current CEF bridge is not a
   complete embedded CEF implementation; see `OBS_CEF_FEASIBILITY.md`.
-- `cargo check --manifest-path src-tauri/Cargo.toml`: check Rust code when host
-  Tauri/GTK/WebKit and libobs development dependencies are available.
-- `cargo test --manifest-path src-tauri/Cargo.toml`: run Rust tests in a fully
-  provisioned native environment.
+- `cargo check --manifest-path src-tauri/Cargo.toml`: check the legacy adapter
+  when host Tauri/GTK/WebKit and libobs development dependencies are available.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: run legacy adapter tests in
+  a fully provisioned native environment.
 - `./clean.sh`: remove `src-tauri/target` and `.svelte-kit`.
 
 ### NixOS
@@ -233,3 +268,6 @@ resource directory.
   remain within the documented `2px` tolerance.
 - Validate installed release artifacts, not only development builds, before
   removing any Tauri packaging or runtime dependency.
+- Keep the `README.md` migration checklist and this guide's Current State
+  section synchronized when a migration checkpoint lands or the application
+  version changes.
