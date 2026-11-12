@@ -72,6 +72,9 @@ The project is in an early MVP stage — contributions are welcome:
 
 PRs for libobs bindings and performance optimizations are especially welcome.
 
+## Code Signing
+Windows binaries will be signed using free code signing provided by SignPath.io, certificate by SignPath Foundation
+
 ## License
 
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
