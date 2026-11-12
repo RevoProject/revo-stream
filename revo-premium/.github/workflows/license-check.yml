@@ -1,0 +1,27 @@
+name: License Check (premium)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  license-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for AGPL headers
+        run: |
+          if grep -R "AGPL-3.0" --include="*.rs" .; then
+            echo "AGPL header found"
+            exit 1
+          fi
+
+      - name: Run ScanCode
+        run: |
+          pip install scancode-toolkit
+          scancode --license --json-pp scancode.json . || true
+          if grep -q "AGPL" scancode.json; then
+            echo "AGPL detected"
+            exit 1
+          fi

@@ -3752,7 +3752,7 @@ dependencies = [
 [[package]]
 name = "revo-lib"
 version = "0.1.0"
-source = "git+https://github.com/RevoProject/revo-lib#66325a65d1e0a0db9a0f3eedc585af554f2440e3"
+source = "git+https://github.com/RevoProject/revo-lib?rev=66325a65d1e0a0db9a0f3eedc585af554f2440e3#66325a65d1e0a0db9a0f3eedc585af554f2440e3"
 dependencies = [
  "libobs-bootstrapper",
  "libobs-wrapper",

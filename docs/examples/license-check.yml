@@ -1,0 +1,43 @@
+name: License Check (premium)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  license-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1) Check for AGPL headers in source
+      - name: Check for AGPL headers
+        run: |
+          if grep -R "AGPL-3.0" --include="*.rs" --include="*.ts" --include="*.js" .; then
+            echo "AGPL header found in premium code"
+            exit 1
+          fi
+
+      # 2) Dependency license allowlist (example for Rust)
+      - name: Check dependency licenses
+        run: |
+          cargo install cargo-license 2>/dev/null || true
+          cargo license --json > licenses.json || true
+          # Add your allowlist check here
+
+      # 3) ScanCode (license detection)
+      - name: Run ScanCode
+        run: |
+          pip install scancode-toolkit
+          scancode --license --json-pp scancode.json . || true
+          if grep -q "AGPL" scancode.json; then
+            echo "AGPL detected in premium code"
+            exit 1
+          fi
+
+      # 4) Plagiarism / copy-paste detection (optional)
+      - name: Copy-paste detection
+        run: |
+          # Example: jscpd for JS/TS, or PMD CPD for Rust
+          echo "Add cpd tool here"
