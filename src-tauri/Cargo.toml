@@ -41,4 +41,4 @@ uuid = { version = "1", features = ["v4"] }
 tungstenite = "0.24"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 revo-cef = { path = "../../modules/revo-cef", optional = true }
-revo-lib = { git = "https://github.com/RevoProject/revo-lib" }
+revo-lib = { git = "https://github.com/RevoProject/revo-lib", rev = "66325a65d1e0a0db9a0f3eedc585af554f2440e3" }
