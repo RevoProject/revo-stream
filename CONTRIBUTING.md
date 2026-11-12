@@ -5,9 +5,11 @@ from Tauri/Svelte to native GPUI, so read the current state before starting.
 
 ## Before you start
 
-- Open an issue for bug reports and feature requests.
+- Open an issue for bug reports and feature requests, using the issue
+  templates.
 - Discuss major changes (architecture, dependencies, UI behavior, packaging)
   before implementing them.
+- Emojis in issue and pull request titles are welcome.
 - Keep pull requests focused on one logical change. Avoid drive-by renames,
   formatting churn, or unrelated cleanups.
 - Start with `AGENTS.md` (current architecture and commands),
@@ -87,6 +89,8 @@ checkpoint lands or the application version changes.
 ## Pull request checklist
 
 - The PR has a clear scope and links to the relevant issue.
+- The pull request template is filled in, including the AI-assistance and
+  licensing sections.
 - Tests were added or updated for behavior changes.
 - The relevant validation commands were run, and the results are included.
 - Performance-sensitive changes include before/after evidence.

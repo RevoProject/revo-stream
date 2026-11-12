@@ -168,9 +168,11 @@ If you'd like to support RevoStream or discuss a partnership, feel free to reach
 The project is in an active migration from Tauri/Svelte to GPUI and
 contributions are welcome:
 
-- Open an issue with a bug report or feature request
+- Open an issue with a bug report or feature request, using the issue templates
+  in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)
 - Discuss major changes before implementation
-- Submit pull requests with a clear scope and summary
+- Submit pull requests with a clear scope and summary — emojis in issue and PR
+  titles are welcome
 
 PRs for libobs bindings, GPUI views, and performance optimizations are
 especially welcome.

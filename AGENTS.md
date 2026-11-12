@@ -157,6 +157,8 @@ are absent from the final architecture.
   migration cleanup may make it stale.
 - `CONTRIBUTING.md`: contributor policy for licensing, closed-source code,
   AI-assisted contributions, validation, and pull requests.
+- `.github/`: issue templates, the pull request template, funding metadata, and
+  the release/diagnostic workflows.
 
 ## Development Commands
 
