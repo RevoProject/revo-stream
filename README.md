@@ -39,7 +39,7 @@ GPUI migration completes.
 
 ## Migration checklist
 
-Status for `0.5.0-pre-1` on `feature/gpui-rewrite`.
+Status for `0.5.0-pre1` on `feature/gpui-rewrite`.
 
 The project is migrating from Tauri 2 + Svelte 5/SvelteKit to native GPUI.
 `MIGRATIONS.md` contains the full architecture, phase plan, parity contract,

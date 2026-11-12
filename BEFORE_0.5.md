@@ -1,6 +1,6 @@
 # RevoStream — plan poprawek przed 0.5.0 (BEFORE_0.5)
 
-Data: 11.11.2026. Cel wydania: `0.5.0-pr1`.
+Data: 11.11.2026. Cel wydania: `0.5.0-pre1`.
 Priorytety: **P0** = blokuje wydanie, **P1** = duża usterka UX/funkcji, **P2** = dopracowanie.
 Sekcja **25** na końcu zawiera przykładowe szkielety implementacji („jak bym to naprawił") dla
 najważniejszych punktów — plan, nie wdrożenie; żaden plik źródłowy nie został zmieniony.
@@ -1268,3 +1268,10 @@ revo-gpui 177/177.
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-gpui 177/177 (mock) i 185/185 (`--features obs-backend`).
+
+## 2026-11-12 — korekta wersji: `0.5.0-pre1`
+
+- [x] Wersja aplikacji to `0.5.0-pre1` (nie `0.5.0-pr1`): `package.json`,
+      `src-tauri/tauri.conf.json`, cztery manifesty Cargo, cztery `Cargo.lock`,
+      `AGENTS.md`, `README.md`. Adnotacje §0 powyżej opisują wcześniejszy bump
+      0.4.1 → 0.5.0-pr1 i zostają jako zapis historyczny.

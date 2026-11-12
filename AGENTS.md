@@ -2,7 +2,7 @@
 
 ## Current State
 
-- Application version: `0.5.0-pre-1` (documentation target; `package.json` and
+- Application version: `0.5.0-pre1` (documentation target; `package.json` and
   the four Rust manifests must be bumped to match).
 - Migration branch: `feature/gpui-rewrite`.
 - `revo-lib` is pinned to the revision
