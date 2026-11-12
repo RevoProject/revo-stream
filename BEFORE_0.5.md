@@ -1202,7 +1202,7 @@ revo-gpui 175/175.
 - [x] §18.2 Jeden przycisk „Add" z wyborem typu (dropdown) — usunięty duplikujący
       flow cykliczny; typ nowej tranzycji wybierany przez wspólny dropdown
       (`DropdownField::TransitionKind` dla `__new__` obsłużony w `app.rs`).
-- [ ] §18.3 Redesign modalu (grid/grupowanie/podgląd 16:9) — niezaimplementowane.
+- [x] §18.3 Redesign modalu (grid/grupowanie/podgląd 16:9).
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed; revo-gpui 175/175
 (test transitions zaktualizowany pod utrzymanie selekcji po Apply).
@@ -1237,3 +1237,21 @@ Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-core 56/56, revo-gpui 175/175 (mock) i 182/182 (`--features obs-backend`).
 `revo-backend`/`src-tauri` nie kompilują się lokalnie (brak glib/gio/webkit);
 zmiany w tych klatkach sprawdza CI.
+
+## 2026-11-12 — §18.3 przebudowa edytora tranzycji
+
+- [x] Statyczny podgląd 16:9 (160x90) obok pól: rodzaj, kierunek/kolor, czas;
+      pasek sceny odzwierciedla geometrię rodzaju (cut = pełny akcent, fade =
+      blend z szwem, swipe/slide = krawędź po stronie kierunku, stinger = tryb
+      źródła + punkt). Panel nie ma zegara animacji, więc kadr jest
+      deterministyczny (bez pętli 60 fps w modalu).
+- [x] Grupowanie Type / Duration w dwukolumnowym gridzie + pełnowymiarowe Name;
+      grupa „Defaults" pod spodem (etykiety parametrów przez `param_label`).
+- [x] Usunięty duplikat kontrolki: `duration_ms` miał już pole „Duration (ms)",
+      a dodatkowo renderował się jako wiersz parametrów — `default_param_keys`
+      go filtruje (test `defaults_group_hides_the_duration_field`).
+- [x] Nowe testy: `defaults_group_hides_the_duration_field`,
+      `param_labels_cover_every_typed_key`.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-gpui 177/177.

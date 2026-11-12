@@ -151,6 +151,42 @@ pub fn normalize_transition_softness(params: &TransitionParams) -> u32 {
     }
 }
 
+/// Param keys shown in the Defaults group: everything except `duration_ms`,
+/// which has its own grouped field (§18.3 duplicate removal).
+fn default_param_keys(params: &TransitionParams) -> Vec<String> {
+    let mut keys: Vec<String> = params
+        .keys()
+        .filter(|key| key.as_str() != "duration_ms")
+        .cloned()
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// Small caption opening one editor group (§18.3 Type/Duration/Defaults).
+fn group_label(theme: RevoTheme, text: &'static str) -> gpui::Div {
+    div()
+        .text_color(theme.text_muted)
+        .text_size(px(10.))
+        .child(SharedString::from(text))
+}
+
+/// Human label for one typed transition param (`duration_ms` excluded — it
+/// has its own grouped field).
+fn param_label(key: &str) -> String {
+    match key {
+        "direction" => "Direction".to_string(),
+        "color" => "Color".to_string(),
+        "softness_pct" => "Softness (%)".to_string(),
+        "source_mode" => "Stinger source".to_string(),
+        "media_file" => "Media file".to_string(),
+        "sequence_dir" => "Sequence directory".to_string(),
+        "sequence_fps" => "Sequence FPS".to_string(),
+        "transition_point_ms" => "Transition point (ms)".to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransitionItem {
     pub id: String,
@@ -714,6 +750,127 @@ impl TransitionsPanel {
     }
 }
 
+impl TransitionsPanel {
+    /// Static 16:9 preview tile for one transition (§18.3).
+    ///
+    /// The panel has no animation clock — a 60 fps notify loop inside a modal
+    /// would be pure overhead — so the tile states the transition geometry
+    /// deterministically: kind, direction/color, and timing. The stage strip
+    /// mirrors the kind's wipe geometry (cut = full accent, fade = blend with a
+    /// seam, directional kinds = a leading edge on the configured side).
+    fn transition_preview(&self, item: &TransitionItem) -> gpui::Div {
+        let theme = self.theme;
+        let accent = item
+            .params
+            .get("color")
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .and_then(|hex| u32::from_str_radix(hex.trim_start_matches('#'), 16).ok())
+            .map(gpui::rgb)
+            .unwrap_or(theme.accent);
+        let direction = item.params.get("direction").cloned().unwrap_or_default();
+        let duration = transition_duration_ms(&item.params);
+        let hint = match item.kind {
+            TransitionKind::Cut => "instant".to_string(),
+            TransitionKind::Fade => format!("{duration} ms blend"),
+            TransitionKind::Swipe | TransitionKind::Slide => match direction.as_str() {
+                "" => format!("{duration} ms slide"),
+                other => format!("{duration} ms {other}"),
+            },
+            TransitionKind::FadeToColor => format!("{duration} ms to color"),
+            TransitionKind::LumaWipe => {
+                let softness = normalize_transition_softness(&item.params);
+                format!("{duration} ms · softness {softness}%")
+            }
+            TransitionKind::Stinger => {
+                let mode = item
+                    .params
+                    .get("source_mode")
+                    .cloned()
+                    .unwrap_or_else(|| "media".into());
+                let point = item
+                    .params
+                    .get("transition_point_ms")
+                    .cloned()
+                    .unwrap_or_else(|| "1000".into());
+                format!("{mode} · point {point} ms")
+            }
+        };
+
+        let stage = match item.kind {
+            TransitionKind::Cut => div()
+                .flex()
+                .flex_row()
+                .child(div().flex_1().h(px(34.)).bg(accent)),
+            TransitionKind::Swipe | TransitionKind::Slide => {
+                let leading_first = !matches!(direction.as_str(), "right" | "down");
+                let seam = div().w(px(6.)).h(px(34.)).bg(theme.surface_elevated);
+                let from = div().flex_1().h(px(34.)).bg(accent);
+                let to = div().flex_1().h(px(34.)).bg(theme.surface_active);
+                div().flex().flex_row().children(if leading_first {
+                    vec![
+                        from.into_any_element(),
+                        seam.into_any_element(),
+                        to.into_any_element(),
+                    ]
+                } else {
+                    vec![
+                        to.into_any_element(),
+                        seam.into_any_element(),
+                        from.into_any_element(),
+                    ]
+                })
+            }
+            _ => div()
+                .flex()
+                .flex_row()
+                .child(div().flex_1().h(px(34.)).bg(theme.surface_active))
+                .child(div().w(px(6.)).h(px(34.)).bg(accent))
+                .child(div().flex_1().h(px(34.)).bg(accent)),
+        };
+
+        div()
+            .w(px(160.))
+            .h(px(90.))
+            .flex_none()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border_strong)
+            .bg(theme.surface)
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_between()
+                    .items_center()
+                    .text_size(px(10.5))
+                    .text_color(theme.text_secondary)
+                    .child(SharedString::from(item.kind.label()))
+                    .child(SharedString::from(format!(
+                        "{} · {} ms",
+                        if direction.is_empty() {
+                            "auto"
+                        } else {
+                            direction.as_str()
+                        },
+                        duration
+                    ))),
+            )
+            .child(stage)
+            .child(
+                div()
+                    .text_size(px(9.5))
+                    .text_color(theme.text_muted)
+                    .truncate()
+                    .child(SharedString::from(hint)),
+            )
+    }
+}
+
 impl Render for TransitionsPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let mut cards = div().flex().flex_col().gap_1();
@@ -894,203 +1051,22 @@ impl Render for TransitionsPanel {
                     ),
             );
 
-        // Plan §18.1: "Edit transition" above "Add transition"; the active
-        // transition is selected by default so editing is highlighted on open.
-        let selected_section = self
+        // Plan §18.3: grouped editor — a 16:9 preview tile beside Type /
+        // Duration / Name, then the kind's own defaults below. §18.1 keeps this
+        // section above the list, with the active transition selected.
+        let defaults_block = self
             .selected_id
             .clone()
             .and_then(|id| self.items.iter().find(|item| item.id == id).cloned())
             .map(|item| {
-                let kind_label = item.kind.label().to_string();
-                let duration = item
-                    .params
-                    .get("duration_ms")
-                    .cloned()
-                    .unwrap_or_else(|| "300".into());
-                let active = self.active_id.as_deref() == Some(item.id.as_str());
-                let item_id = item.id.clone();
-                let set_active_id = item.id.clone();
-                let is_active_id = item.id.clone();
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_2()
-                    .rounded_md()
-                    .bg(self.theme.surface_elevated)
-                    .border_1()
-                    .border_color(if active {
-                        self.theme.border_selected
-                    } else {
-                        self.theme.border
-                    })
-                    .child(
-                        div()
-                            .text_color(self.theme.text_secondary)
-                            .text_size(px(11.))
-                            .child(SharedString::from(format!(
-                                "Edit transition: {}{}",
-                                if item.name.is_empty() {
-                                    "Transition".to_string()
-                                } else {
-                                    item.name.clone()
-                                },
-                                if active { " (active)" } else { "" }
-                            ))),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap_2()
-                            .flex_wrap()
-                            .child(self.draft_field(
-                                "transition-selected-name",
-                                &FieldSlot::SelectedName,
-                                "Name…",
-                                item.name.clone(),
-                                window,
-                                cx,
-                            ))
-                            .child(self.draft_field(
-                                "transition-selected-duration",
-                                &FieldSlot::SelectedDuration,
-                                "Duration (ms)",
-                                duration,
-                                window,
-                                cx,
-                            ))
-                            .child(
-                                {
-                                    let selected_id = self.selected_id.clone().unwrap_or_default();
-                                    let current = self
-                                        .selected_item()
-                                        .map(|item| item.kind.value().to_string())
-                                        .unwrap_or_default();
-                                    div()
-                                        .id("transition-selected-kind")
-                                        .cursor_pointer()
-                                        .px_3()
-                                        .py_1()
-                                        .rounded_md()
-                                        .bg(self.theme.surface_active)
-                                        .text_color(self.theme.text)
-                                        .flex()
-                                        .items_center()
-                                        .gap_1()
-                                        .child(SharedString::from(kind_label))
-                                        .child(crate::components::icon::icon(
-                                            self.theme.text_muted,
-                                            "chevron-down",
-                                            12.,
-                                        ))
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
-                                                cx.stop_propagation();
-                                                let options = TransitionKind::all()
-                                                    .into_iter()
-                                                    .map(|kind| {
-                                                        (
-                                                            kind.value().to_string(),
-                                                            kind.label().to_string(),
-                                                        )
-                                                    })
-                                                    .collect();
-                                                cx.emit(ComponentEvent::OpenDropdown {
-                                                    field: crate::actions::DropdownField::TransitionKind {
-                                                        transition_id: selected_id.clone(),
-                                                    },
-                                                    options,
-                                                    current: current.clone(),
-                                                    position: (
-                                                        f32::from(event.position.x),
-                                                        f32::from(event.position.y),
-                                                    ),
-                                                });
-                                            }),
-                                        )
-                                },
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .id("transition-set-active")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(if active {
-                                        self.theme.border_selected
-                                    } else {
-                                        self.theme.surface_active
-                                    })
-                                    .text_color(self.theme.text)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_active(&set_active_id);
-                                        cx.notify();
-                                    }))
-                                    .child(if active { "Active ✓" } else { "Set active" }),
-                            )
-                            .child(
-                                div()
-                                    .id("transition-selected-remove")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_md()
-                                    .bg(self.theme.surface_active)
-                                    .text_color(self.theme.danger)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.remove_transition(&is_active_id);
-                                        cx.emit(TransitionEvent::Removed);
-                                        cx.notify();
-                                    }))
-                                    .child("Remove"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_color(self.theme.text_muted)
-                            .text_size(px(10.))
-                            .child(SharedString::from(format!("id: {item_id}"))),
-                    )
-            });
-
-        // The selected kind opens the shared dropdown overlay (the panel is
-        // embedded in a scrollable modal body, so inline expansion would be
-        // clipped); `kind_list` stays empty.
-        let kind_list: Option<gpui::AnyElement> = None;
-
-        // Per-kind typed params for the selected transition (duration lives
-        // in the duration field above; direction/color/softness/stinger
-        // fields follow).
-        let params_block = self
-            .selected_id
-            .clone()
-            .and_then(|id| self.items.iter().find(|item| item.id == id).cloned())
-            .map(|item| {
-                let mut rows = div().flex().flex_col().gap_2().mt_1();
-                let mut keys: Vec<String> = item.params.keys().cloned().collect();
-                keys.sort();
+                // `duration_ms` has its own field in the Duration group; a
+                // second row for it was the duplicated control §18.3 removes.
+                let keys = default_param_keys(&item.params);
+                let has_defaults = !keys.is_empty();
+                let mut rows = div().flex().flex_col().gap_1();
                 for key in keys {
                     let value = item.params.get(&key).cloned().unwrap_or_default();
-                    let label = match key.as_str() {
-                        "direction" => "Direction".to_string(),
-                        "color" => "Color".to_string(),
-                        "softness_pct" => "Softness (%)".to_string(),
-                        "source_mode" => "Stinger source".to_string(),
-                        "media_file" => "Media file".to_string(),
-                        "sequence_dir" => "Sequence directory".to_string(),
-                        "sequence_fps" => "Sequence FPS".to_string(),
-                        "transition_point_ms" => "Transition point (ms)".to_string(),
-                        other => other.to_string(),
-                    };
+                    let label = param_label(&key);
                     let field: gpui::AnyElement = match key.as_str() {
                         "direction" | "source_mode" => {
                             let options: Vec<(&'static str, &'static str)> = if key == "direction" {
@@ -1232,7 +1208,7 @@ impl Render for TransitionsPanel {
                             .gap_2()
                             .child(
                                 div()
-                                    .w(px(140.))
+                                    .w(px(130.))
                                     .flex_none()
                                     .text_color(self.theme.text_secondary)
                                     .text_size(px(11.))
@@ -1241,8 +1217,211 @@ impl Render for TransitionsPanel {
                             .child(field),
                     );
                 }
-                rows
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(group_label(self.theme, "Defaults"))
+                    .child(if !has_defaults {
+                        div()
+                            .text_color(self.theme.text_muted)
+                            .text_size(px(10.5))
+                            .child("No extra defaults for this kind.")
+                            .into_any_element()
+                    } else {
+                        rows.into_any_element()
+                    })
             });
+
+        let selected_section = self
+            .selected_id
+            .clone()
+            .and_then(|id| self.items.iter().find(|item| item.id == id).cloned())
+            .map(|item| {
+                let kind_label = item.kind.label().to_string();
+                let duration = item
+                    .params
+                    .get("duration_ms")
+                    .cloned()
+                    .unwrap_or_else(|| "300".into());
+                let active = self.active_id.as_deref() == Some(item.id.as_str());
+                let item_id = item.id.clone();
+                let set_active_id = item.id.clone();
+                let is_active_id = item.id.clone();
+                let preview = self.transition_preview(&item);
+
+                let selected_id = item.id.clone();
+                let current = item.kind.value().to_string();
+                let kind_field = div()
+                    .id("transition-selected-kind")
+                    .cursor_pointer()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .bg(self.theme.surface_active)
+                    .text_color(self.theme.text)
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(SharedString::from(kind_label))
+                    .child(crate::components::icon::icon(
+                        self.theme.text_muted,
+                        "chevron-down",
+                        12.,
+                    ))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            let options = TransitionKind::all()
+                                .into_iter()
+                                .map(|kind| (kind.value().to_string(), kind.label().to_string()))
+                                .collect();
+                            cx.emit(ComponentEvent::OpenDropdown {
+                                field: crate::actions::DropdownField::TransitionKind {
+                                    transition_id: selected_id.clone(),
+                                },
+                                options,
+                                current: current.clone(),
+                                position: (
+                                    f32::from(event.position.x),
+                                    f32::from(event.position.y),
+                                ),
+                            });
+                        }),
+                    );
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .p_3()
+                    .rounded_md()
+                    .bg(self.theme.surface_elevated)
+                    .border_1()
+                    .border_color(if active {
+                        self.theme.border_selected
+                    } else {
+                        self.theme.border
+                    })
+                    .child(
+                        div().flex().flex_row().items_center().gap_2().child(
+                            div()
+                                .text_color(self.theme.text_secondary)
+                                .text_size(px(11.5))
+                                .child(SharedString::from(format!(
+                                    "Edit transition: {}{}",
+                                    if item.name.is_empty() {
+                                        "Transition".to_string()
+                                    } else {
+                                        item.name.clone()
+                                    },
+                                    if active { " (active)" } else { "" }
+                                ))),
+                        ),
+                    )
+                    // Preview tile beside the grouped fields.
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_3()
+                            .items_start()
+                            .child(preview)
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    // Two-column grid: labels on top, controls
+                                    // below (§18.3 grouping Type/Duration).
+                                    .child(
+                                        div()
+                                            .grid()
+                                            .grid_cols(2)
+                                            .gap_2()
+                                            .items_center()
+                                            .child(group_label(self.theme, "Type"))
+                                            .child(group_label(self.theme, "Duration"))
+                                            .child(kind_field)
+                                            .child(self.draft_field(
+                                                "transition-selected-duration",
+                                                &FieldSlot::SelectedDuration,
+                                                "Duration (ms)",
+                                                duration,
+                                                window,
+                                                cx,
+                                            )),
+                                    )
+                                    .child(group_label(self.theme, "Name"))
+                                    .child(self.draft_field(
+                                        "transition-selected-name",
+                                        &FieldSlot::SelectedName,
+                                        "Name…",
+                                        item.name.clone(),
+                                        window,
+                                        cx,
+                                    )),
+                            ),
+                    )
+                    .children(defaults_block)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("transition-set-active")
+                                    .cursor_pointer()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(if active {
+                                        self.theme.border_selected
+                                    } else {
+                                        self.theme.surface_active
+                                    })
+                                    .text_color(self.theme.text)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.set_active(&set_active_id);
+                                        cx.notify();
+                                    }))
+                                    .child(if active { "Active ✓" } else { "Set active" }),
+                            )
+                            .child(
+                                div()
+                                    .id("transition-selected-remove")
+                                    .cursor_pointer()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(self.theme.surface_active)
+                                    .text_color(self.theme.danger)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.remove_transition(&is_active_id);
+                                        cx.emit(TransitionEvent::Removed);
+                                        cx.notify();
+                                    }))
+                                    .child("Remove"),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_color(self.theme.text_muted)
+                                    .text_size(px(10.))
+                                    .text_right()
+                                    .child(SharedString::from(format!("id: {item_id}"))),
+                            ),
+                    )
+            });
+
+        // The selected kind opens the shared dropdown overlay (the panel is
+        // embedded in a scrollable modal body, so inline expansion would be
+        // clipped); `kind_list` stays empty.
+        let kind_list: Option<gpui::AnyElement> = None;
 
         let focus = self.focus_handle_or_create(cx);
         let on_key = cx.listener(|this, event: &KeyDownEvent, _, cx| {
@@ -1272,7 +1451,6 @@ impl Render for TransitionsPanel {
                 div()
             })
             .children(kind_list)
-            .children(params_block)
             .child(
                 div()
                     .flex()
@@ -1315,7 +1493,6 @@ impl Render for TransitionsPanel {
             )
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1333,6 +1510,41 @@ mod tests {
             kind: TransitionKind::Fade,
             params,
         }
+    }
+
+    #[test]
+    fn defaults_group_hides_the_duration_field() {
+        // §18.3: duration has its own grouped field, so it must not appear a
+        // second time in the Defaults group.
+        let item = fade_item("fade", "420");
+        assert!(item.params.contains_key("duration_ms"));
+        assert!(default_param_keys(&item.params).is_empty());
+
+        let mut swipe = blend_transition_params(&BTreeMap::new(), TransitionKind::Swipe);
+        swipe.insert("duration_ms".into(), "350".into());
+        assert_eq!(default_param_keys(&swipe), vec!["direction".to_string()]);
+
+        let mut stinger = blend_transition_params(&BTreeMap::new(), TransitionKind::Stinger);
+        stinger.insert("duration_ms".into(), "300".into());
+        assert_eq!(
+            default_param_keys(&stinger),
+            vec![
+                "media_file".to_string(),
+                "sequence_dir".to_string(),
+                "sequence_fps".to_string(),
+                "source_mode".to_string(),
+                "transition_point_ms".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn param_labels_cover_every_typed_key() {
+        assert_eq!(param_label("direction"), "Direction");
+        assert_eq!(param_label("softness_pct"), "Softness (%)");
+        assert_eq!(param_label("transition_point_ms"), "Transition point (ms)");
+        // Unknown keys fall back to the raw key so nothing renders blank.
+        assert_eq!(param_label("future_key"), "future_key");
     }
 
     #[test]
