@@ -1285,6 +1285,11 @@ impl SourcePropertiesModal {
     }
 
     /// Seeds the filter list from the engine (Filters tab).
+    /// Opens the editor on its Filters tab (plan §17.2 mixer entry point).
+    pub fn focus_filters_tab(&mut self) {
+        self.active_tab = EditorTab::Filters;
+    }
+
     pub fn load_filters(
         &mut self,
         filters: Vec<revo_core::models::SourceFilterItem>,

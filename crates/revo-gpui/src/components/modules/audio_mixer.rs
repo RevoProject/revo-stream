@@ -126,7 +126,26 @@ impl AudioChannel {
 pub struct AudioMixerPanel {
     pub channels: Vec<AudioChannel>,
     levels: HashMap<String, f32>,
+    /// Short labels of the filters attached to each channel (plan §17.3);
+    /// filled by the workspace's slow filter poll and rendered as badges.
+    pub filter_badges: HashMap<String, Vec<String>>,
     pub theme: RevoTheme,
+}
+
+/// Short badge label for one libobs filter kind (§17.3).
+pub fn filter_badge_label(kind: &str) -> String {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "noise_gate" => "gate".to_string(),
+        "noise_suppression" => "denoise".to_string(),
+        "compressor" => "comp".to_string(),
+        "limiter" => "limit".to_string(),
+        "expander" => "expand".to_string(),
+        "gain" => "gain".to_string(),
+        "eq" | "equalizer" => "eq".to_string(),
+        "vst" | "vst_plugin" => "vst".to_string(),
+        other if other.is_empty() => "filter".to_string(),
+        other => other.to_string(),
+    }
 }
 
 impl AudioMixerPanel {
@@ -134,6 +153,7 @@ impl AudioMixerPanel {
         Self {
             channels,
             levels: HashMap::new(),
+            filter_badges: HashMap::new(),
             theme,
         }
     }
@@ -350,8 +370,15 @@ impl Render for AudioMixerPanel {
                         .justify_between()
                         .child(
                             div()
-                                .text_color(self.theme.text_strong)
-                                .child(channel.name.clone()),
+                                .flex()
+                                .flex_col()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .text_color(self.theme.text_strong)
+                                        .child(channel.name.clone()),
+                                )
+                                .children(self.filter_badges_row(&id)),
                         )
                         .child(
                             div()
@@ -593,6 +620,83 @@ impl AudioMixerPanel {
         cx.notify();
     }
 
+    /// Stores the short filter labels for one channel (§17.3). Disabled
+    /// filters are omitted; an empty list clears the badges.
+    pub fn set_filter_badges(&mut self, id: &str, kinds: &[String]) {
+        let labels: Vec<String> = kinds.iter().map(|kind| filter_badge_label(kind)).collect();
+        if labels.is_empty() {
+            self.filter_badges.remove(id);
+        } else {
+            self.filter_badges.insert(id.to_owned(), labels);
+        }
+    }
+
+    /// The badges for one channel, empty when it has no filters.
+    pub fn badges_for(&self, id: &str) -> Vec<String> {
+        self.filter_badges.get(id).cloned().unwrap_or_default()
+    }
+
+    /// One channel's filter badges under its name: a muted green chip per
+    /// filter, with the full list on hover (§17.3).
+    fn filter_badges_row(&self, id: &str) -> Option<gpui::Stateful<gpui::Div>> {
+        let labels = self.filter_badges.get(id)?;
+        if labels.is_empty() {
+            return None;
+        }
+        let summary = labels.join(" · ");
+        Some(
+            div()
+                .id(SharedString::from(format!("mixer-filters-{id}")))
+                .group(SharedString::from(format!("mixer-filters-{id}")))
+                .relative()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .flex_wrap()
+                .children(labels.iter().cloned().map(|label| {
+                    div()
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(gpui::Rgba {
+                            a: 0.55,
+                            ..self.theme.success
+                        })
+                        .bg(gpui::Rgba {
+                            a: 0.35,
+                            ..self.theme.success
+                        })
+                        .text_color(self.theme.text)
+                        .text_size(px(9.5))
+                        .child(SharedString::from(label))
+                }))
+                // Hover reveals the full filter list as a small overlay.
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_full()
+                        .mt_1()
+                        .w(px(180.))
+                        .px_2()
+                        .py_1()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(self.theme.border_strong)
+                        .bg(self.theme.surface_elevated)
+                        .text_color(self.theme.text)
+                        .text_size(px(10.))
+                        .opacity(0.)
+                        .group_hover(SharedString::from(format!("mixer-filters-{id}")), |style| {
+                            style.opacity(1.)
+                        })
+                        .child(SharedString::from(format!("Filters: {summary}"))),
+                ),
+        )
+    }
+
     fn meter(&self, level: f32) -> gpui::Div {
         div()
             .flex_1()
@@ -626,6 +730,27 @@ mod tests {
             vec![AudioChannel::new("camera", "Camera")],
             RevoTheme::future(),
         )
+    }
+
+    #[test]
+    fn filter_badges_use_short_labels_and_clear_when_empty() {
+        // §17.3: the badge is a short marker, not the raw libobs kind.
+        assert_eq!(filter_badge_label("noise_gate"), "gate");
+        assert_eq!(filter_badge_label("noise_suppression"), "denoise");
+        assert_eq!(filter_badge_label("compressor"), "comp");
+        assert_eq!(filter_badge_label("limiter"), "limit");
+        assert_eq!(filter_badge_label("gain"), "gain");
+        // Unknown and empty kinds still produce a chip.
+        assert_eq!(filter_badge_label("future_kind"), "future_kind");
+        assert_eq!(filter_badge_label(""), "filter");
+
+        let mut panel = panel();
+        assert!(panel.badges_for("camera").is_empty());
+        panel.set_filter_badges("camera", &["noise_gate".to_string(), "gain".to_string()]);
+        assert_eq!(panel.badges_for("camera"), vec!["gate", "gain"]);
+        // An empty list removes the row instead of leaving stale chips.
+        panel.set_filter_badges("camera", &[]);
+        assert!(panel.badges_for("camera").is_empty());
     }
 
     #[test]

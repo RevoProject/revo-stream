@@ -545,6 +545,8 @@ impl WorkspaceState {
                 return None;
             }
             MixerEvent::OpenFilters { id } => {
+                // Handled by `handle_mixer_event` (it needs the workspace to
+                // open the source editor); plan §17.2.
                 self.status = format!("Audio filters channel: {id}");
                 return None;
             }
@@ -715,6 +717,9 @@ pub struct Workspace {
     theme: RevoTheme,
     #[cfg(feature = "obs-backend")]
     preview_frame: Option<std::sync::Arc<RenderImage>>,
+    /// Round-robin cursor for the mixer filter-badge poll (§17.3).
+    #[cfg(feature = "obs-backend")]
+    mixer_filter_cursor: usize,
     /// Studio-mode Preview column frame (the preview scene, not program).
     #[cfg(feature = "obs-backend")]
     studio_preview_frame: Option<std::sync::Arc<RenderImage>>,
@@ -1109,6 +1114,8 @@ impl Workspace {
             state: WorkspaceState::default(),
             backend,
             theme,
+            #[cfg(feature = "obs-backend")]
+            mixer_filter_cursor: 0,
             #[cfg(feature = "obs-backend")]
             preview_frame: None,
             #[cfg(feature = "obs-backend")]
@@ -1641,6 +1648,44 @@ impl Workspace {
                     });
                 });
             }
+            // Mixer filter badges (plan §17.3): one channel's filter list per
+            // cycle, on its own slow cadence, so the badges stay current
+            // without contending with the preview loop.
+            if tick % MIXER_FILTER_EVERY_TICKS == 0 {
+                let (backend, channel) = match workspace.update(cx, |workspace, cx| {
+                    let channel = workspace
+                        .tools_mixer
+                        .read(cx)
+                        .channels
+                        .get(workspace.mixer_filter_cursor)
+                        .map(|channel| channel.id.clone());
+                    if channel.is_some() {
+                        workspace.mixer_filter_cursor += 1;
+                    }
+                    (workspace.backend.clone(), channel)
+                }) {
+                    Ok((backend, Some(channel))) => (backend, channel),
+                    _ => continue,
+                };
+                let channel_id = channel.clone();
+                let filters = cx
+                    .background_executor()
+                    .spawn(
+                        async move { crate::services::fetch_source_filters(&backend, &channel_id) },
+                    )
+                    .await;
+                let _ = workspace.update(cx, |workspace, cx| {
+                    workspace.tools_mixer.update(cx, |mixer, cx| {
+                        let kinds: Vec<String> = filters
+                            .iter()
+                            .filter(|filter| filter.enabled)
+                            .map(|filter| filter.kind.clone())
+                            .collect();
+                        mixer.set_filter_badges(&channel, &kinds);
+                        cx.notify();
+                    });
+                });
+            }
         })
         .detach();
     }
@@ -1659,6 +1704,28 @@ impl Workspace {
         self.refresh_snapshot(cx);
     }
 
+    /// Opens the source editor on its Filters tab for one channel (§17.2).
+    fn open_source_filters(&mut self, source_id: &str, cx: &mut Context<'_, Self>) {
+        if !self
+            .sources
+            .read(cx)
+            .sources
+            .iter()
+            .any(|s| s.id == source_id)
+        {
+            self.state.status = format!("Source '{source_id}' not found for filters");
+            cx.notify();
+            return;
+        }
+        self.open_source_properties_modal_inner(source_id, true, cx);
+        if let Some(entity) = self.source_properties_modal.clone() {
+            entity.update(cx, |modal, cx| {
+                modal.focus_filters_tab();
+                cx.notify();
+            });
+        }
+    }
+
     fn handle_mixer_event(&mut self, event: MixerEvent, cx: &mut Context<'_, Self>) {
         match event {
             MixerEvent::ContextMenuRequested { id, position } => {
@@ -1666,6 +1733,12 @@ impl Workspace {
                     menu.open_menu(&id, position);
                     cx.notify();
                 });
+            }
+            // Plan §17.2: the mixer reuses the source editor's Filters tab
+            // (add/remove/reorder plus typed filter properties) instead of a
+            // second filter editor.
+            MixerEvent::OpenFilters { id } => {
+                self.open_source_filters(&id, cx);
             }
             MixerEvent::OpenAdvanced { id } => {
                 self.mixer_menu.update(cx, |menu, cx| {
@@ -3811,6 +3884,11 @@ impl Workspace {
 /// (~2.4 s round-robin) — deliberately slower than the live loop.
 #[cfg(feature = "obs-backend")]
 const SCENE_THUMBNAIL_EVERY_TICKS: u64 = 16;
+
+/// Mixer filter badges refresh one channel per 32 preview ticks, well behind
+/// the live preview loop (plan §17.3).
+#[cfg(feature = "obs-backend")]
+const MIXER_FILTER_EVERY_TICKS: u64 = 32;
 
 /// Vertical space a studio column reserves for its caption so the caption sits
 /// within 10px of the frame instead of over centred empty band space (§19.1).

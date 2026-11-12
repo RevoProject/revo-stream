@@ -1303,3 +1303,24 @@ revo-gpui 177/177 (mock) i 185/185 (`--features obs-backend`).
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-core 56/56, revo-gpui 180/180 (mock) i 188/188 (`--features obs-backend`).
 `revo-backend` nadal nie kompiluje się lokalnie (brak glib/gio/webkit).
+
+## 2026-11-12 — §17.2/§17.3 filtry audio w mikserze
+
+- [x] §17.3 badges filtrów pod nazwą kanału: `AudioMixerPanel.filter_badges`
+      + `set_filter_badges`, krótkie etykiety (`filter_badge_label`: gate /
+      denoise / comp / limit / expand / gain / eq / vst), stonowana zieleń
+      (`theme.success` @ ~0.35 tła, obwódka 0.55), hover pokazuje pełną listę
+      (`group` + `group_hover`); puste listy usuwają rząd.
+- [x] §17.2 modal filtrów: `MixerEvent::OpenFilters` (menu kontekstowe miksera)
+      otwiera teraz edytor źródła na zakładce **Filters** (`focus_filters_tab`),
+      zamiast stawiać status. Dodawanie/usuwanie/zmiana kolejności i właściwości
+      filtrów istnieją już w tym edytorze i używają `SetSourceFilters` /
+      `fetch_source_filters` — nie duplikujemy edytora ani nie dodajemy trzech
+      nowych komend (reconcile listy jest dokładniejszy).
+- [x] Zasilanie badge'y: w pętli preview, co `MIXER_FILTER_EVERY_TICKS` (32),
+      jeden kanał w round-robin pobiera listę filtrów (`fetch_source_filters`,
+      tylko włączone) na background executorze.
+- [x] Test `filter_badges_use_short_labels_and_clear_when_empty`.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-gpui 181/181 (mock) i 189/189 (`--features obs-backend`).
