@@ -51,6 +51,10 @@ pub fn entries(target: &ContextMenuTarget) -> Vec<MenuEntry> {
         ContextMenuTarget::Scene { locked, .. } => {
             vec![
                 MenuEntry::Action(ContextMenuAction::Select, "Select scene".into()),
+                // Plan §19.3: in studio mode a scene click only arms the
+                // preview, so both take-to-program routes live here.
+                MenuEntry::Action(ContextMenuAction::SetPreview, "Set preview".into()),
+                MenuEntry::Action(ContextMenuAction::SetProgram, "Set program".into()),
                 MenuEntry::Action(
                     ContextMenuAction::ToggleLock,
                     if *locked {
@@ -581,6 +585,8 @@ mod tests {
             direct_actions(&scene_target(false)),
             vec![
                 ContextMenuAction::Select,
+                ContextMenuAction::SetPreview,
+                ContextMenuAction::SetProgram,
                 ContextMenuAction::ToggleLock,
                 ContextMenuAction::Remove,
             ]

@@ -181,6 +181,11 @@ impl BackendRuntime for MockBackendRuntime {
                 self.snapshot.preview_resolution_requests += 1
             }
             BackendCommand::SelectScene(name) => self.snapshot.selected_scene = Some(name),
+            BackendCommand::StudioCut { scene }
+            | BackendCommand::StudioFade { scene, .. }
+            | BackendCommand::StudioTransition { scene, .. } => {
+                self.snapshot.selected_scene = Some(scene)
+            }
             BackendCommand::RenameScene { from, to } => {
                 if let Some(scene) = self
                     .snapshot

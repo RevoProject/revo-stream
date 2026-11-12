@@ -677,7 +677,6 @@ impl TransitionsPanel {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let slot = FieldSlot::SelectedParam(key.clone());
-        let focus = self.focus_handle_or_create(cx);
         self.carets_for_slot(&slot, &value);
         let probe = self
             .field_carets

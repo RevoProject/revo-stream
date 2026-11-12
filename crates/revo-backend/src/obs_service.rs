@@ -647,6 +647,23 @@ impl ObsBackendRuntime {
             BackendCommand::SetTransitionParams(params) => {
                 scene_ops::set_program_transition_params(&mut self.runtime, &params)
             }
+            BackendCommand::StudioCut { scene } => scene_ops::switch_program_scene(
+                &mut self.runtime,
+                &scene,
+                scene_ops::ProgramSwitch::Cut,
+            ),
+            BackendCommand::StudioFade { scene, duration_ms } => scene_ops::switch_program_scene(
+                &mut self.runtime,
+                &scene,
+                scene_ops::ProgramSwitch::Fade { duration_ms },
+            ),
+            BackendCommand::StudioTransition { scene, duration_ms } => {
+                scene_ops::switch_program_scene(
+                    &mut self.runtime,
+                    &scene,
+                    scene_ops::ProgramSwitch::Configured { duration_ms },
+                )
+            }
             BackendCommand::SetSourceTransform {
                 id,
                 x,

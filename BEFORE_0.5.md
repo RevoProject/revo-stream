@@ -1275,3 +1275,31 @@ revo-gpui 177/177 (mock) i 185/185 (`--features obs-backend`).
       `src-tauri/tauri.conf.json`, cztery manifesty Cargo, cztery `Cargo.lock`,
       `AGENTS.md`, `README.md`. Adnotacje §0 powyżej opisują wcześniejszy bump
       0.4.1 → 0.5.0-pr1 i zostają jako zapis historyczny.
+
+## 2026-11-12 — §19.2/§19.3 studio transition controls + scene context menu
+
+- [x] `revo-core::service::BackendCommand`: `StudioCut { scene }`,
+      `StudioFade { scene, duration_ms }`, `StudioTransition { scene, duration_ms }`
+      ( scena jedzie z komendą, więc router nie potrzebuje dodatkowego kontekstu).
+- [x] `revo-backend`: `SceneSwitch::{Default,Forced,Retimed}` +
+      `set_current_scene_with` (override rodzaju/czasu tylko dla jednego
+      przełączenia, bez zapisu w `program_transition_*`);
+      `ensure_transition_source` wydzielone z `set_program_transition`
+      (Fade nie nadpisuje konfigurowanego czasu);
+      `scene_ops::switch_program_scene` + `ProgramSwitch::{Cut,Fade,Configured}`;
+      handlery w `obs_service`.
+- [x] `revo-gpui`: `ScenesPanel` — wyśrodkowane kontrolki Cut / Fade /
+      Transition pod listą (tylko w Studio mode i tylko z uzbrojoną sceną
+      preview), edytowalne pole czasu (caret-aware, domyślnie 300 ms, clamp
+      50–20000). `ComponentEvent::Studio*` + routing; mock odwzorowuje zmianę
+      sceny.
+- [x] §19.3 menu sceny: „Set preview" (tylko uzbrojenie lokalne) i
+      „Set program" (`SelectScene` przez skonfigurowane przejście).
+- [x] Testy: `set_preview_arms_known_scenes_only`,
+      `studio_duration_is_clamped_to_the_apply_range`,
+      `studio_transition_events_map_to_typed_commands`, zaktualizowany test
+      kolejności pozycji menu scen.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-core 56/56, revo-gpui 180/180 (mock) i 188/188 (`--features obs-backend`).
+`revo-backend` nadal nie kompiluje się lokalnie (brak glib/gio/webkit).

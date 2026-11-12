@@ -205,6 +205,15 @@ pub fn set_current_scene_internal(runtime: &mut ObsRuntime, name: &str) -> Resul
     scenes::scene_state::set_current_scene_internal(runtime, name)
 }
 
+/// Scene switch with a one-off transition override (studio-mode Cut/Fade).
+pub fn set_current_scene_with(
+    runtime: &mut ObsRuntime,
+    name: &str,
+    switch: scenes::scene_state::SceneSwitch<'_>,
+) -> Result<(), String> {
+    scenes::scene_state::set_current_scene_with(runtime, name, switch)
+}
+
 pub fn extract_source_params(settings: *mut obs::obs_data, params: &mut HashMap<String, String>) {
     sources::helpers::extract_source_params(settings, params)
 }

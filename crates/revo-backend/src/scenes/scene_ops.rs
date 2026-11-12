@@ -34,13 +34,16 @@ const PROGRAM_TRANSITION_TYPES: &[(&str, &str)] = &[
     ("stinger", "stinger_transition"),
 ];
 
-pub fn set_program_transition(
+/// Creates (or reuses) the live program transition source for `kind` and
+/// applies `duration`. Pure side effect on the runtime — it does not persist
+/// the selection, so a one-off studio Fade cannot rewrite the configured
+/// transition.
+fn ensure_transition_source(
     runtime: &mut crate::ObsRuntime,
-    kind: String,
-    duration_ms: Option<u32>,
-) -> Result<String, String> {
+    kind: &str,
+    duration: u32,
+) -> Result<(), String> {
     let trimmed = kind.trim();
-    let duration = duration_ms.unwrap_or(300).max(50).min(20_000);
     let type_id = PROGRAM_TRANSITION_TYPES
         .iter()
         .find(|(key, _)| *key == trimmed)
@@ -103,7 +106,19 @@ pub fn set_program_transition(
         }
     }
 
-    runtime.program_transition_kind = trimmed.to_string();
+    Ok(())
+}
+
+/// Selects and applies the program transition, persisting the choice.
+pub fn set_program_transition(
+    runtime: &mut crate::ObsRuntime,
+    kind: String,
+    duration_ms: Option<u32>,
+) -> Result<String, String> {
+    let trimmed = kind.trim().to_string();
+    let duration = duration_ms.unwrap_or(300).max(50).min(20_000);
+    ensure_transition_source(runtime, &trimmed, duration)?;
+    runtime.program_transition_kind = trimmed.clone();
     runtime.program_transition_duration_ms = duration;
     Ok(format!("program transition: {trimmed} ({duration}ms)"))
 }
@@ -158,6 +173,85 @@ pub fn set_program_transition_params(
     }
     crate::logging::trace::step("transition-params", "applied");
     Ok("transition params applied".to_string())
+}
+
+/// Which studio-mode transition control takes the preview scene to program
+/// (plan §19.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramSwitch {
+    /// Immediate cut, whatever transition is configured.
+    Cut,
+    /// Forced fade of `duration_ms`.
+    Fade { duration_ms: u32 },
+    /// The configured program transition, optionally re-timed.
+    Configured { duration_ms: u32 },
+}
+
+/// Studio-mode transition controls: take `scene` (the armed preview) to
+/// program. `Cut` switches instantly without touching the configured
+/// transition; `Fade` swaps in a fade source at the requested duration (the
+/// configured kind follows, its duration does not); and `Configured` re-uses
+/// the configured kind, re-timed for this switch only. The per-scene
+/// transition assignment is never rewritten.
+pub fn switch_program_scene(
+    runtime: &mut crate::ObsRuntime,
+    scene: &str,
+    switch: ProgramSwitch,
+) -> Result<String, String> {
+    let scene = scene.trim();
+    if scene.is_empty() {
+        return Err("scene name required".to_string());
+    }
+    match switch {
+        ProgramSwitch::Cut => {
+            crate::set_current_scene_with(
+                runtime,
+                scene,
+                crate::scenes::scene_state::SceneSwitch::Forced {
+                    kind: "cut",
+                    duration_ms: 0,
+                },
+            )?;
+            Ok(format!("cut to program: {scene}"))
+        }
+        ProgramSwitch::Fade { duration_ms } => {
+            let duration = duration_ms.clamp(1, 20_000);
+            // A fade needs a fade source, so the live source is replaced and
+            // the configured kind follows it (as OBS does when a transition is
+            // taken); the configured duration is left alone.
+            let configured_duration = runtime.program_transition_duration_ms;
+            ensure_transition_source(runtime, "fade", duration)?;
+            runtime.program_transition_kind = "fade".to_string();
+            runtime.program_transition_duration_ms = configured_duration;
+            crate::set_current_scene_with(
+                runtime,
+                scene,
+                crate::scenes::scene_state::SceneSwitch::Forced {
+                    kind: "fade",
+                    duration_ms: duration,
+                },
+            )?;
+            Ok(format!("fade to program: {scene} ({duration}ms)"))
+        }
+        ProgramSwitch::Configured { duration_ms } => {
+            let kind = runtime.program_transition_kind.clone();
+            let fallback = runtime.program_transition_duration_ms;
+            let duration = if duration_ms > 0 {
+                duration_ms
+            } else {
+                fallback
+            };
+            ensure_transition_source(runtime, &kind, duration)?;
+            crate::set_current_scene_with(
+                runtime,
+                scene,
+                crate::scenes::scene_state::SceneSwitch::Retimed {
+                    duration_ms: duration,
+                },
+            )?;
+            Ok(format!("transition to program: {scene} ({duration}ms)"))
+        }
+    }
 }
 
 pub fn set_current_scene(runtime: &mut crate::ObsRuntime, name: String) -> Result<String, String> {

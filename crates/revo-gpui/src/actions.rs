@@ -61,6 +61,24 @@ pub enum ComponentEvent {
     ForcePreviewResolution,
     AddScene,
     SelectScene(String),
+    /// Studio-mode transition controls (plan §19.2): take the armed preview
+    /// scene to program. The scene travels with the event because the panel
+    /// owns the preview selection.
+    StudioCut {
+        scene: String,
+    },
+    StudioFade {
+        scene: String,
+        duration_ms: u32,
+    },
+    StudioTransition {
+        scene: String,
+        duration_ms: u32,
+    },
+    /// Scene context menu (plan §19.3): arm a scene as preview, or take it to
+    /// program immediately.
+    SetScenePreview(String),
+    SetSceneProgram(String),
     RenameScene {
         from: String,
         to: String,
@@ -202,6 +220,8 @@ pub enum ContextMenuAction {
     ForcePreviewResolution,
     ToggleStudioMode,
     PreviewInWindow,
+    SetPreview,
+    SetProgram,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

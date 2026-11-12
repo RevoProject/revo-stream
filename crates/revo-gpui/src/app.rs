@@ -457,6 +457,14 @@ impl WorkspaceState {
             ComponentEvent::StopStreaming => BackendCommand::StopStreaming,
             ComponentEvent::ForcePreviewResolution => BackendCommand::ForcePreviewResolution,
             ComponentEvent::SelectScene(name) => BackendCommand::SelectScene(name),
+            ComponentEvent::SetScenePreview(_) | ComponentEvent::SetSceneProgram(_) => return None,
+            ComponentEvent::StudioCut { scene } => BackendCommand::StudioCut { scene },
+            ComponentEvent::StudioFade { scene, duration_ms } => {
+                BackendCommand::StudioFade { scene, duration_ms }
+            }
+            ComponentEvent::StudioTransition { scene, duration_ms } => {
+                BackendCommand::StudioTransition { scene, duration_ms }
+            }
             ComponentEvent::RenameScene { from, to } => BackendCommand::RenameScene { from, to },
             ComponentEvent::ReorderScene { name, to_index } => {
                 BackendCommand::ReorderScene { name, to_index }
@@ -909,6 +917,10 @@ impl Workspace {
             rename_draft: None,
             thumbnails: Default::default(),
             thumbnail_cursor: 0,
+            studio_duration_ms: "300".into(),
+            studio_duration_field: crate::components::editable_text::CaretField::default(),
+            studio_duration_focus: None,
+            studio_duration_focused: false,
             theme,
         });
         let sources = cx.new(|_| SourcesPanel {
@@ -1722,6 +1734,34 @@ impl Workspace {
             return;
         }
         self.update_header_flags(&event, cx);
+        // Plan §19.3: scene context menu. "Set preview" only arms the local
+        // preview scene (no backend round-trip), while "Set program" takes the
+        // scene live through the configured transition.
+        match &event {
+            ComponentEvent::SetScenePreview(name) => {
+                let name = name.clone();
+                self.scenes.update(cx, |panel, cx| {
+                    panel.set_preview(&name);
+                    cx.notify();
+                });
+                self.state.status = format!("Preview: {name}");
+                cx.notify();
+                return;
+            }
+            ComponentEvent::SetSceneProgram(name) => {
+                let name = name.clone();
+                self.state.status = format!("Program: {name}");
+                if let Err(error) = self
+                    .backend
+                    .try_dispatch(BackendCommand::SelectScene(name.clone()))
+                {
+                    self.state.status = format!("Backend error: {error}");
+                }
+                self.refresh_snapshot(cx);
+                return;
+            }
+            _ => {}
+        }
         // Popup pickers open before the state router: they carry no modal or
         // backend state, and their replies target the host component
         // directly.
@@ -2056,6 +2096,12 @@ impl Workspace {
         match (target, action) {
             (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::Select) => {
                 vec![ComponentEvent::SelectScene(name)]
+            }
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::SetPreview) => {
+                vec![ComponentEvent::SetScenePreview(name)]
+            }
+            (ContextMenuTarget::Scene { name, .. }, ContextMenuAction::SetProgram) => {
+                vec![ComponentEvent::SetSceneProgram(name)]
             }
             (ContextMenuTarget::Scene { name, locked }, ContextMenuAction::ToggleLock) => {
                 vec![ComponentEvent::SetSceneLock {
@@ -4352,6 +4398,41 @@ mod tests {
             Workspace::aspect_frame_size(&container, 16. / 9., 0.).expect("measured frame");
         assert_eq!(f32::from(height), 400.);
         assert!((f32::from(width) - 400. * 16. / 9.).abs() < 0.5);
+    }
+
+    #[test]
+    fn studio_transition_events_map_to_typed_commands() {
+        // Plan §19.2: the armed scene travels with the event, so the router
+        // needs no extra context.
+        let mut state = WorkspaceState::default();
+        assert_eq!(
+            state.route(ComponentEvent::StudioCut {
+                scene: "Preview".into()
+            }),
+            Some(BackendCommand::StudioCut {
+                scene: "Preview".into()
+            })
+        );
+        assert_eq!(
+            state.route(ComponentEvent::StudioFade {
+                scene: "Preview".into(),
+                duration_ms: 300,
+            }),
+            Some(BackendCommand::StudioFade {
+                scene: "Preview".into(),
+                duration_ms: 300,
+            })
+        );
+        assert_eq!(
+            state.route(ComponentEvent::StudioTransition {
+                scene: "Preview".into(),
+                duration_ms: 450,
+            }),
+            Some(BackendCommand::StudioTransition {
+                scene: "Preview".into(),
+                duration_ms: 450,
+            })
+        );
     }
 
     #[test]

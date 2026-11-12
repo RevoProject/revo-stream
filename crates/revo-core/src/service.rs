@@ -90,6 +90,24 @@ pub enum BackendCommand {
     },
     SetTransitionKind(String),
     SetTransitionDuration(u32),
+    /// Studio-mode transition controls (plan §19.2): take the preview scene to
+    /// program with an immediate cut.
+    StudioCut {
+        scene: String,
+    },
+    /// Take the preview scene to program with a forced fade of `duration_ms`
+    /// (the field default is 300; it does not rewrite the transition's own
+    /// saved duration).
+    StudioFade {
+        scene: String,
+        duration_ms: u32,
+    },
+    /// Take the preview scene to program with the configured program
+    /// transition, optionally re-timed by `duration_ms`.
+    StudioTransition {
+        scene: String,
+        duration_ms: u32,
+    },
     /// Per-kind transition settings (direction, color, softness, stinger
     /// files…); applied to the live transition source by the engine.
     SetTransitionParams(std::collections::BTreeMap<String, String>),
