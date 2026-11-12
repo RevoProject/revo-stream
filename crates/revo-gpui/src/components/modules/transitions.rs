@@ -623,7 +623,9 @@ impl TransitionsPanel {
             .rounded_md()
             .border_1()
             .border_color(if focused {
-                self.theme.accent
+                // Plan §10: the keyboard focus ring (accent, or white when
+                // "stronger focus indicators" is on) instead of the accent.
+                self.theme.focus_ring
             } else {
                 self.theme.border_strong
             })
@@ -701,7 +703,9 @@ impl TransitionsPanel {
             .rounded_md()
             .border_1()
             .border_color(if focused {
-                self.theme.accent
+                // Plan §10: the keyboard focus ring (accent, or white when
+                // "stronger focus indicators" is on) instead of the accent.
+                self.theme.focus_ring
             } else {
                 self.theme.border_strong
             })

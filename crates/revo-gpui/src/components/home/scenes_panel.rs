@@ -204,7 +204,8 @@ impl ScenesPanel {
                 .py_1()
                 .rounded_md()
                 .border_1()
-                .border_color(self.theme.accent)
+                // Plan §10: the focus ring, not the accent.
+                .border_color(self.theme.focus_ring)
                 .bg(self.theme.surface_elevated)
                 .text_size(px(STUDIO_DURATION_FONT_PX))
                 .child(caret)

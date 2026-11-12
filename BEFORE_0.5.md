@@ -1324,3 +1324,31 @@ revo-core 56/56, revo-gpui 180/180 (mock) i 188/188 (`--features obs-backend`).
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-gpui 181/181 (mock) i 189/189 (`--features obs-backend`).
+
+## 2026-11-12 — §10 dostępność (high contrast, color vision, reduce motion, focus, font)
+
+- [x] `theme.rs`: `Accessibility` (high_contrast / reduce_motion / strong_focus /
+      font_size / font_family / color_vision) + `RevoTheme::high_contrast(kind)`,
+      `with_accessibility(kind, a11y)`, `focus_ring`, `contrast_ratio` (WCAG 2.1),
+      `FontSize::{from_profile,scale}`, `FontFamily::{from_profile,gpui_family}`,
+      `ColorVisionMode` (macierze Machado 1.0 dla protan/deuteran/tritan).
+- [x] `app.rs::apply_theme_style` czyta flagi z `ui_profile` (cache key zawiera
+      a11y, więc zmiana samej dostępności też przekleja motyw), zapisuje je w
+      `WorkspaceState.accessibility`.
+- [x] Reduce motion: splash spinner nie obraca się; pozostałe „animacje" to
+      skokowe poziomy miksera i przejścia libobs (bez zmian).
+- [x] Strong focus: pola tekstowe (transitions, studio duration) rysują
+      `theme.focus_ring` (biały przy włączonej opcji) zamiast akcentu.
+- [x] Font: rodzina i bazowy rozmiar z profilu na korzeniu workspace
+      (`.font_family` + `.text_size`); komponenty z własnym `text_size()` nadal
+      mają swój rozmiar — pełne skalowanie wszystkich tekstów wymaga migracji
+      literalnych rozmiarów (osobny krok).
+- [x] Testy WCAG: `every_palette_meets_wcag_text_contrast` (4.5:1 dla
+      text/text_secondary/text_muted na 5 powierzchniach, 3 palety),
+      `high_contrast_keeps_the_semantic_slots_and_darkens_surfaces`,
+      `color_vision_modes_map_semantic_colors_deterministically`,
+      `accessibility_flags_compose_without_losing_contrast`,
+      `accessibility_profile_parsers_are_forgiving`.
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-gpui 186/186 (mock).

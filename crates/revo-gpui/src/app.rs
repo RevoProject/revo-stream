@@ -47,7 +47,7 @@ use crate::{
         },
         quick_modal::{QuickActionEvent, QuickActionModal},
     },
-    theme::RevoTheme,
+    theme::{RevoTheme, ThemeKind},
     windows::{
         debug_console::DebugConsoleWindow, interact::InteractWindow, preview::PreviewWindow,
     },
@@ -135,6 +135,8 @@ pub struct WorkspaceState {
     pub active_modal: ActiveModal,
     pub last_command: Option<BackendCommand>,
     pub status: String,
+    /// Settings > Accessibility options currently applied (plan §10).
+    pub accessibility: crate::theme::Accessibility,
     /// Workspace-side undo/redo log fed by the routed component events.
     pub history: crate::history::HistoryLog,
     /// One-shot auxiliary-window request routed from the Tools panel;
@@ -182,6 +184,7 @@ impl Default for WorkspaceState {
             active_modal: ActiveModal::None,
             last_command: None,
             status: "Starting core...".into(),
+            accessibility: crate::theme::Accessibility::default(),
             history: crate::history::HistoryLog::default(),
             requested_window: None,
             requested_menu: None,
@@ -1164,7 +1167,11 @@ impl Workspace {
                 if workspace.state.booted {
                     return false;
                 }
-                workspace.state.splash_spin = (workspace.state.splash_spin + 15.0) % 360.0;
+                // Plan §10 "reduce motion": the splash ring holds its angle
+                // instead of spinning.
+                if !workspace.state.accessibility.reduce_motion {
+                    workspace.state.splash_spin = (workspace.state.splash_spin + 15.0) % 360.0;
+                }
                 cx.notify();
                 true
             });
@@ -1310,6 +1317,17 @@ impl Workspace {
     /// Applies the saved interface style (Svelte Look section) to the shell
     /// and the live panels; theme objects on views are plain fields, so the
     /// switch is a re-seed.
+    /// Reads one boolean `ui_profile` flag; missing or unparseable values are
+    /// `false` (the settings modal writes "true"/"false").
+    fn profile_flag(profile: &serde_json::Value, key: &str) -> bool {
+        match profile.get(key) {
+            Some(serde_json::Value::Bool(value)) => *value,
+            Some(serde_json::Value::String(value)) => value.eq_ignore_ascii_case("true"),
+            Some(serde_json::Value::Number(value)) => value.as_i64().is_some_and(|v| v != 0),
+            _ => false,
+        }
+    }
+
     fn apply_theme_style(&mut self, snapshot: &BackendSnapshot, cx: &mut Context<'_, Self>) {
         let Some(profile) = snapshot
             .settings
@@ -1322,16 +1340,35 @@ impl Workspace {
             return;
         };
         let wants_classic = style.eq_ignore_ascii_case("classic");
-        if self.applied_theme_style.as_deref() == Some(style) {
+        // Plan §10: accessibility flags live in the same profile document and
+        // must re-apply when only they change, so the cache key includes them.
+        let a11y = crate::theme::Accessibility {
+            high_contrast: Self::profile_flag(profile, "a11y_high_contrast"),
+            reduce_motion: Self::profile_flag(profile, "a11y_reduce_motion"),
+            strong_focus: Self::profile_flag(profile, "a11y_strong_focus"),
+            font_size: crate::theme::FontSize::from_profile(
+                profile.get("a11y_font_size").and_then(|v| v.as_str()),
+            ),
+            font_family: crate::theme::FontFamily::from_profile(
+                profile.get("a11y_font_family").and_then(|v| v.as_str()),
+            ),
+            color_vision: crate::theme::ColorVisionMode::from_profile(
+                profile.get("a11y_color_vision").and_then(|v| v.as_str()),
+            ),
+        };
+        let key = format!("{style}|{a11y:?}");
+        if self.applied_theme_style.as_deref() == Some(key.as_str()) {
             return;
         }
-        self.applied_theme_style = Some(style.to_owned());
-        let theme = if wants_classic {
-            RevoTheme::classic()
+        self.applied_theme_style = Some(key);
+        self.state.accessibility = a11y;
+        let kind = if wants_classic {
+            ThemeKind::RevoClassic
         } else {
-            RevoTheme::future()
+            ThemeKind::RevoFuture
         };
-        self.apply_theme_to_views(theme, cx);
+        let base = RevoTheme::for_kind(kind);
+        self.apply_theme_to_views(base.with_accessibility(kind, a11y), cx);
     }
 
     /// Re-seeds the shared palette on every view that renders with it
@@ -3885,6 +3922,9 @@ impl Workspace {
 #[cfg(feature = "obs-backend")]
 const SCENE_THUMBNAIL_EVERY_TICKS: u64 = 16;
 
+/// Base UI text size the accessibility font-size multiplier scales (plan §10).
+const BASE_TEXT_PX: f32 = 13.;
+
 /// Mixer filter badges refresh one channel per 32 preview ticks, well behind
 /// the live preview loop (plan §17.3).
 #[cfg(feature = "obs-backend")]
@@ -3961,6 +4001,11 @@ impl Render for Workspace {
             .size_full()
             .bg(self.theme.background)
             .text_color(self.theme.text)
+            // Plan §10: font family and the base text size come from the
+            // accessibility profile; inherited text picks them up, while
+            // components with an explicit `text_size()` keep their own.
+            .font_family(self.state.accessibility.font_family.gpui_family())
+            .text_size(px(BASE_TEXT_PX * self.state.accessibility.font_size.scale()))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 if let Some(start) = this.divider_drag_start {
                     // Incremental deltas keep the drag stable at fast moves.
