@@ -1,15 +1,15 @@
-# ADR-001: Osobny proces engine dla libobs
+# ADR-001: Separate engine process for libobs
 
 ## Status
 Accepted
 
-## Kontekst
-libobs jest ciężki i podatny na crash. W Tauri wszystko działało w jednym procesie.
+## Context
+libobs is heavy and crash-prone. In Tauri everything ran in one process.
 
-## Decyzja
-Wyodrębnić libobs do dedykowanego procesu `revo-engine`, a UI (`revo-gpui`) komunikować się przez typed IPC.
+## Decision
+Extract libobs into a dedicated `revo-engine` process, and let the UI (`revo-gpui`) communicate through typed IPC.
 
-## Konsekwencje
-- Lepsza stabilność UI.
-- Trudniejsza synchronizacja stanu (snapshoty, preview frames).
-- Dodatkowa złożoność packaging (dwa binarki).
+## Consequences
+- Better UI stability.
+- Harder state synchronization (snapshots, preview frames).
+- Additional packaging complexity (two binaries).

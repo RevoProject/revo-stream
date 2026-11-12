@@ -1,15 +1,15 @@
 # Architecture Decision Records (ADR)
 
-Krótkie notatki o decyzjach architektonicznych.
+Short notes about architectural decisions.
 
 ## Format
-- Tytuł
+- Title
 - Status (Proposed/Accepted/Superseded)
-- Kontekst
-- Decyzja
-- Konsekwencje
+- Context
+- Decision
+- Consequences
 
-## Lista
-- ADR-001: Osobny proces engine dla libobs
-- ADR-002: Typed IPC zamiast stringowych komend
-- ADR-003: GPUI zamiast Tauri/Svelte (docelowy UI)
+## List
+- ADR-001: Separate engine process for libobs
+- ADR-002: Typed IPC instead of string commands
+- ADR-003: GPUI as the target UI

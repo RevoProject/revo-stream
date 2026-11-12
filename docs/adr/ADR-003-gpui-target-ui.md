@@ -1,15 +1,15 @@
-# ADR-003: GPUI jako docelowy UI
+# ADR-003: GPUI as the target UI
 
 ## Status
-Accepted (w trakcie migracji)
+Accepted (migration in progress)
 
-## Kontekst
-Tauri/Svelte wymaga webview i JS/Rust IPC. Cel: natywny, szybki UI.
+## Context
+Tauri/Svelte requires a webview and JS/Rust IPC. Goal: native, fast UI.
 
-## Decyzja
-Migrować do GPUI (Rust) jako główny UI, utrzymując Tauri jako parity reference do czasu cutover.
+## Decision
+Migrate to GPUI (Rust) as the primary UI, keeping Tauri as a parity reference until cutover.
 
-## Konsekwencje
-- Brak webview i JS boundary.
-- Większa odpowiedzialność za natywne funkcje (tray, dialogi, clipboard).
-- Konieczność parity z istniejącym UI.
+## Consequences
+- No webview and no JS boundary.
+- More responsibility for native features (tray, dialogs, clipboard).
+- Need parity with the existing UI.

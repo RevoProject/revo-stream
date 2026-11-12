@@ -1,39 +1,39 @@
-# How to add a feature (praktyczny przewodnik)
+# How to add a feature (practical guide)
 
-## Zasada ogólna
-Mały, skupiony PR. Jeden logical change. Conventional Commits.
+## General rule
+Small, focused PR. One logical change. Conventional Commits.
 
-## Ścieżka A: nowa komenda backendu
-1. Dodaj wariant do `BackendCommand` w `crates/revo-core/src/service.rs`.
-2. Dodaj obsługę w engine (`crates/revo-backend`).
-3. Zaktualizuj `BackendSnapshot`, jeśli potrzeba nowego stanu.
-4. Dodaj test w `revo-core` (jeśli logika czysta).
-5. Wywołaj komendę z UI (GPUI akcja).
-6. Uruchom `bash scripts/core/verify.sh`.
+## Path A: new backend command
+1. Add a variant to `BackendCommand` in `crates/revo-core/src/service.rs`.
+2. Add handling in the engine (`crates/revo-backend`).
+3. Update `BackendSnapshot` if new state is needed.
+4. Add a test in `revo-core` (if the logic is pure).
+5. Call the command from the UI (GPUI action).
+6. Run `bash scripts/core/verify.sh`.
 
-## Ścieżka B: nowy widok/modal w GPUI
-1. Dodaj komponent w `crates/revo-gpui/src/components/...`.
-2. Zarejestruj w `mod.rs` i routingu modali.
-3. Użyj shared theme (RevoClassic/RevoFuture).
-4. Zachowaj layout/spacing (parity contract).
-5. Dodaj testy widoku, jeśli możliwe.
+## Path B: new view/modal in GPUI
+1. Add a component in `crates/revo-gpui/src/components/...`.
+2. Register it in `mod.rs` and the modal routing.
+3. Use the shared theme (RevoClassic/RevoFuture).
+4. Preserve layout/spacing (parity contract).
+5. Add view tests where possible.
 
-## Ścieżka C: nowe ustawienie
-1. Dodaj pole do `AppSettings` (`crates/revo-core/src/models.rs`).
-2. Ustaw default w `crates/revo-core/src/settings.rs`.
-3. Obsłuż w backendzie (load/save).
-4. Dodaj UI w settings modal.
-5. Zaktualizuj snapshot, jeśli potrzeba.
+## Path C: new setting
+1. Add a field to `AppSettings` (`crates/revo-core/src/models.rs`).
+2. Set a default in `crates/revo-core/src/settings.rs`.
+3. Handle it in the backend (load/save).
+4. Add UI in the settings modal.
+5. Update the snapshot if needed.
 
-## Checklist przed PR
-- [ ] `bash scripts/core/verify.sh` przechodzi
-- [ ] Testy dodane/zaktualizowane
-- [ ] Docs zaktualizowane (jeśli zmienia zachowanie)
-- [ ] UI: RevoClassic/RevoFuture na 1080x600, 1280x720, 1440x900
-- [ ] Performance-sensitive: before/after (jeśli dotyczy)
-- [ ] Brak sekretów w logach/screenshotach
+## Checklist before PR
+- [ ] `bash scripts/core/verify.sh` passes
+- [ ] Tests added/updated
+- [ ] Docs updated (if behavior changes)
+- [ ] UI: RevoClassic/RevoFuture at 1080x600, 1280x720, 1440x900
+- [ ] Performance-sensitive: before/after (if applicable)
+- [ ] No secrets in logs/screenshots
 
-## Gdzie pytać
-- Issues: template feature request
-- PR: template z checklistą
+## Where to ask
+- Issues: feature request template
+- PR: template with checklist
 - Docs: `docs/onboarding.md`, `docs/architecture.md`

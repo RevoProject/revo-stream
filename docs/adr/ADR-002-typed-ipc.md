@@ -1,15 +1,15 @@
-# ADR-002: Typed IPC zamiast stringowych komend
+# ADR-002: Typed IPC instead of string commands
 
 ## Status
 Accepted
 
-## Kontekst
-Tauri używało ~100 stringowych komend. Migracja do GPUI wymagała typowanych kontraktów.
+## Context
+Tauri used about 100 string commands. The GPUI migration required typed contracts.
 
-## Decyzja
-Użyć `BackendCommand` enum + snapshoty + length-prefixed JSON.
+## Decision
+Use a `BackendCommand` enum + snapshots + length-prefixed JSON.
 
-## Konsekwencje
-- Lepsza bezpieczeństwo typów i testowalność.
-- Konieczność aktualizacji kontraktu przy każdej nowej funkcji.
-- Mniej błędów runtime.
+## Consequences
+- Better type safety and testability.
+- Every new feature must update the contract.
+- Fewer runtime errors.

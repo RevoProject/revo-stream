@@ -1,12 +1,12 @@
-# Good first issues (sugestie)
+# Good first issues (suggestions)
 
-Małe, bezpieczne zadania dla nowych kontrybutorów:
+Small, safe tasks for new contributors:
 
-1. Dodać brakujące pola do `AppSettings` i UI (z defaultami).
-2. Dodać testy jednostkowe dla czystych helperów w `revo-core`.
-3. Poprawić komunikaty błędów w UI (i18n-ready).
-4. Dodać zrzuty ekranu do docs (parity).
-5. Uzupełnić `docs/troubleshooting.md` o nowe przypadki.
-6. Dodać walidację formularzy w settings modal.
+1. Add missing fields to `AppSettings` with defaults.
+2. Add unit tests for pure helpers in `revo-core`.
+3. Improve error messages in the UI (i18n-ready).
+4. Add screenshots to docs (parity).
+5. Extend `docs/troubleshooting.md` with new cases.
+6. Add form validation in the settings modal.
 
-Zasady: mały PR, `verify.sh`, jeden logical change.
+Rules: small PR, `verify.sh`, one logical change.

@@ -1,50 +1,50 @@
 # Troubleshooting — RevoStream
 
 ## Build: libobs / OBS runtime
-**Objawy:** błędy linkowania, brak `libobs`, `obs.dll` not found.
-**Sprawdź:**
-- Zainstalowane dev packages (`libobs-dev`, OpenSSL, GLib).
-- `docs/building.md` → sekcja per platforma.
-- Czy używasz real engine: `--features obs-backend -- --obs`.
+**Symptoms:** linker errors, missing `libobs`, `obs.dll` not found.
+**Check:**
+- Installed dev packages (`libobs-dev`, OpenSSL, GLib).
+- `docs/building.md` → platform section.
+- Whether you use the real engine: `--features obs-backend -- --obs`.
 
-## Build: brak pakietów GTK/WebKit (legacy Tauri)
-**Objawy:** błędy przy `cargo check --manifest-path src-tauri/Cargo.toml`.
-**Uwaga:** to legacy path. Dla GPUI nie są potrzebne.
+## Build: missing GTK/WebKit (legacy Tauri)
+**Symptoms:** errors with `cargo check --manifest-path src-tauri/Cargo.toml`.
+**Note:** this is the legacy path. GPUI does not need these.
 
-## Uruchomienie: engine nie startuje
-**Sprawdź:**
-- Czy `revo-engine` zbudowany.
-- `REVO_ENGINE_SOCK` jeśli łączysz się z zewnętrznym engine.
-- Logi UI i engine.
+## Run: engine does not start
+**Check:**
+- Whether `revo-engine` is built.
+- `REVO_ENGINE_SOCK` if connecting to an external engine.
+- UI and engine logs.
 
-## Windows: obs.dll nie znaleziony
-**Znane:** Windows jest częściowo wspierany.
-**Sprawdź:**
-- `launch.cmd` w paczce.
-- Ścieżki runtime (`revo-root`).
-- Czy używasz packaged artifact z release.
+## Windows: obs.dll not found
+**Known:** Windows is partially supported.
+**Check:**
+- `launch.cmd` in the package.
+- Runtime paths (`revo-root`).
+- Whether you use a packaged release artifact.
 
-## macOS: problemy z rpaths / signing
-**Znane:** macOS eksperymentalny.
-**Sprawdź:**
+## macOS: rpaths / signing issues
+**Known:** macOS is experimental.
+**Check:**
 - `REVO_TARGET`, `REVO_ARCH`.
-- Skrypty `scripts/macos/*`.
-- Diagnostyka: workflow `macos-diagnostics.yml`.
+- Scripts in `scripts/macos/*`.
+- Diagnostics workflow: `macos-diagnostics.yml`.
 
-## UI: preview wolny / niska jakość
-**Znane:** preview aktualnie base64 PNG.
-**Sprawdź:**
-- Ustawienie jakości preview.
+## UI: slow preview / low quality
+**Known:** preview is currently base64 PNG.
+**Check:**
+- Preview quality setting.
 - Real engine vs mock.
-- GPU/driver (Vulkan loader na Linux).
+- GPU/driver (Vulkan loader on Linux).
 
-## Testy: `verify.sh` pada
-**Sprawdź:**
+## Tests: `verify.sh` fails
+**Check:**
 - `git diff --check` (whitespace).
-- `cargo fmt --check` (formatowanie).
-- Czy nie ma niezacommitowanych zmian w formatowaniu.
+- `cargo fmt --check` (formatting).
+- No uncommitted formatting changes.
 
-## Gdzie szukać dalej
+## Where to look next
 - `docs/building.md`
 - `docs/scripts.md`
-- Issues z template’ami (build/performance)
+- Issue templates (build/performance)
