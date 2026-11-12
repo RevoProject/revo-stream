@@ -16,3 +16,12 @@ jobs:
             echo "AGPL header found"
             exit 1
           fi
+
+      - name: Run ScanCode
+        run: |
+          pip install scancode-toolkit
+          scancode --license --json-pp scancode.json . || true
+          if grep -q "AGPL" scancode.json; then
+            echo "AGPL detected"
+            exit 1
+          fi

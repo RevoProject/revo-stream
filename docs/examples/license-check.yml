@@ -26,7 +26,17 @@ jobs:
           cargo license --json > licenses.json || true
           # Add your allowlist check here
 
-      # 3) Plagiarism / copy-paste detection (optional)
+      # 3) ScanCode (license detection)
+      - name: Run ScanCode
+        run: |
+          pip install scancode-toolkit
+          scancode --license --json-pp scancode.json . || true
+          if grep -q "AGPL" scancode.json; then
+            echo "AGPL detected in premium code"
+            exit 1
+          fi
+
+      # 4) Plagiarism / copy-paste detection (optional)
       - name: Copy-paste detection
         run: |
           # Example: jscpd for JS/TS, or PMD CPD for Rust
