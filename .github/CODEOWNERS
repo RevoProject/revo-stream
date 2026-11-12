@@ -1,0 +1,23 @@
+# Default owner
+* @klubuntu
+
+# Core domain
+/crates/revo-core/ @klubuntu
+
+# Backend / engine
+/crates/revo-backend/ @klubuntu
+
+# GPUI UI
+/crates/revo-gpui/ @klubuntu
+
+# Legacy compatibility
+/src-tauri/ @klubuntu
+/src/ @klubuntu
+/static/ @klubuntu
+
+# Docs
+/docs/ @klubuntu
+
+# CI / packaging
+/.github/ @klubuntu
+/scripts/ @klubuntu

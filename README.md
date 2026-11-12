@@ -129,6 +129,18 @@ bash scripts/nix/compile.sh   # build the native GPUI release binary
 Full instructions for all platforms: [docs/building.md](docs/building.md) ·
 script reference: [docs/scripts.md](docs/scripts.md).
 
+## Documentation
+
+Human-friendly docs for new contributors and testers:
+
+- [Onboarding](docs/onboarding.md) — quick start and orientation
+- [Architecture](docs/architecture.md) — data flow and boundaries
+- [How to add a feature](docs/how-to-add-feature.md) — step-by-step guide
+- [Troubleshooting](docs/troubleshooting.md) — common issues
+- [ADR](docs/adr/README.md) — architecture decisions
+- [Building](docs/building.md) — platform build instructions
+- [Scripts](docs/scripts.md) — script reference
+
 ## Tech stack
 
 | Layer | Technology |
