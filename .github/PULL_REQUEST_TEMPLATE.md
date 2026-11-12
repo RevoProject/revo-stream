@@ -63,6 +63,13 @@ Results:
 
 <!-- What was generated, and what did you review and test manually? -->
 
+## 📜 Contributor agreement
+
+- [ ] I confirm I have the right to submit this contribution.
+- [ ] I agree my contribution may be used in future versions of RevoStream,
+      including non-open-source editions, under the project's licensing terms.
+      (See `CONTRIBUTOR_AGREEMENT.md`.)
+
 ## 📜 Checklist
 
 - [ ] I read `CONTRIBUTING.md` and `AGENTS.md`.
