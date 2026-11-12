@@ -1255,3 +1255,16 @@ zmiany w tych klatkach sprawdza CI.
 
 Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
 revo-gpui 177/177.
+
+## 2026-11-12 — §19.1 wyrównanie podpisów kolumn studia
+
+- [x] Kolumna studia mierzy całą kolumnę (probe jako nakładka absolutna), a
+      podpis i kadr sąsiadują jako jedna wyśrodkowana grupa: odstęp podpis–kadr
+      = 4 px (limit §19.1 to 10 px). `capture_frame`/`aspect_frame_size`
+      przyjmują `reserve_h` (20 px dla kolumn), więc kadr nie wypełnia całego
+      pasa i nie wypycha podpisu w górę.
+- [x] Test `studio_column_frames_reserve_room_for_their_caption` (kolumna
+      960x400: 380 px wysokości kadru zamiast 400).
+
+Weryfikacja: `bash scripts/core/verify.sh` → all core checks passed;
+revo-gpui 177/177 (mock) i 185/185 (`--features obs-backend`).

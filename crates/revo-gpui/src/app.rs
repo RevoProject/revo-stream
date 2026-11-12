@@ -3262,6 +3262,7 @@ impl Workspace {
         waiting_label: &str,
         container: &MeasuredContainer,
         ratio: f32,
+        reserve_h: f32,
     ) -> gpui::Stateful<gpui::Div> {
         let mut stage = div()
             .id(id.into())
@@ -3273,7 +3274,7 @@ impl Workspace {
             .border_color(self.theme.border)
             .rounded_lg()
             .overflow_hidden();
-        stage = match Self::aspect_frame_size(container, ratio) {
+        stage = match Self::aspect_frame_size(container, ratio, reserve_h) {
             Some((width, height)) => stage.w(width).h(height),
             None => stage.h_full().max_w_full(),
         };
@@ -3300,9 +3301,16 @@ impl Workspace {
     fn aspect_frame_size(
         container: &MeasuredContainer,
         ratio: f32,
+        reserve_h: f32,
     ) -> Option<(gpui::Pixels, gpui::Pixels)> {
         let size = container.get()?;
-        let (width, height) = (f32::from(size.width), f32::from(size.height));
+        // `reserve_h` keeps room for a caption above the frame so the label
+        // stays within 10px of it (§19.1) instead of floating over centred
+        // empty space.
+        let (width, height) = (
+            f32::from(size.width),
+            (f32::from(size.height) - reserve_h).max(1.0),
+        );
         if width <= 0.0 || height <= 0.0 || ratio <= 0.0 {
             return None;
         }
@@ -3343,35 +3351,32 @@ impl Workspace {
         } else {
             "no capture"
         };
+        // The probe measures the whole column (absolute overlay), so the
+        // caption and its frame centre as one group and the caption stays a
+        // 4px gap above the frame instead of at the top of a tall column.
         div()
             .flex()
             .flex_col()
             .flex_1()
             .min_w_0()
+            .items_center()
+            .justify_center()
             .gap_1()
+            .child(Self::container_probe(container))
             .child(
                 div()
                     .text_color(self.theme.text_secondary)
                     .text_size(px(11.))
                     .child(label),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .flex_1()
-                    .min_h(px(180.))
-                    .child(Self::container_probe(container))
-                    .child(self.capture_frame(
-                        format!("preview-column-{label}"),
-                        frame,
-                        waiting_label,
-                        container,
-                        ratio,
-                    )),
-            )
+            .child(self.capture_frame(
+                format!("preview-column-{label}"),
+                frame,
+                waiting_label,
+                container,
+                ratio,
+                PREVIEW_COLUMN_LABEL_RESERVE_PX,
+            ))
     }
 
     /// The demo/preview surface. With the `obs-backend` feature the newest
@@ -3462,6 +3467,7 @@ impl Workspace {
                         "",
                         &self.preview_container_sizes.program,
                         ratio,
+                        0.,
                     )),
                 // Documented placeholder: gpui 0.2.2 `img()` accepts
                 // `Arc<Image>` bytes directly, so this surfaces the libobs
@@ -3475,6 +3481,7 @@ impl Workspace {
                         "OBS preview: waiting for first frame (150ms capture loop)",
                         &self.preview_container_sizes.program,
                         ratio,
+                        0.,
                     )),
             };
         }
@@ -3758,6 +3765,11 @@ impl Workspace {
 /// (~2.4 s round-robin) — deliberately slower than the live loop.
 #[cfg(feature = "obs-backend")]
 const SCENE_THUMBNAIL_EVERY_TICKS: u64 = 16;
+
+/// Vertical space a studio column reserves for its caption so the caption sits
+/// within 10px of the frame instead of over centred empty band space (§19.1).
+#[cfg(feature = "obs-backend")]
+const PREVIEW_COLUMN_LABEL_RESERVE_PX: f32 = 20.;
 
 /// Decoding of `data:image/png;base64,...` frames lives in
 /// `services::obs::decode_png_data_uri` so the auxiliary preview and
@@ -4319,6 +4331,28 @@ mod tests {
     use crate::services::MockBackendRuntime;
     use gpui::TestAppContext;
     use revo_core::service::{BackendService, PlacedSource, SourceSnapshotItem};
+
+    #[cfg(feature = "obs-backend")]
+    #[test]
+    fn studio_column_frames_reserve_room_for_their_caption() {
+        // A short, wide column is height-limited, so the reserve is what keeps
+        // the frame from filling the band and pushing its caption away.
+        let container = std::rc::Rc::new(std::cell::Cell::new(Some(gpui::size(
+            gpui::px(960.),
+            gpui::px(400.),
+        ))));
+        let (width, height) =
+            Workspace::aspect_frame_size(&container, 16. / 9., PREVIEW_COLUMN_LABEL_RESERVE_PX)
+                .expect("measured frame");
+        assert!((f32::from(height) - 380.).abs() < 0.5);
+        assert!((f32::from(width) - 380. * 16. / 9.).abs() < 0.5);
+
+        // Without a reserve the same column fills its full height.
+        let (width, height) =
+            Workspace::aspect_frame_size(&container, 16. / 9., 0.).expect("measured frame");
+        assert_eq!(f32::from(height), 400.);
+        assert!((f32::from(width) - 400. * 16. / 9.).abs() < 0.5);
+    }
 
     #[test]
     fn layout_breakpoints_are_classified_at_contract_boundaries() {
