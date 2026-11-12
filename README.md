@@ -178,6 +178,9 @@ especially welcome.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the licensing policy, AI-assisted
 contribution rules, validation requirements, and the pull request checklist.
 
+## Code Signing
+Windows binaries will be signed using free code signing provided by SignPath.io, certificate by SignPath Foundation
+
 ## License
 
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
