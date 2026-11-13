@@ -721,7 +721,7 @@ impl SourcePropertiesModal {
     ) -> gpui::Stateful<gpui::Div> {
         let text_field_box = div()
             .id(id)
-            .cursor_pointer()
+            .cursor_text()
             .flex_1()
             .min_w(px(120.))
             .px_2()
@@ -746,10 +746,60 @@ impl SourcePropertiesModal {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
-                    this.focus_slot(on_click_field, event, window);
+                    cx.stop_propagation();
+                    let was_focused = this.focused_field == Some(on_click_field);
+                    this.focused_field = Some(on_click_field);
+                    this.main_focus.focus(window);
+                    if let Some(value) = this.slot_text(on_click_field) {
+                        let mut session = this
+                            .sessions
+                            .remove(&on_click_field)
+                            .unwrap_or_else(|| CaretSession::new(value.clone()));
+                        session.sync_value(value);
+                        let bounds = this.field_bounds.get(&on_click_field).and_then(|c| *c.borrow());
+                        let origin_x = bounds.map(|b| f32::from(b.origin.x)).unwrap_or(f32::MIN / 4.);
+                        let local_x = f32::from(event.position.x) - origin_x - PROP_PAD_PX;
+                        let index = caret_index_at_x(window, &session.value, local_x.max(0.), PROP_FONT_PX);
+                        let clicks = event.click_count;
+                        let shift = event.modifiers.shift;
+                        if shift && clicks <= 1 {
+                            let anchor = session.anchor.unwrap_or(session.cursor);
+                            session.anchor = Some(anchor);
+                            session.cursor = index;
+                        } else {
+                            match clicks {
+                                2 => {
+                                    let (s, e) = crate::components::editable_text::word_bounds(&session.value, index);
+                                    session.anchor = Some(s); session.cursor = e;
+                                }
+                                3.. => { session.anchor = Some(0); session.cursor = session.len(); }
+                                _ => { if !was_focused && session.cursor > session.len() { session.cursor = session.len(); } session.anchor = None; session.cursor = index; }
+                            }
+                        }
+                        this.sessions.insert(on_click_field, session);
+                    }
                     cx.notify();
                 }),
             )
+            .on_mouse_move(cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
+                if !event.pressed_button.is_some_and(|b| b == MouseButton::Left) { return; }
+                if this.focused_field != Some(on_click_field) { return; }
+                let bounds = this.field_bounds.get(&on_click_field).and_then(|c| *c.borrow());
+                let Some(bounds) = bounds else { return; };
+                let local_x = f32::from(event.position.x) - f32::from(bounds.origin.x) - PROP_PAD_PX;
+                let mut session = match this.sessions.remove(&on_click_field) { Some(s) => s, None => return };
+                let index = caret_index_at_x(window, &session.value, local_x.max(0.), PROP_FONT_PX);
+                if session.anchor.is_none() { session.anchor = Some(session.cursor); }
+                session.cursor = index;
+                this.sessions.insert(on_click_field, session);
+                cx.notify();
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                if let Some(session) = this.sessions.get_mut(&on_click_field) {
+                    if session.selection_chars().is_none() { session.anchor = None; }
+                }
+                cx.notify();
+            }))
             .children(if show_swatch && !display.is_empty() {
                 let hex = display.trim_start_matches('#').to_string();
                 let swatch = u32::from_str_radix(&hex, 8)

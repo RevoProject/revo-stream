@@ -81,7 +81,7 @@ impl AddSceneModal {
         let value_box = div()
             .id("add-scene-field")
             .relative()
-            .cursor_pointer()
+            .cursor_text()
             .px_2()
             .py_1()
             .rounded_md()

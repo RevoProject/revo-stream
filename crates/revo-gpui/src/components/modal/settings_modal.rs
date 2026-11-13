@@ -227,7 +227,7 @@ impl SettingsModal {
                 "settings-field-{}",
                 self.field_id(field)
             )))
-            .cursor_pointer()
+            .cursor_text()
             .w_full()
             .px_2()
             .py_1()

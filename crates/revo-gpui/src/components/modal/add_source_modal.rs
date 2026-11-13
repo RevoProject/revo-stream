@@ -427,7 +427,7 @@ impl AddSourceModal {
         let value_box = div()
             .id("add-source-field")
             .relative()
-            .cursor_pointer()
+            .cursor_text()
             .px_2()
             .py_1()
             .rounded_md()
@@ -447,14 +447,30 @@ impl AddSourceModal {
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     this.field_focused = true;
-                    this.name_caret.place_caret(
+                    this.name_caret.place_caret_with_clicks(
                         window,
                         event.position.x,
                         &this.name,
                         FIELD_FONT_PX,
                         FIELD_PAD_PX,
+                        event.click_count,
+                        event.modifiers.shift,
                     );
                     this.field_focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                if !event.pressed_button.is_some_and(|b| b == MouseButton::Left) || !this.field_focused {
+                    return;
+                }
+                this.name_caret.drag_to(window, event.position.x, &this.name, FIELD_FONT_PX, FIELD_PAD_PX);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.name_caret.end_drag();
                     cx.notify();
                 }),
             );
@@ -650,7 +666,8 @@ impl Render for AddSourceModal {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .size_full()
+                .w_full()
+                .min_h_0()
                 .track_focus(&self.field_focus)
                 .child(self.type_tiles(cx))
                 .child(self.name_field(window, cx))

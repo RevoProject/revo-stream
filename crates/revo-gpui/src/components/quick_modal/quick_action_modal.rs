@@ -280,7 +280,7 @@ impl QuickActionModal {
         let field = div()
             .id("quick-action-field")
             .relative()
-            .cursor_pointer()
+            .cursor_text()
             .w_full()
             .px_2()
             .py_1()
@@ -301,14 +301,30 @@ impl QuickActionModal {
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     this.field_focused = true;
-                    this.caret.place_caret(
+                    this.caret.place_caret_with_clicks(
                         window,
                         event.position.x,
                         &this.value,
                         FIELD_FONT_PX,
                         FIELD_PAD_PX,
+                        event.click_count,
+                        event.modifiers.shift,
                     );
                     this.field_focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                if !event.pressed_button.is_some_and(|b| b == MouseButton::Left) || !this.field_focused {
+                    return;
+                }
+                this.caret.drag_to(window, event.position.x, &this.value, FIELD_FONT_PX, FIELD_PAD_PX);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.caret.end_drag();
                     cx.notify();
                 }),
             );
