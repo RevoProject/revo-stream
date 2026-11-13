@@ -260,12 +260,11 @@ impl SettingsModal {
                         .sessions
                         .remove(&id)
                         .unwrap_or_else(|| CaretSession::new(draft_value.clone()));
-                    if !was_focused {
-                        session.sync_value(draft_value);
+                    session.sync_value(draft_value.clone());
+                    if !was_focused && session.cursor > session.len() {
+                        session.cursor = session.len();
                     }
-                    // Click-to-caret: translate the pointer through the last
-                    // recorded bounds of this box; until the first paint
-                    // lands, focus puts the caret at the end.
+                    // Browser-like click: 1 = caret/drag, 2 = word, 3 = all; Shift extends.
                     let bounds = this.field_bounds.get(&id).and_then(|c| *c.borrow());
                     let origin_x = bounds
                         .map(|b| f32::from(b.origin.x))
@@ -273,8 +272,65 @@ impl SettingsModal {
                     let local_x = f32::from(event.position.x) - origin_x - FIELD_PAD_PX;
                     let index =
                         caret_index_at_x(window, &session.value, local_x.max(0.), FIELD_FONT_PX);
-                    session.set_caret(index, false);
+                    let clicks = event.click_count;
+                    let shift = event.modifiers.shift;
+                    if shift && clicks <= 1 {
+                        let anchor = session.anchor.unwrap_or(session.cursor);
+                        session.anchor = Some(anchor);
+                        session.cursor = index;
+                    } else {
+                        match clicks {
+                            2 => {
+                                let (s, e) = crate::components::editable_text::word_bounds(&session.value, index);
+                                session.anchor = Some(s);
+                                session.cursor = e;
+                            }
+                            3.. => {
+                                session.anchor = Some(0);
+                                session.cursor = session.len();
+                            }
+                            _ => {
+                                session.anchor = None;
+                                session.cursor = index;
+                            }
+                        }
+                    }
                     this.sessions.insert(id, session);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
+                if !event.pressed_button.is_some_and(|b| b == MouseButton::Left) {
+                    return;
+                }
+                if this.focused_field != Some(field) {
+                    return;
+                }
+                let id = this.field_id(field);
+                let bounds = this.field_bounds.get(&id).and_then(|c| *c.borrow());
+                let Some(bounds) = bounds else { return };
+                let local_x = f32::from(event.position.x) - f32::from(bounds.origin.x) - FIELD_PAD_PX;
+                let mut session = match this.sessions.remove(&id) {
+                    Some(s) => s,
+                    None => return,
+                };
+                let index = caret_index_at_x(window, &session.value, local_x.max(0.), FIELD_FONT_PX);
+                if session.anchor.is_none() {
+                    session.anchor = Some(session.cursor);
+                }
+                session.cursor = index;
+                this.sessions.insert(id, session);
+                cx.notify();
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    let id = this.field_id(field);
+                    if let Some(session) = this.sessions.get_mut(&id) {
+                        if session.selection_chars().is_none() {
+                            session.anchor = None;
+                        }
+                    }
                     cx.notify();
                 }),
             );
@@ -1938,7 +1994,7 @@ impl Render for SettingsModal {
 
         // Output sub-tabs sit at the top of the content area (Svelte keeps
         // them beside the section names, not at the bottom).
-        let mut content = div().flex().flex_col().gap_2().flex_1().min_w_0();
+        let mut content = div().flex().flex_col().gap_2().flex_1().min_w_0().min_h_0();
         if self.draft.active_section == SettingsSection::Output {
             let mut tabs = div().flex().flex_row().gap_1();
             for (tab, label) in [
@@ -2107,11 +2163,11 @@ impl Render for SettingsModal {
                 .flex()
                 .flex_row()
                 .gap_3()
-                // Natural height (min 100% of the card) so long sections can
-                // overflow and the card body scrollbar engages (plan §2.1);
-                // `size_full` would pin the height and clip instead.
+                // Natural height lets the modal-card body own scrolling when
+                // sections exceed the viewport; min_h_0 keeps flex children
+                // shrinkable so overflow is not clipped.
                 .w_full()
-                .min_h(gpui::relative(1.))
+                .min_h_0()
                 .track_focus(&self.field_focus)
                 .child(rail)
                 .child(content)

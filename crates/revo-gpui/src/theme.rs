@@ -251,7 +251,7 @@ impl RevoTheme {
             success_hover: rgb(0x34d399),
             success_active: rgb(0x15803d),
             warning: rgb(0xf59e0b),
-            overlay: rgba(0x0000009e),
+            overlay: rgba(0x000000cc),
             focus_ring: rgb(0x5b7cfa),
         }
     }
@@ -358,7 +358,7 @@ impl RevoTheme {
             success_hover: rgb(0x3cff78),
             success_active: rgb(0x16a34a),
             warning: rgb(0xf0ac50),
-            overlay: rgba(0x0000009e),
+            overlay: rgba(0x000000cc),
             focus_ring: rgb(0x285cfc),
         }
     }
@@ -525,6 +525,6 @@ mod tests {
         assert_eq!(theme.accent_pressed, rgb(0x2048c8));
         assert_eq!(theme.text_disabled, rgb(0x5a6678));
         assert_eq!(theme.success_active, rgb(0x16a34a));
-        assert_eq!(theme.overlay, rgba(0x0000009e));
+        assert_eq!(theme.overlay, rgba(0x000000cc));
     }
 }

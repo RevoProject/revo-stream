@@ -381,9 +381,9 @@ pub fn render_caret_value(
             gpui::div()
                 .absolute()
                 .left(px(pad_left + caret_x))
-                .top(px(1.))
-                .w(px(1.5))
-                .h(px(font_size_px + 3.))
+                .top(px(0.))
+                .w(px(1.))
+                .h(px(font_size_px + 2.))
                 .bg(accent),
         )
         .into_any_element()
@@ -396,6 +396,13 @@ pub fn render_caret_value(
 pub struct CaretField {
     pub session: CaretSession,
     bounds: Rc<RefCell<Option<gpui::Bounds<Pixels>>>>,
+    /// Active mouse-drag selection (browser-like): mousedown sets anchor,
+    /// mouse-move extends, mouse-up ends the drag.
+    dragging: bool,
+    drag_anchor: usize,
+    /// Consecutive click count (1 = caret, 2 = word, 3 = all) within a short
+    /// window, tracked by the host's click handler for double/triple click.
+    pub click_count: u8,
 }
 
 impl Default for CaretField {
@@ -409,11 +416,18 @@ impl CaretField {
         Self {
             session: CaretSession::new(value),
             bounds: Rc::new(RefCell::new(None)),
+            dragging: false,
+            drag_anchor: 0,
+            click_count: 1,
         }
     }
 
     pub fn set_value(&mut self, value: String) {
         self.session.sync_value(value);
+    }
+
+    pub fn is_dragging(&self) -> bool {
+        self.dragging
     }
 
     /// Zero-paint canvas recording where the value box rendered, so the next
@@ -450,8 +464,23 @@ impl CaretField {
         None
     }
 
+    fn index_at_x(&self, window: &Window, x: Pixels, font_size_px: f32, pad_left: f32) -> usize {
+        let Some(bounds) = *self.bounds.borrow() else {
+            return self.session.len();
+        };
+        let local = f32::from(x - bounds.origin.x) - pad_left;
+        caret_index_at_x(
+            window,
+            &self.session.value,
+            local.max(0.),
+            font_size_px,
+        )
+    }
+
     /// Focus click: place the caret under the pointer using the recorded
     /// box bounds; falls back to the end of the text before a first frame.
+    /// `click_count` follows GPUI's mouse-down count (1/2/3) for
+    /// single/double/triple click behavior.
     pub fn place_caret(
         &mut self,
         window: &Window,
@@ -460,14 +489,77 @@ impl CaretField {
         font_size_px: f32,
         pad_left: f32,
     ) {
+        self.place_caret_with_clicks(window, click_x, current, font_size_px, pad_left, 1, false);
+    }
+
+    /// Browser-like click handling: 1 = caret/drag start, 2 = select word,
+    /// 3 = select all. Shift+click extends the current selection.
+    pub fn place_caret_with_clicks(
+        &mut self,
+        window: &Window,
+        click_x: Pixels,
+        current: &str,
+        font_size_px: f32,
+        pad_left: f32,
+        click_count: usize,
+        shift: bool,
+    ) {
         self.session.sync_value(current.to_owned());
-        let Some(bounds) = *self.bounds.borrow() else {
-            self.session.set_caret(self.session.len(), false);
+        self.click_count = click_count.min(3) as u8;
+        let index = self.index_at_x(window, click_x, font_size_px, pad_left);
+        if shift && click_count <= 1 {
+            let anchor = self.session.anchor.unwrap_or(self.session.cursor);
+            self.session.anchor = Some(anchor);
+            self.session.cursor = index;
+            self.dragging = true;
+            self.drag_anchor = anchor;
             return;
-        };
-        let local = f32::from(click_x - bounds.origin.x) - pad_left;
-        let index = caret_index_at_x(window, &self.session.value, local.max(0.), font_size_px);
-        self.session.set_caret(index, false);
+        }
+        match click_count {
+            2 => {
+                let (start, end) = word_bounds(&self.session.value, index);
+                self.session.anchor = Some(start);
+                self.session.cursor = end;
+                self.dragging = true;
+                self.drag_anchor = start;
+            }
+            3.. => {
+                self.session.anchor = Some(0);
+                self.session.cursor = self.session.len();
+                self.dragging = false;
+                self.drag_anchor = 0;
+            }
+            _ => {
+                self.session.anchor = None;
+                self.session.cursor = index;
+                self.dragging = true;
+                self.drag_anchor = index;
+            }
+        }
+    }
+
+    /// Extends the selection while the mouse is dragged (browser-like).
+    pub fn drag_to(
+        &mut self,
+        window: &Window,
+        x: Pixels,
+        _current: &str,
+        font_size_px: f32,
+        pad_left: f32,
+    ) {
+        if !self.dragging {
+            return;
+        }
+        let index = self.index_at_x(window, x, font_size_px, pad_left);
+        self.session.anchor = Some(self.drag_anchor);
+        self.session.cursor = index;
+    }
+
+    pub fn end_drag(&mut self) {
+        self.dragging = false;
+        if self.session.selection_chars().is_none() {
+            self.session.anchor = None;
+        }
     }
 
     /// Renders the focused variant (selection highlight + caret line); the
@@ -480,7 +572,7 @@ impl CaretField {
         text_color: gpui::Rgba,
         accent: gpui::Rgba,
     ) -> gpui::AnyElement {
-        let selection_bg = gpui::Rgba { a: 0.3, ..accent };
+        let selection_bg = gpui::Rgba { a: 0.28, ..accent };
         render_caret_value(
             window,
             &self.session,
@@ -491,6 +583,36 @@ impl CaretField {
             selection_bg,
         )
     }
+}
+
+/// Word bounds at a char index (double-click selection).
+pub fn word_bounds(value: &str, index: usize) -> (usize, usize) {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.is_empty() {
+        return (0, 0);
+    }
+    let mut i = index.min(chars.len());
+    if i == chars.len() && i > 0 {
+        i -= 1;
+    }
+    let word_char = |c: char| c.is_alphanumeric() || c == '_' ;
+    if !word_char(chars[i]) {
+        // Select the separator run or single char.
+        let mut start = i;
+        let mut end = i + 1;
+        while start > 0 && !word_char(chars[start - 1]) && !chars[start - 1].is_whitespace() { start -= 1; }
+        while end < chars.len() && !word_char(chars[end]) && !chars[end].is_whitespace() { end += 1; }
+        return (start, end);
+    }
+    let mut start = i;
+    let mut end = i + 1;
+    while start > 0 && word_char(chars[start - 1]) {
+        start -= 1;
+    }
+    while end < chars.len() && word_char(chars[end]) {
+        end += 1;
+    }
+    (start, end)
 }
 
 #[cfg(test)]

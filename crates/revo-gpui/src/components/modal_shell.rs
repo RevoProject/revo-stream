@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, px, Context, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, Context, IntoElement, MouseButton, Render, SharedString, Window};
 
 use crate::theme::RevoTheme;
 
@@ -155,13 +155,15 @@ pub fn modal_card(
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
-        .scrollbar_width(px(8.))
+        .scrollbar_width(px(6.))
         .child(body);
     let mut header = div()
         .flex()
         .flex_row()
         .justify_between()
+        .items_center()
         .p_3()
+        .flex_none()
         .bg(theme.surface_elevated)
         .child(
             div()
@@ -176,7 +178,7 @@ pub fn modal_card(
         }));
     }
     let footer = footer.unwrap_or_else(|| {
-        let mut footer = div().flex().flex_row().justify_end().gap_2().p_3();
+        let mut footer = div().flex().flex_row().justify_end().gap_2().p_3().flex_none();
         if let Some(label) = config.cancel_label.clone() {
             footer = footer.child(
                 div()
@@ -231,6 +233,8 @@ pub fn modal_shell_with_body(
     // 15px top/bottom margin keeps every card inside the window; taller
     // bodies scroll inside the card instead. The shell occludes: while a
     // modal is open, clicks must never land on the panels behind it.
+    // Backdrop consumes mouse-down so form modals never dismiss or leak
+    // interaction to the workspace; explicit close/cancel controls handle exit.
     div()
         .flex()
         .items_center()
@@ -240,6 +244,7 @@ pub fn modal_shell_with_body(
         .pb(px(15.))
         .bg(theme.overlay)
         .occlude()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(modal_card(config, theme, body, footer, close))
 }
 

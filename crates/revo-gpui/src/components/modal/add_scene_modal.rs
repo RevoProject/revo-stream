@@ -101,14 +101,32 @@ impl AddSceneModal {
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     this.field_focused = true;
-                    this.caret.place_caret(
+                    this.caret.place_caret_with_clicks(
                         window,
                         event.position.x,
                         &this.name,
                         FIELD_FONT_PX,
                         FIELD_PAD_PX,
+                        event.click_count,
+                        event.modifiers.shift,
                     );
                     this.field_focus.focus(window);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                if !event.pressed_button.is_some_and(|b| b == MouseButton::Left) {
+                    return;
+                }
+                if this.field_focused {
+                    this.caret.drag_to(window, event.position.x, &this.name, FIELD_FONT_PX, FIELD_PAD_PX);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.caret.end_drag();
                     cx.notify();
                 }),
             );
@@ -213,7 +231,8 @@ impl Render for AddSceneModal {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .size_full()
+                .w_full()
+                .min_h_0()
                 .track_focus(&self.field_focus)
                 .child(self.name_field(window, cx))
                 .on_key_down(on_key),
