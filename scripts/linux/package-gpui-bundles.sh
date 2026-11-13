@@ -44,6 +44,32 @@ VERSION="$(awk '/^\[package\]/{f=1} f && /^version = /{gsub(/[",]/,""); print $3
   "$PROJECT_DIR/crates/revo-gpui/Cargo.toml")"
 test -n "$VERSION"
 
+# Convert Cargo SemVer into native package versions.
+if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-pre([0-9]+))?(\+.*)?$ ]]; then
+  VERSION_BASE="${BASH_REMATCH[1]}"
+  PRE_RELEASE="${BASH_REMATCH[3]}"
+
+  if [[ -n "$PRE_RELEASE" ]]; then
+    # Debian: tilde sorts before the final release.
+    DEB_VERSION="${VERSION_BASE}~pre${PRE_RELEASE}"
+
+    # RPM: prerelease release number sorts before stable release 1.
+    RPM_VERSION="$VERSION_BASE"
+    RPM_RELEASE="0.pre${PRE_RELEASE}"
+  else
+    DEB_VERSION="$VERSION_BASE"
+    RPM_VERSION="$VERSION_BASE"
+    RPM_RELEASE="1"
+  fi
+else
+  echo "Unsupported Cargo version: $VERSION" >&2
+  exit 1
+fi
+
+echo "Cargo version: $VERSION"
+echo "DEB version:   $DEB_VERSION"
+echo "RPM version:   $RPM_VERSION-$RPM_RELEASE"
+
 STAGED="${1:-$BUNDLE_DIR/revo-gpui-${VERSION}-linux-x64}"
 test -x "$STAGED/revo-gpui" || { echo "staged tree missing: $STAGED" >&2; exit 1; }
 test -x "$STAGED/revo-engine" || { echo "staged engine missing: $STAGED" >&2; exit 1; }
@@ -203,7 +229,7 @@ if command -v dpkg-deb >/dev/null 2>&1; then
   copy_runtime "$DEB_ROOT" "revo-gpui"
   {
     echo "Package: revo-gpui"
-    echo "Version: $VERSION"
+    echo "Version: $DEB_VERSION"
     echo "Architecture: $DEB_ARCH"
     echo "Section: video"
     echo "Priority: optional"
@@ -237,8 +263,8 @@ if command -v rpmbuild >/dev/null 2>&1; then
   done
   cat > "$TOPDIR/SPECS/revo-gpui.spec" << EOF
 Name:           revo-gpui
-Version:        $VERSION
-Release:        1
+Version:        $RPM_VERSION
+Release:        $RPM_RELEASE
 Summary:        $APP_NAME native GPUI application
 License:        AGPL-3.0-only
 URL:            https://github.com/RevoProject/revo-stream
@@ -271,7 +297,7 @@ $EXEC_PREFIX
 /usr/share/revo-gpui-version
 
 %changelog
-* $(LC_ALL=C date -u '+%a %b %d %Y') RevoProject <https://github.com/RevoProject> - $VERSION-1
+* $(LC_ALL=C date -u '+%a %b %d %Y') RevoProject <https://github.com/RevoProject> - $RPM_VERSION-$RPM_RELEASE
 - Native GPUI build.
 EOF
   rpmbuild --define "_topdir $TOPDIR" -bb "$TOPDIR/SPECS/revo-gpui.spec" \
