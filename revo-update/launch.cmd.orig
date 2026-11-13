@@ -1,8 +1,0 @@
-@echo off
-setlocal
-set "APPDIR=%~dp0"
-set "REVO_ROOT=%APPDIR%revo-root"
-set "REVO_ENGINE_BIN=%APPDIR%revo-engine.exe"
-if not defined REVO_DATA_DIR set "REVO_DATA_DIR=%LOCALAPPDATA%\com.klubuntuprojects.revo"
-set "PATH=%APPDIR%revo-root\core\lib;%PATH%"
-start "" "%APPDIR%revo-gpui.exe" %*
