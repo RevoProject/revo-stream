@@ -32,6 +32,14 @@ $Version = (Get-Content "crates\revo-gpui\Cargo.toml" | Select-String -Pattern '
     Select-Object -First 1).Matches.Groups[1].Value
 if (-not $Version) { throw "could not read the version from crates/revo-gpui/Cargo.toml" }
 
+# WiX requires exactly four numeric version components.
+# Convert Cargo SemVer to a Windows Installer version.
+if ($Version -match '^(\d+)\.(\d+)\.(\d+)(?:-pre(\d+))?(?:\+.*)?$') {
+    $WixVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$(if ($Matches[4]) { $Matches[4] } else { 0 })"
+} else {
+    throw "Unsupported version for WiX: $Version"
+}
+
 $Stage = Join-Path $BundleDir "revo-gpui-$Version-windows-x64"
 $Prefix = "revo-gpui-$Version-windows-x64"
 New-Item -ItemType Directory -Force -Path $BundleDir | Out-Null
@@ -176,7 +184,7 @@ if ($Candle -and -not $SkipMsi) {
     $Product = Join-Path $BundleDir "product.wxs"
     @"
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="RevoStream" Language="1033" Version="$Version"
+  <Product Id="*" Name="RevoStream" Language="1033" Version="$WixVersion"
            Manufacturer="RevoProject" UpgradeCode="6f0b4a1c-9f4d-4b17-9d3e-7c1c5a90b1aa">
     <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" Platform="x64"/>
     <MajorUpgrade DowngradeErrorMessage="A newer version of RevoStream is already installed."/>
