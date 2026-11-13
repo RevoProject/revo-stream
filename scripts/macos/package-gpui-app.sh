@@ -34,6 +34,14 @@ VERSION="$(awk '/^\[package\]/{f=1} f && /^version = /{gsub(/[",]/,""); print $3
   crates/revo-gpui/Cargo.toml)"
 test -n "$VERSION"
 
+if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-pre([0-9]+))?(\+.*)?$ ]]; then
+  MACOS_SHORT_VERSION="${BASH_REMATCH[1]}"
+  MACOS_BUILD_VERSION="${BASH_REMATCH[3]:-0}"
+else
+  echo "Unsupported Cargo version: $VERSION" >&2
+  exit 1
+fi
+
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/resources"
 
@@ -79,9 +87,9 @@ cat > "$APP/Contents/Info.plist" << EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>$VERSION</string>
+    <string>$MACOS_SHORT_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>$VERSION</string>
+    <string>$MACOS_BUILD_VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>${MACOSX_DEPLOYMENT_TARGET:-12.0}</string>
     <key>NSHighResolutionCapable</key>
