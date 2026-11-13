@@ -77,9 +77,12 @@ risks, and test strategy.
 - [ ] Decide and implement the browser-dock strategy
       (external browser, CDP surface, embedded engine, or retire it)
 - [ ] Decide and implement the WebRTC/native video-surface scope
-- [ ] Add platform tray, native dialogs, clipboard, and permission handling
+- [ ] Add platform tray, clipboard, and permission handling (native file dialogs
+      are already wired in GPUI settings flows)
 - [ ] Verify accessibility, IME, high-DPI, focus traversal, and reduced-motion
-      parity
+      parity (theme/accessibility settings include font scaling, high contrast,
+      focus ring, and reduced motion; full IME/focus-traversal parity remains
+      unverified)
 - [ ] Delete the legacy compatibility paths after parity acceptance
 
 ## Quick start
